@@ -8,7 +8,7 @@ from datetime import datetime
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
 from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, ONE_PAGERS
 from barks_fantagraphics.comics_cmd_args import CmdArgs
-from barks_fantagraphics.comics_logging import setup_logging
+from comic_utils.comics_logging import setup_logging
 from cpi import inflate
 from yearly_graph import create_yearly_plot
 

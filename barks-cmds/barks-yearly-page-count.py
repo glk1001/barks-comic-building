@@ -7,7 +7,7 @@ from collections import defaultdict
 from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, BARKS_TITLES, ONE_PAGERS, Titles
 from barks_fantagraphics.comic_book import get_total_num_pages
 from barks_fantagraphics.comics_cmd_args import CmdArgs
-from barks_fantagraphics.comics_logging import setup_logging
+from comic_utils.comics_logging import setup_logging
 from yearly_graph import create_yearly_plot
 
 TEMP_PAGE_COUNTS = {

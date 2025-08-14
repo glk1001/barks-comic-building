@@ -1,5 +1,3 @@
-set dotenv-load
-
 barks_dir := "$HOME/Books/Carl Barks"
 barks_2tb_internal_backup_dir := "/mnt/2tb_drive/barks-backup/Carl Barks"
 barks_2tb_external_backup_dir := "/media/greg/2tb_drive_backup/barks-backup/Carl Barks"
@@ -14,6 +12,11 @@ barks_restic_external_backup_dir := "/media/greg/restic_backup/Books/Carl Barks"
 _default:
     just --list --unsorted | tee /tmp/junk.log
 
+show-vars:
+    @pwd
+    @echo 'this source_dir = "{{source_dir()}}"'
+    @echo 'calling justfile = "{{justfile()}}"'
+
 show-env:
     env
 
@@ -21,61 +24,66 @@ show-env:
 # Get Fanta volume page and status info
 [group('comics')]
 info volume:
-    uv run barks-cmds/fantagraphics-info.py --log-level WARN --volume {{volume}}
+    uv run "{{ source_dir() }}/barks-cmds/fantagraphics-info.py" --log-level WARN --volume {{volume}}
 
 # Get title page counts for Fanta volume or volumes
+[group('comics')]
 page-count volume:
-    uv run barks-cmds/fantagraphics-stories-page-count.py --log-level WARN --volume {{volume}}
+    uv run "{{ source_dir() }}/barks-cmds/fantagraphics-stories-page-count.py" --log-level WARN --volume {{volume}}
 
 # Build a title
 [group('comics')]
 build title:
-    uv run build-comics/batch-build-comics.py build --log-level INFO --title "{{title}}"
+    uv run "{{ source_dir() }}/build-comics/batch-build-comics.py" build --log-level INFO --title "{{title}}"
+
+# Build a volume or volumes
+[group('comics')]
+build-volume volume:
+    uv run "{{ source_dir() }}/build-comics/batch-build-comics.py" build --log-level INFO --volume "{{volume}}"
 
 # Check the integrity of a volume or volumes
 [group('comics')]
 check volume:
-    uv run build-comics/batch-build-comics.py check-integrity --log-level WARN --volume {{volume}}
+    uv run "{{ source_dir() }}/build-comics/batch-build-comics.py" check-integrity --log-level WARN --volume {{volume}}
 
 # Upscayl all restoreable pages in a volume or volumes
 [group('comics')]
 upscayl volume:
-    uv run barks-restore/batch-upscayl.py --volume {{ volume }}
+    uv run "{{ source_dir() }}/barks-restore/batch-upscayl.py" --volume {{ volume }}
 
 # Restore all restoreable pages in a volume or volumes
 [group('comics')]
 restore volume:
-    uv run barks-restore/batch-restore-pipeline.py \
+    uv run "{{ source_dir() }}/barks-restore/batch-restore-pipeline.py" \
            --work-dir /mnt/2tb_drive/workdir/barks-restore/restore --volume {{volume}}
 
 # Restore all restoreable pages in a title
 [group('comics')]
 restore-title title:
-    uv run barks-restore/batch-restore-pipeline.py \
+    uv run "{{ source_dir() }}/barks-restore/batch-restore-pipeline.py" \
            --work-dir /mnt/2tb_drive/workdir/barks-restore/restore --title "{{title}}"
 
 # Generate panel bounds for all restoreable pages in a volume or volumes
 [group('comics')]
 panels volume:
-    uv run barks-restore/batch-panel-bounds.py \
+    uv run "{{ source_dir() }}/barks-restore/batch-panel-bounds.py" \
            --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --volume {{volume}}
 
 # Generate panel bounds for all restoreable pages in a title
 [group('comics')]
 panels-title title:
-    uv run barks-restore/batch-panel-bounds.py \
+    uv run "{{ source_dir() }}/barks-restore/batch-panel-bounds.py" \
            --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --title "{{title}}"
-
 
 # Make empty config files for all restoreable pages in a volume or volumes
 [group('comics')]
 make-empty-configs volume:
-    uv run barks-cmds/make-empty-configs.py --log-level INFO --volume {{ volume }}
+    uv run "{{ source_dir() }}/barks-cmds/make-empty-configs.py" --log-level INFO --volume {{ volume }}
 
 # Show any differences between Fanta original pages and added pages for a volume or volumes
 [group('comics')]
 show-diffs volume:
-    uv run barks-cmds/show-fixes-diffs.py --log-level INFO --volume {{ volume }}
+    uv run "{{ source_dir() }}/barks-cmds/show-fixes-diffs.py" --log-level INFO --volume {{ volume }}
 
 # Do a small build test
 [group('comics')]
@@ -89,7 +97,7 @@ test-small:
 [group('comics')]
 compare-all:
     bash scripts/compare-build-dirs.sh \
-         "{{barks_2tb_external_books_dir}}/Carl Barks/Regression-Tests/Big/aaa-Chronological-dirs"\
+         "{{barks_2tb_external_books_dir}}/Carl Barks/Regression-Tests/Big/aaa-Chronological-dirs" \
          "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
 # Do a big image compare of restored to original looking for upscayl errors

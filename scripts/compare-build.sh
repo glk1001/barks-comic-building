@@ -21,7 +21,7 @@ fi
 
 ERRORS=0
 
-diff -r --exclude=images -I "time of run" -I "Created:" -I "timestamp" "${DIRECTORY1}" "${DIRECTORY2}"
+diff -r --exclude=images -I "ini file"   -I "time of run" -I "time taken" -I "Created:" -I "timestamp" "${DIRECTORY1}" "${DIRECTORY2}"
 if [[ $? != 0 ]]; then
   echo "Error in files diff in  \"${DIRECTORY1}\"."
   ERRORS=1

@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import NON_COMIC_TITLES, get_safe_title
 from barks_fantagraphics.comic_book import (
@@ -33,7 +34,6 @@ from barks_fantagraphics.pages import (
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
-from consts import DEST_NON_IMAGE_FILES
 from utils import (
     DATE_SEP,
     DATE_TIME_SEP,

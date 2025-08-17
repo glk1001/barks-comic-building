@@ -11,9 +11,9 @@ from barks_fantagraphics.comics_database import ComicsDatabase, get_default_comi
 from barks_fantagraphics.comics_utils import get_titles_sorted_by_submission_date
 from build_comics import ComicBookBuilder
 from comic_utils.comics_logging import setup_logging
+from comic_utils.timing import Timing
 from comics_integrity import check_comics_integrity
 from intspan import intspan
-from timing import Timing
 
 
 def process_comic_book_titles(

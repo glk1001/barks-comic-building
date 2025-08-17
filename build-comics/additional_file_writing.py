@@ -2,6 +2,19 @@ import json
 import os
 from datetime import datetime
 
+from barks_build_comic_images.consts import (
+    DEST_JPG_COMPRESS_LEVEL,
+    DEST_JPG_QUALITY,
+    DEST_PANELS_BBOXES_FILENAME,
+    DEST_SRCE_MAP_FILENAME,
+    DOUBLE_PAGES,
+    DOUBLE_PAGES_SECTION,
+    JSON_METADATA_FILENAME,
+    METADATA_FILENAME,
+    PAGE_NUMBERS_SECTION,
+    README_FILENAME,
+    SUMMARY_FILENAME,
+)
 from barks_fantagraphics.barks_titles import NON_COMIC_TITLES, get_safe_title
 from barks_fantagraphics.comic_book import (
     ComicBook,
@@ -30,20 +43,7 @@ from barks_fantagraphics.pages import (
     get_page_num_str,
     get_srce_dest_map,
 )
-from consts import (
-    DEST_JPG_COMPRESS_LEVEL,
-    DEST_JPG_QUALITY,
-    DEST_PANELS_BBOXES_FILENAME,
-    DEST_SRCE_MAP_FILENAME,
-    DOUBLE_PAGES,
-    DOUBLE_PAGES_SECTION,
-    JSON_METADATA_FILENAME,
-    METADATA_FILENAME,
-    PAGE_NUMBERS_SECTION,
-    README_FILENAME,
-    SUMMARY_FILENAME,
-)
-from timing import Timing
+from comic_utils.timing import Timing
 
 
 def write_summary_file(

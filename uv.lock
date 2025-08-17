@@ -3,10 +3,22 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
+name = "barks-build-comic-images"
+version = "0.1.0"
+source = { editable = "../barks-build-comic-images" }
+dependencies = [
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pillow", specifier = ">=11.3.0" }]
+
+[[package]]
 name = "barks-comic-building"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "barks-build-comic-images" },
     { name = "barks-fantagraphics" },
     { name = "bs4" },
     { name = "cairosvg" },
@@ -29,6 +41,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "barks-build-comic-images", editable = "../barks-build-comic-images" },
     { name = "barks-fantagraphics", editable = "../barks-fantagraphics" },
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "cairosvg", specifier = ">=2.8.2" },

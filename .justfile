@@ -89,28 +89,28 @@ show-diffs volume:
 [group('comics')]
 test-small:
     bash scripts/small-build-test.sh
-    bash scripts/compare-build-dirs.sh \
-         "{{barks_2tb_external_books_dir}}/Carl Barks/Regression-Tests/Small/aaa-Chronological-dirs" \
+    uv run scripts/compare_build_root_dirs.py \
+         "{{barks_2tb_internal_books_dir}}/Carl Barks/Regression-Tests/Small/aaa-Chronological-dirs" \
          "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
 # Compare all build files to the last known good build files
 [group('comics')]
 compare-all:
-    bash scripts/compare-build-dirs.sh \
-         "{{barks_2tb_external_books_dir}}/Carl Barks/Regression-Tests/Big/aaa-Chronological-dirs" \
+    uv run scripts/compare_build_root_dirs.py \
+         "{{barks_2tb_internal_books_dir}}/Carl Barks/Regression-Tests/Big/aaa-Chronological-dirs" \
          "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
 # Do a big image compare of restored to original looking for upscayl errors
 [group('comics')]
-check-for-upscayl-errors:
-    bash scripts/compare-fanta-image-dirs.sh "{{barks_dir}}/Fantagraphics-restored" \
-                                             "{{barks_dir}}/Fantagraphics-original" 50% 10000
+check-for-upscayl-errors volume:
+    uv run scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
+                                               "{{barks_dir}}/Fantagraphics-original" 50% 10000 {{volume}}
 
 # Do a big image compare of restored to original looking for obvious changes
 [group('comics')]
-compare-restored-orig:
-    bash scripts/compare-fanta-image-dirs.sh "{{barks_dir}}/Fantagraphics-restored" \
-                                             "{{barks_dir}}/Fantagraphics-original" 50% 5000
+compare-restored-orig volume:
+    uv run scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
+                                               "{{barks_dir}}/Fantagraphics-original" 50% 5000 {{volume}}
 
 # Rsync all Barks files to the 2tb internal drive
 [group('rsync')]

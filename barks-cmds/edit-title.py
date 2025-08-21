@@ -8,6 +8,7 @@ from pathlib import Path
 
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs, ExtraArg
 from barks_fantagraphics.comics_consts import PageType
+from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.comics_logging import setup_logging
 from comic_utils.pil_image_utils import open_pil_image_for_reading
 
@@ -18,6 +19,7 @@ TARGET_ROOT_DIR = Path("/home/greg/Books/Carl Barks/Barks Panels Pngs")
 
 PANEL_TYPES = {
     "i": "Insets",
+    "cl": "Closeups",
     "f": "Favourites",
     "si": "Silhouettes",
     "sp": "Splash",
@@ -28,18 +30,27 @@ EXTRA_ARGS: list[ExtraArg] = [
 ]
 
 
-def get_target_file(title: str, panel_type: str, page: str, panel: str) -> Path:
-    if panel_type == "i":
-        return TARGET_ROOT_DIR / PANEL_TYPES[panel_type] / (title + ".png")
+def get_source_file(comics_db: ComicsDatabase, panel_typ: str, page: str) -> Path:
+    if panel_typ == "cl":
+        upscayl_dir = Path(comics_db.get_fantagraphics_restored_upscayled_volume_image_dir(volume))
+        return upscayl_dir / (page + ".png")
 
-    target_dir = TARGET_ROOT_DIR / PANEL_TYPES[panel_type] / title
+    restored_dir = Path(comics_db.get_fantagraphics_restored_volume_image_dir(volume))
+    return restored_dir / (page + ".png")
+
+
+def get_target_file(title: str, panel_typ: str, page: str, panel: str) -> Path:
+    if panel_typ == "i":
+        return TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / (title + ".png")
+
+    target_dir = TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / title
     target_dir.mkdir(parents=True, exist_ok=True)
 
     return target_dir / f"{page}-{panel}.png"
 
 
 def write_cropped_image_file(
-    srce_image_file: Path, segments_file: Path, target_image_file: Path
+    srce_image_file: Path, segments_file: Path, target_image_file: Path, panel_typ: str
 ) -> None:
     print(f'Source: "{srce_image_file}".')
     print(f'Segments: "{segments_file}".')
@@ -53,6 +64,12 @@ def write_cropped_image_file(
     bottom = panel_box[1]
     right = left + panel_box[2]
     upper = bottom + panel_box[3]
+    if panel_typ == "cl":
+        left *= 4
+        bottom *= 4
+        right *= 4
+        upper *= 4
+
     print(f"Panel {panel}: {left}, {bottom}, {right}, {upper}")
 
     image = open_pil_image_for_reading(str(srce_image_file))
@@ -98,10 +115,9 @@ if __name__ == "__main__":
         print(f'Error: Panel type "{panel_type}" is not in {list(PANEL_TYPES.keys())}.')
         sys.exit(1)
 
-    restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
-    restored_srce_file = restored_dir / (page + ".png")
-    if not restored_srce_file.is_file():
-        print(f'Error: Could not find restored file "{restored_srce_file}".')
+    srce_file = get_source_file(comics_database, panel_type, page)
+    if not srce_file.is_file():
+        print(f'Error: Could not find restored file "{srce_file}".')
         sys.exit(1)
 
     panel_segments_dir = Path(comics_database.get_fantagraphics_panel_segments_volume_dir(volume))
@@ -111,13 +127,12 @@ if __name__ == "__main__":
         sys.exit(1)
 
     target_file = get_target_file(title, panel_type, page, panel)
-    restored_srce_file = restored_dir / (page + ".png")
     if target_file.is_file():
         print(f'Error: Target file already exists. Cannot overwrite: "{target_file}".')
         sys.exit(1)
 
     print(f'"{title}" [{volume}]: {page}, {panel}, {PANEL_TYPES[panel_type]}')
 
-    write_cropped_image_file(restored_srce_file, panel_segments_file, target_file)
+    write_cropped_image_file(srce_file, panel_segments_file, target_file, panel_type)
 
     open_gimp(target_file)

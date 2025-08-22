@@ -8,9 +8,12 @@
     </content>
     <content url="file://$MODULE_DIR$/../barks-fantagraphics">
       <sourceFolder url="file://$MODULE_DIR$/../barks-fantagraphics/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/../barks-fantagraphics/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/../barks-fantagraphics/scraps" />
     </content>
     <content url="file://$MODULE_DIR$/../comic-utils">
       <sourceFolder url="file://$MODULE_DIR$/../comic-utils/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/../comic-utils/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="uv (barks-comic-building)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -56,8 +56,8 @@ def process_comic_book(comic: ComicBook) -> int:
         _, _, tb = sys.exc_info()
         tb_info = traceback.extract_tb(tb)
         filename, line, func, text = tb_info[-1]
-        err_msg = f'Assert failed at "{filename}:{line}" for statement "{text}".'
-        logging.exception(err_msg)
+        msg = f'Assert failed at "{filename}:{line}" for statement "{text}".'
+        logging.exception(msg)
         return 1
     except Exception:
         # raise Exception
@@ -171,8 +171,8 @@ if __name__ == "__main__":
     elif cmd_args.cmd_name == BUILD_ARG:
         exit_code = process_comic_book_titles(comics_database, get_titles(cmd_args))
     else:
-        msg = f'ERROR: Unknown cmd_arg "{cmd_args.cmd_name}".'
-        raise ValueError(msg)
+        err_msg = f'ERROR: Unknown cmd_arg "{cmd_args.cmd_name}".'
+        raise ValueError(err_msg)
 
     if exit_code != 0:
         print(f"\nThere were errors: exit code = {exit_code}.")  # noqa: T201

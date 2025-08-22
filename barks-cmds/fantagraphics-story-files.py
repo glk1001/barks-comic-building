@@ -75,7 +75,7 @@ for title in titles:
     dest_pages = srce_and_dest_pages.dest_pages
 
     max_len_page_type = max([len(dp.page_type.name) for dp in dest_pages])
-    is_a_comic = comic_book.get_title_enum() not in NON_COMIC_TITLES
+    is_a_comic_book = comic_book.get_title_enum() not in NON_COMIC_TITLES
 
     print()
     print(f'"{title}" source files:')
@@ -86,7 +86,9 @@ for title in titles:
         page_type_str = dest_page.page_type.name
         prev_timestamp = get_timestamp(dest_page.page_filename)
 
-        sources = [get_filepath_with_date(is_a_comic, dest_page.page_filename, prev_timestamp, " ")]
+        sources = [
+            get_filepath_with_date(is_a_comic_book, dest_page.page_filename, prev_timestamp, " ")
+        ]
         is_modded = False
         for dependency in get_restored_srce_dependencies(comic_book, srce_page):
             if dependency.mod_type != ModifiedType.ORIGINAL:
@@ -97,7 +99,7 @@ for title in titles:
                 else " "
             )
             file_info = get_filepath_with_date(
-                is_a_comic, dependency.file, dependency.timestamp, out_of_date_str
+                is_a_comic_book, dependency.file, dependency.timestamp, out_of_date_str
             )
             if file_info:
                 sources.append(file_info)

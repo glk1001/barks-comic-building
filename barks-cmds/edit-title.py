@@ -30,23 +30,23 @@ EXTRA_ARGS: list[ExtraArg] = [
 ]
 
 
-def get_source_file(comics_db: ComicsDatabase, panel_typ: str, page: str) -> Path:
+def get_source_file(comics_db: ComicsDatabase, panel_typ: str, pge: str) -> Path:
     if panel_typ == "cl":
         upscayl_dir = Path(comics_db.get_fantagraphics_restored_upscayled_volume_image_dir(volume))
-        return upscayl_dir / (page + ".png")
+        return upscayl_dir / (pge + ".png")
 
     restored_dir = Path(comics_db.get_fantagraphics_restored_volume_image_dir(volume))
-    return restored_dir / (page + ".png")
+    return restored_dir / (pge + ".png")
 
 
-def get_target_file(title: str, panel_typ: str, page: str, panel: str) -> Path:
+def get_target_file(ttl: str, panel_typ: str, pge: str, panl: str) -> Path:
     if panel_typ == "i":
-        return TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / (title + ".png")
+        return TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / (ttl + ".png")
 
-    target_dir = TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / title
+    target_dir = TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / ttl
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    return target_dir / f"{page}-{panel}.png"
+    return target_dir / f"{pge}-{panl}.png"
 
 
 def write_cropped_image_file(

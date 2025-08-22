@@ -57,7 +57,7 @@ if TYPE_CHECKING:
         RequiredDimensions,
         SrceAndDestPages,
     )
-    from PIL import Image
+    from PIL.Image import Image as PilImage
 
 USE_CONCURRENT_PROCESSES = True
 _process_page_error = False
@@ -213,7 +213,7 @@ class ComicBookBuilder:
     def _save_dest_image(
         self,
         dest_page: CleanPage,
-        dest_page_image: Image,
+        dest_page_image: PilImage,
         srce_page: CleanPage,
     ) -> None:
         dest_page_image.save(

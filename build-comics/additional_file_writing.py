@@ -27,7 +27,6 @@ from barks_fantagraphics.comics_consts import (
     DEST_TARGET_X_MARGIN,
     FRONT_MATTER_PAGES,
     PAINTING_PAGES,
-    ROMAN_NUMERALS,
     PageType,
     get_font_path,
 )
@@ -43,6 +42,7 @@ from barks_fantagraphics.pages import (
     get_page_num_str,
     get_srce_dest_map,
 )
+from comic_utils.comic_consts import ROMAN_NUMERALS
 from comic_utils.timing import Timing
 
 

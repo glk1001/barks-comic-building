@@ -6,8 +6,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_DICT, BARKS_TITLES, Titles
-from barks_fantagraphics.comics_consts import MONTH_AS_LONG_STR
 from bs4 import BeautifulSoup
+from comic_utils.comic_consts import MONTH_AS_LONG_STR
 
 KYLING_TITLE_MAP = {
     "Pirate Gold": Titles.DONALD_DUCK_FINDS_PIRATE_GOLD,
@@ -243,7 +243,7 @@ def get_prelim_payment_info(row: list[str]) -> PrelimPaymentInfo:
     this_year = int(row[6])
 
     issue = row[0]
-    title = get_stripped_new_lines(row[1])
+    ttl = get_stripped_new_lines(row[1])
     barks_id = get_stripped_new_lines(row[2])
 
     num_pages_str = row[3].replace("*", "").strip()
@@ -257,7 +257,7 @@ def get_prelim_payment_info(row: list[str]) -> PrelimPaymentInfo:
         accepted_date = get_date(accepted_date_str, this_year)
     except Exception as e:
         msg = (
-            f'Date error for title "{title}, issue "{issue}", year {this_year}:'
+            f'Date error for title "{ttl}, issue "{issue}", year {this_year}:'
             f' "{accepted_date_str}": {e}.'
         )
         raise RuntimeError(msg) from e
@@ -272,7 +272,7 @@ def get_prelim_payment_info(row: list[str]) -> PrelimPaymentInfo:
             msg = f'"{payment_str}" is not a float: "{row}".'
             raise ValueError(msg) from e
 
-    return PrelimPaymentInfo(issue, title, num_pages, accepted_date, payment)
+    return PrelimPaymentInfo(issue, ttl, num_pages, accepted_date, payment)
 
 
 def get_stripped_new_lines(text: str) -> str:
@@ -378,9 +378,9 @@ for year in range(1958, 1960):
     table = bs.find("table", border="3")
 
     year_data = []
-    for row in table.find_all("tr"):
-        print("Next row: ", row)
-        cols = row.find_all(["td"])
+    for rw in table.find_all("tr"):
+        print("Next row: ", rw)
+        cols = rw.find_all(["td"])
         cols = [col.text.strip() for col in cols if col is not None]
         if not cols:
             print("No cols: skipping row: {row}.")

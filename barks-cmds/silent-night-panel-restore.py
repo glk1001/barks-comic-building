@@ -13,6 +13,8 @@ from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 from comic_utils.panel_segmentation import KumikoBound, get_kumiko_panel_bound
 from comic_utils.pil_image_utils import open_pil_image_for_reading
 from PIL import Image, ImageDraw
+from PIL.Image import Image as PilImage
+from PIL.ImageDraw import ImageDraw as PilImageDraw
 
 INPUT_IMAGE_WIDTH = 8700
 INPUT_IMAGE_HEIGHT = 12000
@@ -72,10 +74,10 @@ def fix_panels(in_file: str, out_file: str) -> None:
 
 
 def respace_panels(
-    srce_image: Image,
+    srce_image: PilImage,
     dest_file: str,
     image_name: str,
-    subimages: list[Image],
+    subimages: list[PilImage],
     vertical_spacing: int,
     bounds_info: BoundsInfo,
 ) -> None:
@@ -203,7 +205,7 @@ def get_correctly_sorted_bounds(bounds: list[KumikoBound]) -> list[KumikoBound]:
     return sorted(bounds, key=cmp_to_key(compare_panels))
 
 
-def get_panel_bounded_subimages(srce_image: Image, bounds: list[KumikoBound]) -> list[Image]:
+def get_panel_bounded_subimages(srce_image: PilImage, bounds: list[KumikoBound]) -> list[PilImage]:
     subimages = []
     for bound in bounds:
         x_min = bound.left
@@ -216,7 +218,9 @@ def get_panel_bounded_subimages(srce_image: Image, bounds: list[KumikoBound]) ->
     return subimages
 
 
-def dump_panel_bounding_boxes(srce_image: Image, dest_file: str, bounds_info: BoundsInfo) -> None:
+def dump_panel_bounding_boxes(
+    srce_image: PilImage, dest_file: str, bounds_info: BoundsInfo
+) -> None:
     overall_bound = bounds_info[0]
     bounds = bounds_info[1]
 
@@ -235,7 +239,7 @@ def dump_panel_bounding_boxes(srce_image: Image, dest_file: str, bounds_info: Bo
 
 
 def draw_box(
-    draw: ImageDraw,
+    draw: PilImageDraw,
     bound: KumikoBound,
     line_width: int,
     color: tuple[int, int, int],
@@ -274,11 +278,11 @@ if __name__ == "__main__":
     output_dir = sys.argv[2]
 
     if not os.path.isfile(input_image_file):
-        msg = f'Could not find input file "{input_image_file}".'
-        raise FileNotFoundError(msg)
+        err_msg = f'Could not find input file "{input_image_file}".'
+        raise FileNotFoundError(err_msg)
     if not os.path.isdir(output_dir):
-        msg = f'Could not find output directory "{output_dir}".'
-        raise FileNotFoundError(msg)
+        err_msg = f'Could not find output directory "{output_dir}".'
+        raise FileNotFoundError(err_msg)
 
     work_dir = "/tmp/panels-fix"
     os.makedirs(work_dir, exist_ok=True)

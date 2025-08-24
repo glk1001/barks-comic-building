@@ -11,13 +11,14 @@ from typing import TYPE_CHECKING
 
 from barks_fantagraphics.comic_book import ComicBook, ModifiedType, get_page_str
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
-from barks_fantagraphics.comics_consts import JPG_FILE_EXT, PageType
+from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_utils import delete_all_files_in_directory
 from barks_fantagraphics.fanta_comics_info import (
     FANTA_OVERRIDE_DIRECTORIES,
     FANTA_VOLUME_OVERRIDES_ROOT,
 )
 from barks_fantagraphics.pages import get_page_mod_type, get_sorted_srce_and_dest_pages
+from comic_utils.comic_consts import JPG_FILE_EXT
 from comic_utils.comics_logging import setup_logging
 from comic_utils.pil_image_utils import copy_file_to_jpg, downscale_jpg
 from PIL import Image

@@ -164,6 +164,7 @@ def fuzz_ae_compare(
     metric_output = proc.stderr.strip()
 
     result = 0
+    ae_value = 0.0
     try:
         # AE output is a single number (pixel count).
         ae_value = float(metric_output)
@@ -213,10 +214,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    diff_dir = None if not args.diff_dir else Path(args.diff_dir)
+    the_diff_dir = None if not args.diff_dir else Path(args.diff_dir)
 
     num_errors = compare_images_in_dir(
-        Path(args.dir1), Path(args.dir2), args.fuzz, args.ae_cutoff, diff_dir
+        Path(args.dir1), Path(args.dir2), args.fuzz, args.ae_cutoff, the_diff_dir
     )
 
     # if num_errors > 0:

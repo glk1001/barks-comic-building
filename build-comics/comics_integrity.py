@@ -16,7 +16,6 @@ from barks_fantagraphics.comic_book import (
 from barks_fantagraphics.comics_consts import (
     BARKS_ROOT_DIR,
     IMAGES_SUBDIR,
-    JPG_FILE_EXT,
     PNG_FILE_EXT,
     THE_CHRONOLOGICAL_DIR,
     THE_CHRONOLOGICAL_DIRS_DIR,
@@ -34,6 +33,7 @@ from barks_fantagraphics.pages import (
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
+from comic_utils.comic_consts import JPG_FILE_EXT
 from utils import (
     DATE_SEP,
     DATE_TIME_SEP,

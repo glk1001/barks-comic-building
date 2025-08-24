@@ -13,6 +13,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [{ name = "pillow", specifier = ">=11.3.0" }]
 
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.12.10" }]
+
 [[package]]
 name = "barks-comic-building"
 version = "0.1.0"

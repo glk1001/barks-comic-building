@@ -1,5 +1,4 @@
 import concurrent.futures
-import logging
 import os
 import sys
 import time
@@ -10,8 +9,9 @@ from barks_fantagraphics.barks_titles import is_non_comic_title
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.comics_logging import setup_logging
 from comic_utils.pil_image_utils import copy_file_to_png
+from loguru import logger
+from loguru_config import LoguruConfig
 from src.restore_pipeline import RestorePipeline, check_for_errors
 
 SCALE = 4
@@ -27,13 +27,13 @@ def restore(title_list: list[str]) -> None:
         else:
             restore_title(title)
 
-    logging.info(
+    logger.info(
         f'\nTime taken to restore all {len(title_list)} titles": {int(time.time() - start)}s.',
     )
 
 
 def copy_title(title_str: str) -> None:
-    logging.info(f'Copying non-comic title "{title_str}".')
+    logger.info(f'Copying non-comic title "{title_str}".')
 
     comic = comics_database.get_comic_book(title_str)
     srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
@@ -41,12 +41,12 @@ def copy_title(title_str: str) -> None:
 
     for srce_file, dest_file in zip(srce_files, dest_restored_files):
         if Path(dest_file).is_file():
-            logging.warning(
+            logger.warning(
                 f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".',
             )
             continue
 
-        logging.info(
+        logger.info(
             f'Copying "{get_abbrev_path(srce_file[0])}" to "{get_abbrev_path(dest_file)}".',
         )
         copy_file_to_png(srce_file[0], dest_file)
@@ -55,7 +55,7 @@ def copy_title(title_str: str) -> None:
 def restore_title(title: str) -> None:
     start = time.time()
 
-    logging.info(f'Processing story "{title}".')
+    logger.info(f'Processing story "{title}".')
 
     comic = comics_database.get_comic_book(title)
 
@@ -86,15 +86,15 @@ def restore_title(title: str) -> None:
         dest_restored_svg_files,
     ):
         if not os.path.isfile(srce_upscayl_file[0]):
-            logging.error(f'Could not find srce upscayl file - skipping: "{srce_upscayl_file[0]}".')
+            logger.error(f'Could not find srce upscayl file - skipping: "{srce_upscayl_file[0]}".')
             continue
         if os.path.isfile(dest_restored_file):
-            logging.warning(
+            logger.warning(
                 f'Dest file exists - skipping: "{get_abbrev_path(dest_restored_file)}".',
             )
             continue
 
-        logging.info(
+        logger.info(
             f'Restoring srce files "{get_abbrev_path(srce_file[0])}",'
             f' "{get_abbrev_path(srce_upscayl_file[0])}"'
             f' to dest "{get_abbrev_path(dest_restored_file)}".',
@@ -114,7 +114,7 @@ def restore_title(title: str) -> None:
 
     run_restore(restore_processes)
 
-    logging.info(
+    logger.info(
         f"\nTime taken to restore all {len(restore_processes)}"
         f" title files: {int(time.time() - start)}s.",
     )
@@ -126,7 +126,7 @@ part1_max_workers = None
 
 
 def run_restore_part1(proc: RestorePipeline) -> None:
-    logging.info(f'Starting restore part 1 for "{proc.srce_upscale_file.name}".')
+    logger.info(f'Starting restore part 1 for "{proc.srce_upscale_file.name}".')
     proc.do_part1()
 
 
@@ -134,7 +134,7 @@ part2_max_workers = 1 if psutil.virtual_memory().total < SMALL_RAM else 6
 
 
 def run_restore_part2(proc: RestorePipeline) -> None:
-    logging.info(f'Starting restore part 2 for "{proc.srce_upscale_file.name}".')
+    logger.info(f'Starting restore part 2 for "{proc.srce_upscale_file.name}".')
     proc.do_part2_memory_hungry()
 
 
@@ -142,7 +142,7 @@ part3_max_workers = None
 
 
 def run_restore_part3(proc: RestorePipeline) -> None:
-    logging.info(f'Starting restore part 3 for "{proc.srce_upscale_file.name}".')
+    logger.info(f'Starting restore part 3 for "{proc.srce_upscale_file.name}".')
     proc.do_part3()
 
 
@@ -150,12 +150,12 @@ part4_max_workers = 1 if psutil.virtual_memory().total < SMALL_RAM else 5
 
 
 def run_restore_part4(proc: RestorePipeline) -> None:
-    logging.info(f'Starting restore part 4 for "{proc.srce_upscale_file.name}".')
+    logger.info(f'Starting restore part 4 for "{proc.srce_upscale_file.name}".')
     proc.do_part4_memory_hungry()
 
 
 def run_restore(restore_processes: list[RestorePipeline]) -> None:
-    logging.info(f"Starting restore for {len(restore_processes)} processes.")
+    logger.info(f"Starting restore for {len(restore_processes)} processes.")
 
     with concurrent.futures.ProcessPoolExecutor(part1_max_workers) as executor:
         for process in restore_processes:
@@ -174,19 +174,25 @@ def run_restore(restore_processes: list[RestorePipeline]) -> None:
             executor.submit(run_restore_part4, process)
 
 
-setup_logging(logging.INFO)
+if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
+    cmd_args = CmdArgs(
+        "Restore titles", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR
+    )
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-# TODO(glk): Some issue with type checking inspection?
-# noinspection PyTypeChecker
-cmd_args = CmdArgs("Restore titles", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+    # Global variables accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    log_filename = "batch-restore.log"
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-work_dir = os.path.join(cmd_args.get_work_dir())
-os.makedirs(work_dir, exist_ok=True)
+    work_dir = os.path.join(cmd_args.get_work_dir())
+    os.makedirs(work_dir, exist_ok=True)
 
-comics_database = cmd_args.get_comics_database()
+    comics_database = cmd_args.get_comics_database()
 
-restore(cmd_args.get_titles())
+    restore(cmd_args.get_titles())

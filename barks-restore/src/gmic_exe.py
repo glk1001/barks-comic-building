@@ -1,5 +1,6 @@
-import logging
 import subprocess
+
+from loguru import logger
 
 
 def run_gmic(params: list[str]) -> None:
@@ -7,7 +8,7 @@ def run_gmic(params: list[str]) -> None:
     run_args = [gmic_path, "-v", "+1"]
     run_args.extend(params)
 
-    logging.debug(f"Running gmic: {' '.join(run_args)}.")
+    logger.debug(f"Running gmic: {' '.join(run_args)}.")
 
     process = subprocess.Popen(run_args, stdout=subprocess.PIPE, text=True)
 
@@ -16,7 +17,7 @@ def run_gmic(params: list[str]) -> None:
         if output == "" and process.poll() is not None:
             break
         if output:
-            logging.info(output.strip())
+            logger.info(output.strip())
 
     rc = process.poll()
     if rc != 0:

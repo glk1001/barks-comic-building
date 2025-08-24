@@ -1,14 +1,15 @@
 import concurrent.futures
-import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.comics_logging import setup_logging
 from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
+from loguru import logger
+from loguru_config import LoguruConfig
 
 
 def panel_bounds(title_list: list[str]) -> None:
@@ -16,7 +17,7 @@ def panel_bounds(title_list: list[str]) -> None:
 
     num_page_files = 0
     for title in title_list:
-        logging.info(f'Getting panel bounds for all pages in "{title}"...')
+        logger.info(f'Getting panel bounds for all pages in "{title}"...')
 
         title_work_dir = os.path.join(work_dir, title)
         os.makedirs(title_work_dir, exist_ok=True)
@@ -51,7 +52,7 @@ def panel_bounds(title_list: list[str]) -> None:
 
         num_page_files += len(srce_files)
 
-    logging.info(
+    logger.info(
         f"\nTime taken to process all {num_page_files} files: {int(time.time() - start)}s."
     )
 
@@ -67,10 +68,10 @@ def get_page_panel_bounds(
             msg = f'Could not find srce file: "{srce_file}".'
             raise FileNotFoundError(msg)
         if os.path.isfile(dest_file):
-            logging.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
+            logger.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
             return
 
-        logging.info(
+        logger.info(
             f'Using Kumiko to get page panel bounds for "{get_abbrev_path(srce_file)}"'
             f' - saving to dest file "{get_abbrev_path(dest_file)}".'
         )
@@ -83,23 +84,27 @@ def get_page_panel_bounds(
         bounding_box_processor.save_panels_segment_info(dest_file, segment_info)
 
     except Exception:
-        logging.exception("Error: ")
+        logger.exception("Error: ")
         return
 
 
-setup_logging(logging.INFO)
+if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
+    cmd_args = CmdArgs("Panel Bounds", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR)
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-# TODO(glk): Some issue with type checking inspection?
-# noinspection PyTypeChecker
-cmd_args = CmdArgs("Panel Bounds", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+    # Global variables accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    log_filename = "batch-panel-bounds.log"
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-work_dir = os.path.join(cmd_args.get_work_dir())
-os.makedirs(work_dir, exist_ok=True)
+    work_dir = os.path.join(cmd_args.get_work_dir())
+    os.makedirs(work_dir, exist_ok=True)
 
-comics_database = cmd_args.get_comics_database()
+    comics_database = cmd_args.get_comics_database()
 
-panel_bounds(cmd_args.get_titles())
+    panel_bounds(cmd_args.get_titles())

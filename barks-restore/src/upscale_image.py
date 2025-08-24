@@ -1,10 +1,10 @@
-import logging
 import os
 import subprocess
 from pathlib import Path
 
 from barks_fantagraphics.comics_utils import get_clean_path
 from comic_utils.pil_image_utils import add_png_metadata
+from loguru import logger
 
 UPSCAYL_BIN = os.path.join(str(Path.home()), ".local/share/upscayl/bin/upscayl-bin")
 UPSCAYL_MODELS_DIR = os.path.join(str(Path.home()), ".local/share/upscayl/models")
@@ -42,7 +42,7 @@ def upscale_image_file(in_file: str, out_file: str, scale: int = 2) -> None:
         if output == "" and process.poll() is not None:
             break
         if output:
-            logging.info(output.strip())
+            logger.info(output.strip())
 
     rc = process.poll()
     if rc != 0:

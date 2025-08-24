@@ -1,5 +1,4 @@
 import json
-import logging
 import os.path
 import sys
 from pathlib import Path
@@ -8,16 +7,17 @@ import cv2 as cv
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import PNG_FILE_EXT, RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.comics_logging import setup_logging
 from comic_utils.cv_image_utils import get_bw_image_from_alpha
 from comic_utils.panel_segmentation import get_min_max_panel_values
+from loguru import logger
+from loguru_config import LoguruConfig
 from PIL import Image, ImageDraw
 
 
 def show_panel_bounds(title: str, out_dir: str) -> None:
     out_dir = os.path.join(out_dir, title)
 
-    logging.info(f'Generating panel bounds images for "{title}" to directory "{out_dir}"...')
+    logger.info(f'Generating panel bounds images for "{title}" to directory "{out_dir}"...')
 
     os.makedirs(out_dir, exist_ok=True)
     comic = comics_database.get_comic_book(title)
@@ -34,19 +34,19 @@ def show_panel_bounds(title: str, out_dir: str) -> None:
 def write_bounds_to_image_file(
     png_file: str, panel_segments_file: str, bounds_img_file: str
 ) -> bool:
-    logging.info(f'Writing bounds for image "{get_abbrev_path(png_file)}"...')
+    logger.info(f'Writing bounds for image "{get_abbrev_path(png_file)}"...')
 
     if not os.path.isfile(png_file):
-        logging.error(f'Could not find image file "{png_file}".')
+        logger.error(f'Could not find image file "{png_file}".')
         return False
     if not os.path.isfile(panel_segments_file):
-        logging.error(f'Could not find panel segments file "{panel_segments_file}".')
+        logger.error(f'Could not find panel segments file "{panel_segments_file}".')
         return False
     if os.path.isfile(bounds_img_file):
-        logging.info(f'Found existing image bounds file - skipping: "{bounds_img_file}".')
+        logger.info(f'Found existing image bounds file - skipping: "{bounds_img_file}".')
         return True
 
-    logging.info(f'Loading panel segments file "{get_abbrev_path(panel_segments_file)}".')
+    logger.info(f'Loading panel segments file "{get_abbrev_path(panel_segments_file)}".')
     with open(panel_segments_file) as f:
         panel_segment_info = json.load(f)
 
@@ -81,10 +81,12 @@ if __name__ == "__main__":
     cmd_args = CmdArgs("Show panel bounds for title", CmdArgNames.TITLE | CmdArgNames.WORK_DIR)
     args_ok, error_msg = cmd_args.args_are_valid()
     if not args_ok:
-        logging.error(error_msg)
+        logger.error(error_msg)
         sys.exit(1)
 
-    setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     comics_database = cmd_args.get_comics_database()
 

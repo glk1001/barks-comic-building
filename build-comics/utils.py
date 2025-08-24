@@ -1,4 +1,3 @@
-import logging
 import os
 
 from barks_fantagraphics.comics_utils import (
@@ -8,6 +7,7 @@ from barks_fantagraphics.comics_utils import (
     get_timestamp_as_str,
     get_timestamp_str,
 )
+from loguru import logger
 
 DATE_SEP = "-"
 DATE_TIME_SEP = " "
@@ -30,11 +30,11 @@ def get_list_of_numbers(list_str: str) -> list[int]:
 
 def dest_file_is_out_of_date_wrt_srce(srce_file: str, dest_file: str) -> bool:
     if not os.path.isfile(dest_file):
-        logging.debug(f'Dest file "{dest_file}" not found.')
+        logger.debug(f'Dest file "{dest_file}" not found.')
         return True
 
     if dest_file_is_older_than_srce(srce_file, dest_file, include_missing_dest=False):
-        logging.debug(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ""))
+        logger.debug(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ""))
         return True
 
     return False
@@ -46,11 +46,11 @@ def zip_file_is_out_of_date_wrt_dest(
     max_dest_timestamp: float,
 ) -> bool:
     if not os.path.isfile(zip_file):
-        logging.debug(f'Dest zip file "{zip_file}" not found.')
+        logger.debug(f'Dest zip file "{zip_file}" not found.')
         return False
 
     if file_is_older_than_timestamp(zip_file, max_dest_timestamp):
-        logging.debug(
+        logger.debug(
             get_file_out_of_date_wrt_max_timestamp_msg(
                 zip_file,
                 max_dest_file,
@@ -65,7 +65,7 @@ def zip_file_is_out_of_date_wrt_dest(
 
 def symlink_is_out_of_date_wrt_dest(symlink: str, max_dest_timestamp: float) -> bool:
     if file_is_older_than_timestamp(symlink, max_dest_timestamp):
-        logging.debug(get_symlink_out_of_date_wrt_max_dest_msg(symlink, max_dest_timestamp))
+        logger.debug(get_symlink_out_of_date_wrt_max_dest_msg(symlink, max_dest_timestamp))
         return True
 
     return False
@@ -73,11 +73,11 @@ def symlink_is_out_of_date_wrt_dest(symlink: str, max_dest_timestamp: float) -> 
 
 def symlink_is_out_of_date_wrt_zip(symlink: str, zip_file: str) -> bool:
     if not os.path.islink(symlink):
-        logging.debug(f'Dest file "{symlink}" not found.')
+        logger.debug(f'Dest file "{symlink}" not found.')
         return False
 
     if dest_file_is_older_than_srce(zip_file, symlink, include_missing_dest=False):
-        logging.debug(get_symlink_out_of_date_wrt_zip_msg(symlink, zip_file))
+        logger.debug(get_symlink_out_of_date_wrt_zip_msg(symlink, zip_file))
         return True
 
     return False

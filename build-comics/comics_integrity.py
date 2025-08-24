@@ -1,6 +1,5 @@
 # ruff: noqa: ERA001, C901, T201
 
-import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +33,7 @@ from barks_fantagraphics.pages import (
     get_sorted_srce_and_dest_pages,
 )
 from comic_utils.comic_consts import JPG_FILE_EXT
+from loguru import logger
 from utils import (
     DATE_SEP,
     DATE_TIME_SEP,
@@ -142,30 +142,30 @@ def make_out_of_date_errors(title: str, ini_file: str) -> OutOfDateErrors:
 
 
 def check_comics_source_is_readonly(comics_db: ComicsDatabase) -> int:
-    logging.info("Checking Fantagraphics original directories are readonly.")
+    logger.info("Checking Fantagraphics original directories are readonly.")
 
     ret_code = check_folder_and_contents_are_readonly(
         comics_db.get_fantagraphics_original_root_dir(),
     )
 
     if ret_code == 0:
-        logging.info("All Fantagraphics original directories are readonly.")
+        logger.info("All Fantagraphics original directories are readonly.")
     else:
-        logging.error("There are Fantagraphics original directories that are not readonly.")
+        logger.error("There are Fantagraphics original directories that are not readonly.")
 
     return ret_code
 
 
 def check_fantagraphics_files(comics_db: ComicsDatabase) -> int:
-    logging.info("Checking Fantagraphics files.")
+    logger.info("Checking Fantagraphics files.")
 
     # ret_code = check_fantagraphics_original_dirs(comics_db)
     ret_code = check_all_fixes_and_additions_files(comics_db)
 
     if ret_code == 0:
-        logging.info("All Fantagraphics files are OK.")
+        logger.info("All Fantagraphics files are OK.")
     else:
-        logging.error("There were issues with some Fantagraphics files.")
+        logger.error("There were issues with some Fantagraphics files.")
 
     return ret_code
 
@@ -397,7 +397,7 @@ def check_folder_and_contents_are_readonly(dir_path: str) -> int:
 
 
 def check_directory_structure(comics_db: ComicsDatabase) -> int:
-    logging.info("Check complete directory structure.")
+    logger.info("Check complete directory structure.")
 
     ret_code = 0
     for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
@@ -429,9 +429,9 @@ def check_directory_structure(comics_db: ComicsDatabase) -> int:
             ret_code = 1
 
     if ret_code == 0:
-        logging.info("The directory structure is correct.")
+        logger.info("The directory structure is correct.")
     else:
-        logging.error("There were issues with the directory structure.")
+        logger.error("There were issues with the directory structure.")
 
     return ret_code
 
@@ -444,7 +444,7 @@ def _found_dir(dirname: str) -> bool:
 
 
 def check_ini_files_match_series_info(comics_db: ComicsDatabase) -> int:
-    logging.info("Checking ini file titles match series info.")
+    logger.info("Checking ini file titles match series info.")
 
     ret_code = 0
 
@@ -462,15 +462,15 @@ def check_ini_files_match_series_info(comics_db: ComicsDatabase) -> int:
                 ret_code = 1
 
     if ret_code == 0:
-        logging.info("All ini file titles match series info.")
+        logger.info("All ini file titles match series info.")
     else:
-        logging.error("There were some ini file titles not in series info.")
+        logger.error("There were some ini file titles not in series info.")
 
     return ret_code
 
 
 def check_no_unexpected_files(comics_db: ComicsDatabase) -> int:
-    logging.info("Check no unexpected files.")
+    logger.info("Check no unexpected files.")
 
     ret_code = 0
 
@@ -533,9 +533,9 @@ def check_no_unexpected_files(comics_db: ComicsDatabase) -> int:
         ret_code = 1
 
     if ret_code == 0:
-        logging.info("There are no unexpected files.")
+        logger.info("There are no unexpected files.")
     else:
-        logging.error("There were some unexpected or missing files.")
+        logger.error("There were some unexpected or missing files.")
 
     return ret_code
 
@@ -575,13 +575,13 @@ def check_comic_structure(comic: ComicBook) -> int:
         print(f'\n{ERROR_MSG_PREFIX}For "{title}", the page count is too small.')
         return 1
 
-    logging.info(f'There are no structural problems with "{title}".')
+    logger.info(f'There are no structural problems with "{title}".')
     return 0
 
 
 def check_out_of_date_files(comic: ComicBook) -> int:
     title = get_safe_title(comic.get_comic_title())
-    logging.info(f'Checking title "{title}".')
+    logger.info(f'Checking title "{title}".')
 
     out_of_date_errors = make_out_of_date_errors(title, comic.ini_file)
 
@@ -611,7 +611,7 @@ def check_out_of_date_files(comic: ComicBook) -> int:
     ret_code = 1 if out_of_date_errors.is_error else 0
 
     if ret_code == 0:
-        logging.info(f'There are no out of date problems with "{title}".')
+        logger.info(f'There are no out of date problems with "{title}".')
 
     return ret_code
 

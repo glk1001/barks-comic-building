@@ -1,0 +1,6 @@
+handlers:
+  - sink: ext://sys.stdout
+    level: ext://__main__.log_level
+    enqueue: True
+    backtrace: True
+    diagnose: True

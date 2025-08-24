@@ -1,13 +1,14 @@
 # ruff: noqa: ERA001
 
-import logging
 import os.path
 import sys
+from pathlib import Path
 
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_utils import get_abbrev_path
 from barks_fantagraphics.fanta_comics_info import FantaComicBookInfo, get_fanta_volume_str
-from comic_utils.comics_logging import setup_logging
+from loguru import logger
+from loguru_config import LoguruConfig
 
 
 def get_issue_titles(
@@ -32,7 +33,7 @@ def create_empty_config_file(ttl: str, is_barks_ttl: bool) -> None:
         msg = f'Ini file "{ini_file}" already exists.'
         raise FileExistsError(msg)
 
-    logging.info(f'Creating empty config file: "{get_abbrev_path(ini_file)}".')
+    logger.info(f'Creating empty config file: "{get_abbrev_path(ini_file)}".')
     with open(ini_file, "w") as f:
         f.write("[info]\n")
         if is_barks_ttl:
@@ -46,35 +47,38 @@ def create_empty_config_file(ttl: str, is_barks_ttl: bool) -> None:
         f.write("? - ? = BODY\n")
 
 
-cmd_args = CmdArgs("Make empty configs", CmdArgNames.VOLUME)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+if __name__ == "__main__":
+    cmd_args = CmdArgs("Make empty configs", CmdArgNames.VOLUME)
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-comics_database = cmd_args.get_comics_database()
-volume = int(cmd_args.get_volume())
+    comics_database = cmd_args.get_comics_database()
+    volume = int(cmd_args.get_volume())
 
-titles_and_info = cmd_args.get_titles_and_info(configured_only=False)
-titles_config_info = get_issue_titles(titles_and_info)
+    titles_and_info = cmd_args.get_titles_and_info(configured_only=False)
+    titles_config_info = get_issue_titles(titles_and_info)
 
-if len(titles_config_info) == 0:
-    logging.error(f"There are no titles to configure for Fanta volume {volume}.")
-else:
-    titles = []
-    for title_config_info in titles_config_info:
-        title = title_config_info[0]
-        title_is_configured = title_config_info[1]
-        is_barks_title = title_config_info[2]
+    if len(titles_config_info) == 0:
+        logger.error(f"There are no titles to configure for Fanta volume {volume}.")
+    else:
+        titles = []
+        for title_config_info in titles_config_info:
+            title = title_config_info[0]
+            title_is_configured = title_config_info[1]
+            is_barks_title = title_config_info[2]
 
-        if title_is_configured:
-            logging.info(f'Title: "{title}" is already configured - skipping.')
-            continue
+            if title_is_configured:
+                logger.info(f'Title: "{title}" is already configured - skipping.')
+                continue
 
-        titles.append((title, is_barks_title))
+            titles.append((title, is_barks_title))
 
-    logging.info("")
-    for title, is_barks_title in titles:
-        create_empty_config_file(title, is_barks_title)
+        logger.info("")
+        for title, is_barks_title in titles:
+            create_empty_config_file(title, is_barks_title)

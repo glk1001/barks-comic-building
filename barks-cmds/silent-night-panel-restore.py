@@ -1,6 +1,5 @@
 # ruff: noqa: T201, ERA001
 
-import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -8,7 +7,6 @@ from functools import cmp_to_key
 from pathlib import Path
 
 import cv2 as cv
-from comic_utils.comics_logging import setup_logging
 from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 from comic_utils.panel_segmentation import KumikoBound, get_kumiko_panel_bound
 from comic_utils.pil_image_utils import open_pil_image_for_reading
@@ -271,8 +269,6 @@ def scale_image(image_file: str) -> None:
 
 
 if __name__ == "__main__":
-    setup_logging(logging.DEBUG)
-
     assert len(sys.argv) == 3
     input_image_file = sys.argv[1]
     output_dir = sys.argv[2]

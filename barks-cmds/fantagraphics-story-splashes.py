@@ -1,17 +1,18 @@
 # ruff: noqa: T201, ERA001
 
 import json
-import logging
 import os
 import sys
+from pathlib import Path
 
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comic_book import ComicBook, get_page_str
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.fanta_comics_info import get_fanta_volume_str
 from barks_fantagraphics.pages import PageType, get_sorted_srce_and_dest_pages
-from comic_utils.comics_logging import setup_logging
 from comic_utils.panel_segmentation import BIG_NUM, get_kumiko_panel_bound
+from loguru import logger
+from loguru_config import LoguruConfig
 
 
 def get_story_splashes(comic: ComicBook) -> list[str]:
@@ -70,38 +71,41 @@ def has_splash_page(panels: list[tuple[int, int, int, int]]) -> bool:
     )
 
 
-# TODO(glk): Some issue with type checking inspection?
-# noinspection PyTypeChecker
-cmd_args = CmdArgs("Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
+    cmd_args = CmdArgs("Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME)
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-comics_database = cmd_args.get_comics_database()
-titles = cmd_args.get_titles()
+    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
+    comics_database = cmd_args.get_comics_database()
+    titles = cmd_args.get_titles()
 
-splashes_dict = {}
-max_title_len = 0
-for title in titles:
-    comic_book = comics_database.get_comic_book(title)
+    splashes_dict = {}
+    max_title_len = 0
+    for title in titles:
+        comic_book = comics_database.get_comic_book(title)
 
-    story_splashes = get_story_splashes(comic_book)
-    if not story_splashes:
-        continue
+        story_splashes = get_story_splashes(comic_book)
+        if not story_splashes:
+            continue
 
-    title_with_issue_num = comic_book.get_title_with_issue_num()
-    max_title_len = max(max_title_len, len(title_with_issue_num))
+        title_with_issue_num = comic_book.get_title_with_issue_num()
+        max_title_len = max(max_title_len, len(title_with_issue_num))
 
-    volume = comic_book.get_fanta_volume()
+        volume = comic_book.get_fanta_volume()
 
-    splashes_dict[title_with_issue_num] = (volume, story_splashes)
+        splashes_dict[title_with_issue_num] = (volume, story_splashes)
 
-for title, (volume, story_splashes) in splashes_dict.items():
-    volume_str = get_fanta_volume_str(volume)
-    splashes_str = ", ".join(story_splashes)
+    for title, (volume, story_splashes) in splashes_dict.items():
+        volume_str = get_fanta_volume_str(volume)
+        splashes_str = ", ".join(story_splashes)
 
-    print(f'"{title:<{max_title_len}}", {volume_str}, Splashes: {splashes_str}')
+        print(f'"{title:<{max_title_len}}", {volume_str}, Splashes: {splashes_str}')

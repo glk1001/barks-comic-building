@@ -1,11 +1,12 @@
 # ruff: noqa: T201
 
-import logging
 import sys
+from pathlib import Path
 
 from barks_fantagraphics.barks_titles import get_safe_title
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
-from comic_utils.comics_logging import setup_logging
+from loguru import logger
+from loguru_config import LoguruConfig
 
 
 def get_display_title(ttl: str) -> str:
@@ -30,32 +31,35 @@ def get_issue_title(ttl: str) -> str:
     return comic_issue_title
 
 
-cmd_args = CmdArgs("Verify title", CmdArgNames.TITLE)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+if __name__ == "__main__":
+    cmd_args = CmdArgs("Verify title", CmdArgNames.TITLE)
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-comics_database = cmd_args.get_comics_database()
-title = cmd_args.get_title()
+    comics_database = cmd_args.get_comics_database()
+    title = cmd_args.get_title()
 
-found, titles, close = comics_database.get_story_title_from_issue(title)
-if found:
-    titles_str = ", ".join([f'"{t}"' for t in titles])
-    fanta_vol = comics_database.get_fanta_volume(titles[0])
-    print(f'This is an issue title: "{title}" -> title: {titles_str}, {fanta_vol}')
-elif close:
-    print(f'"{title}" is not a valid issue title. Did you mean: "{close}".')
-else:
-    found, close = comics_database.is_story_title(title)
+    found, titles, close = comics_database.get_story_title_from_issue(title)
     if found:
-        display_title = get_display_title(title)
-        issue_title = get_issue_title(title)
-        fanta_vol = comics_database.get_fanta_volume(title)
-        print(f'This is a valid title: "{display_title}" [{issue_title}], {fanta_vol}.')
+        titles_str = ", ".join([f'"{t}"' for t in titles])
+        fanta_vol = comics_database.get_fanta_volume(titles[0])
+        print(f'This is an issue title: "{title}" -> title: {titles_str}, {fanta_vol}')
     elif close:
-        print(f'"{title}" is not a valid title. Did you mean: "{close}".')
+        print(f'"{title}" is not a valid issue title. Did you mean: "{close}".')
     else:
-        print(f'"{title}" is not a valid title. Cannot find anything close to this.')
+        found, close = comics_database.is_story_title(title)
+        if found:
+            display_title = get_display_title(title)
+            issue_title = get_issue_title(title)
+            fanta_vol = comics_database.get_fanta_volume(title)
+            print(f'This is a valid title: "{display_title}" [{issue_title}], {fanta_vol}.')
+        elif close:
+            print(f'"{title}" is not a valid title. Did you mean: "{close}".')
+        else:
+            print(f'"{title}" is not a valid title. Cannot find anything close to this.')

@@ -1,12 +1,8 @@
-import logging
+from loguru import logger
 
-from comic_utils.comics_logging import setup_logging
-
-setup_logging(log_level=logging.DEBUG)
-
-logging.debug("Debug message.")
-logging.info("Info message.")
-logging.warning("Warning message.")
-logging.error("Error message.")
-logging.critical("Critical message.")
-logging.fatal("Fatal message.")
+logger.debug("Debug message.")
+logger.info("Info message.")
+logger.warning("Warning message.")
+logger.error("Error message.")
+logger.critical("Critical message.")
+logger.success("Success message.")

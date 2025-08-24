@@ -1,14 +1,15 @@
 import concurrent.futures
-import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 from barks_fantagraphics.barks_titles import is_non_comic_title
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.comics_logging import setup_logging
+from loguru import logger
+from loguru_config import LoguruConfig
 from src.image_io import svg_file_to_png
 
 SCALE = 4
@@ -20,10 +21,10 @@ def svgs_to_pngs(title_list: list[str]) -> None:
     num_png_files = 0
     for title in title_list:
         if is_non_comic_title(title):
-            logging.info(f'Not a comic title - not converting "{title}".')
+            logger.info(f'Not a comic title - not converting "{title}".')
             continue
 
-        logging.info(f'Converting svg to png for "{title}"...')
+        logger.info(f'Converting svg to png for "{title}"...')
 
         comic = comics_database.get_comic_book(title)
 
@@ -35,7 +36,7 @@ def svgs_to_pngs(title_list: list[str]) -> None:
 
         num_png_files += len(srce_files)
 
-    logging.info(f"\nTime taken to convert all {num_png_files} files: {int(time.time() - start)}s.")
+    logger.info(f"\nTime taken to convert all {num_png_files} files: {int(time.time() - start)}s.")
 
 
 def convert_svg_to_png(srce_svg: str) -> None:
@@ -45,30 +46,34 @@ def convert_svg_to_png(srce_svg: str) -> None:
 
         png_file = srce_svg + ".png"
         if os.path.isfile(png_file):
-            logging.warning(f'Dest png file exists - skipping: "{get_abbrev_path(png_file)}".')
+            logger.warning(f'Dest png file exists - skipping: "{get_abbrev_path(png_file)}".')
             return
 
-        logging.info(
+        logger.info(
             f'Converting svg file "{get_abbrev_path(srce_svg)}"'
             f' to dest png "{get_abbrev_path(png_file)}".',
         )
         svg_file_to_png(srce_svg, png_file)
 
     except Exception:
-        logging.exception("Error: ")
+        logger.exception("Error: ")
         return
 
 
-setup_logging(logging.INFO)
+if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
+    cmd_args = CmdArgs("Convert titles from svg to png", CmdArgNames.TITLE | CmdArgNames.VOLUME)
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-# TODO(glk): Some issue with type checking inspection?
-# noinspection PyTypeChecker
-cmd_args = CmdArgs("Ocr titles", CmdArgNames.TITLE | CmdArgNames.VOLUME)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+    # Global variables accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    log_filename = "batch-svg-to-png.log"
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-comics_database = cmd_args.get_comics_database()
+    comics_database = cmd_args.get_comics_database()
 
-svgs_to_pngs(cmd_args.get_titles())
+    svgs_to_pngs(cmd_args.get_titles())

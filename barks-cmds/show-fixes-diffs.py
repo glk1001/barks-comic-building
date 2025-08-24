@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os.path
 import sys
 from pathlib import Path
@@ -13,8 +12,9 @@ from barks_fantagraphics.comic_book import ModifiedType
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.comics_logging import setup_logging
 from comic_utils.pil_image_utils import downscale_jpg, open_pil_image_for_reading
+from loguru import logger
+from loguru_config import LoguruConfig
 from skimage.metrics import structural_similarity
 
 # TODO: Put these somewhere else
@@ -79,7 +79,7 @@ def get_image_diffs(
 def show_diffs_for_title(ttl: str, out_dir: str) -> None:
     out_dir = os.path.join(out_dir, ttl)
 
-    logging.info(f'Checking fixes for for "{ttl}"...')
+    logger.info(f'Checking fixes for for "{ttl}"...')
 
     comic = comics_database.get_comic_book(ttl)
 
@@ -114,7 +114,7 @@ def show_diffs_for_upscayled_files(
     upscayled_srce_files: list[str],
     upscayled_fixes_files: list[tuple[str, ModifiedType]],
 ) -> None:
-    logging.info(f'Showing diffs for "{ttl}".')
+    logger.info(f'Showing diffs for "{ttl}".')
 
     made_out_dir = False
     diff_threshold = 0.5
@@ -144,7 +144,7 @@ def show_diffs_for_upscayled_files(
 def show_diffs_for_files(
     ttl: str, out_dir: str, srce_files: list[str], fixes_files: list[tuple[str, ModifiedType]]
 ) -> None:
-    logging.info(f'Showing diffs for "{ttl}".')
+    logger.info(f'Showing diffs for "{ttl}".')
 
     made_out_dir = False
     diff_threshold = 0.9
@@ -164,7 +164,7 @@ def show_diffs_for_files(
 def show_diffs_for_file(
     diff_threshold: float, ttl: str, out_dir: str, srce_file: str, fixes_file: str
 ) -> None:
-    logging.info(
+    logger.info(
         f'Getting diffs for file "{get_abbrev_path(srce_file)}"'
         f' and "{get_abbrev_path(fixes_file)}".'
     )
@@ -195,10 +195,12 @@ if __name__ == "__main__":
     cmd_args = CmdArgs("show fixes diffs", CmdArgNames.VOLUME | CmdArgNames.TITLE)
     args_ok, error_msg = cmd_args.args_are_valid()
     if not args_ok:
-        logging.error(error_msg)
+        logger.error(error_msg)
         sys.exit(1)
 
-    setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     comics_database = cmd_args.get_comics_database()
 

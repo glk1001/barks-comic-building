@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import sys
 from enum import Enum, auto
@@ -19,8 +18,9 @@ from barks_fantagraphics.fanta_comics_info import (
 )
 from barks_fantagraphics.pages import get_page_mod_type, get_sorted_srce_and_dest_pages
 from comic_utils.comic_consts import JPG_FILE_EXT
-from comic_utils.comics_logging import setup_logging
 from comic_utils.pil_image_utils import copy_file_to_jpg, downscale_jpg
+from loguru import logger
+from loguru_config import LoguruConfig
 from PIL import Image
 
 if TYPE_CHECKING:
@@ -79,54 +79,59 @@ def downscale(srce_file: str, dest_file: str) -> None:
     downscale_jpg(SRCE_STANDARD_WIDTH, SRCE_STANDARD_HEIGHT, srce_file, dest_file)
 
 
-# TODO(glk): Some issue with type checking inspection?
-# noinspection PyTypeChecker
-cmd_args = CmdArgs(
-    "Write Fantagraphics edited files to overrides directory",
-    CmdArgNames.VOLUME,
-)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
+    cmd_args = CmdArgs(
+        "Write Fantagraphics edited files to overrides directory",
+        CmdArgNames.VOLUME,
+    )
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-comics_database = cmd_args.get_comics_database()
+    comics_database = cmd_args.get_comics_database()
 
-volumes = [int(v) for v in cmd_args.get_volumes()]
+    volumes = [int(v) for v in cmd_args.get_volumes()]
 
-for volume in volumes:
-    override_dir = os.path.join(FANTA_VOLUME_OVERRIDES_ROOT, FANTA_OVERRIDE_DIRECTORIES[volume])
-    print(f'Deleting all files in override dir "{override_dir}".')
-    delete_all_files_in_directory(override_dir)
+    for volume in volumes:
+        override_dir = os.path.join(FANTA_VOLUME_OVERRIDES_ROOT, FANTA_OVERRIDE_DIRECTORIES[volume])
+        print(f'Deleting all files in override dir "{override_dir}".')
+        delete_all_files_in_directory(override_dir)
 
-    titles = [t[0] for t in comics_database.get_configured_titles_in_fantagraphics_volume(volume)]
+        titles = [
+            t[0] for t in comics_database.get_configured_titles_in_fantagraphics_volume(volume)
+        ]
 
-    print()
-    for title in titles:
-        comic_book = comics_database.get_comic_book(title)
+        print()
+        for title in titles:
+            comic_book = comics_database.get_comic_book(title)
 
-        srce_mod_files = get_srce_mod_files(comic_book)
-        if not srce_mod_files:
-            continue
+            srce_mod_files = get_srce_mod_files(comic_book)
+            if not srce_mod_files:
+                continue
 
-        for srce_mod_file in srce_mod_files:
-            mod_file = srce_mod_file[0]
-            file_type = srce_mod_file[1]
+            for srce_mod_file in srce_mod_files:
+                mod_file = srce_mod_file[0]
+                file_type = srce_mod_file[1]
 
-            mod_basename = Path(mod_file).stem + JPG_FILE_EXT
-            override_file = os.path.join(override_dir, mod_basename)
+                mod_basename = Path(mod_file).stem + JPG_FILE_EXT
+                override_file = os.path.join(override_dir, mod_basename)
 
-            if file_type == FileType.UPSCAYLED:
-                downscale(mod_file, override_file)
-            elif file_type == FileType.ORIGINAL:
-                print(f'Copy "{mod_file}" to "{override_file}"...')
-                copy_file_to_jpg(mod_file, override_file)
-            else:
-                raise AssertionError
-                # assert file_type == FileType.TITLE
-                # override_file = os.path.join(override_dir, title + JPG_FILE_EXT)
-                # copy_file(mod_file, override_file)
+                if file_type == FileType.UPSCAYLED:
+                    downscale(mod_file, override_file)
+                elif file_type == FileType.ORIGINAL:
+                    print(f'Copy "{mod_file}" to "{override_file}"...')
+                    copy_file_to_jpg(mod_file, override_file)
+                else:
+                    raise AssertionError
+                    # assert file_type == FileType.TITLE
+                    # override_file = os.path.join(override_dir, title + JPG_FILE_EXT)
+                    # copy_file(mod_file, override_file)
 
-            print()
+                print()

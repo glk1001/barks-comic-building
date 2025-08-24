@@ -1,13 +1,14 @@
 # ruff: noqa: T201
 
-import logging
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, BARKS_TITLES, ONE_PAGERS, Titles
 from barks_fantagraphics.comic_book import get_total_num_pages
 from barks_fantagraphics.comics_cmd_args import CmdArgs
-from comic_utils.comics_logging import setup_logging
+from loguru import logger
+from loguru_config import LoguruConfig
 from yearly_graph import create_yearly_plot
 
 TEMP_PAGE_COUNTS = {
@@ -175,52 +176,55 @@ TEMP_PAGE_COUNTS = {
 }
 
 
-cmd_args = CmdArgs("Barks yearly page counts")
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+if __name__ == "__main__":
+    cmd_args = CmdArgs("Barks yearly page counts")
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-comics_database = cmd_args.get_comics_database()
+    comics_database = cmd_args.get_comics_database()
 
-page_counts = defaultdict(int)
-for title_info in BARKS_TITLE_INFO:
-    if title_info.title in ONE_PAGERS:
-        num_pages = 1
-    elif title_info.title in TEMP_PAGE_COUNTS:
-        num_pages = TEMP_PAGE_COUNTS[title_info.title]
-    else:
-        title_str = BARKS_TITLES[title_info.title]
-        try:
-            comic_book = comics_database.get_comic_book(title_str)
-        except Exception:  # noqa: BLE001
-            print(f"Titles.{title_info.title.name}: X,")
-            continue
+    page_counts = defaultdict(int)
+    for title_info in BARKS_TITLE_INFO:
+        if title_info.title in ONE_PAGERS:
+            num_pages = 1
+        elif title_info.title in TEMP_PAGE_COUNTS:
+            num_pages = TEMP_PAGE_COUNTS[title_info.title]
+        else:
+            title_str = BARKS_TITLES[title_info.title]
+            try:
+                comic_book = comics_database.get_comic_book(title_str)
+            except Exception:  # noqa: BLE001
+                print(f"Titles.{title_info.title.name}: X,")
+                continue
 
-        num_pages = get_total_num_pages(comic_book)
-        if num_pages <= 1:
-            msg = f'For title "{title_str}", the page count is too small.'
-            raise ValueError(msg)
+            num_pages = get_total_num_pages(comic_book)
+            if num_pages <= 1:
+                msg = f'For title "{title_str}", the page count is too small.'
+                raise ValueError(msg)
 
-    page_counts[title_info.submitted_year] += num_pages
+        page_counts[title_info.submitted_year] += num_pages
 
-for year in page_counts:
-    print(f"{year}: {page_counts[year]}")
+    for year in page_counts:
+        print(f"{year}: {page_counts[year]}")
 
-years = sorted(page_counts)
-title = f"Yearly Page Count from {years[0]} to {years[-1]}"
-values_data = [page_counts[y] for y in years]
+    years = sorted(page_counts)
+    title = f"Yearly Page Count from {years[0]} to {years[-1]}"
+    values_data = [page_counts[y] for y in years]
 
-print(f"Plotting {len(years)} data points...")
+    print(f"Plotting {len(years)} data points...")
 
-create_yearly_plot(
-    title,
-    years=years,
-    values=values_data,
-    output_filename="/tmp/barks-yearly-page-counts.png",
-    width_px=1000,
-    height_px=732,
-    dpi=100,  # A common DPI for screen resolutions
-)
+    create_yearly_plot(
+        title,
+        years=years,
+        values=values_data,
+        output_filename="/tmp/barks-yearly-page-counts.png",
+        width_px=1000,
+        height_px=732,
+        dpi=100,  # A common DPI for screen resolutions
+    )

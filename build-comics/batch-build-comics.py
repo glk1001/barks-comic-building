@@ -1,8 +1,8 @@
 import argparse
-import logging
 import sys
 import traceback
 from datetime import UTC, datetime
+from pathlib import Path
 
 from additional_file_writing import write_summary_file
 from barks_fantagraphics.comic_book import ComicBook
@@ -10,10 +10,11 @@ from barks_fantagraphics.comics_consts import PNG_INSET_DIR, PNG_INSET_EXT
 from barks_fantagraphics.comics_database import ComicsDatabase, get_default_comics_database_dir
 from barks_fantagraphics.comics_utils import get_titles_sorted_by_submission_date
 from build_comics import ComicBookBuilder
-from comic_utils.comics_logging import setup_logging
 from comic_utils.timing import Timing
 from comics_integrity import check_comics_integrity
 from intspan import intspan
+from loguru import logger
+from loguru_config import LoguruConfig
 
 
 def process_comic_book_titles(
@@ -57,18 +58,18 @@ def process_comic_book(comic: ComicBook) -> int:
         tb_info = traceback.extract_tb(tb)
         filename, line, func, text = tb_info[-1]
         msg = f'Assert failed at "{filename}:{line}" for statement "{text}".'
-        logging.exception(msg)
+        logger.exception(msg)
         return 1
     except Exception:
         # raise Exception
-        logging.exception("Build error: ")
+        logger.exception("Build error: ")
         return 1
 
     return 0
 
 
 def mark_process_end(process_timing: Timing) -> None:
-    logging.info(
+    logger.info(
         f"Time taken to complete comic: {process_timing.get_elapsed_time_in_seconds()} seconds",
     )
 
@@ -161,7 +162,9 @@ def get_titles(args) -> list[str]:
 if __name__ == "__main__":
     cmd_args = get_args()
 
-    setup_logging(cmd_args.log_level)
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.log_level
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     comics_database = ComicsDatabase(cmd_args.comics_database_dir)
     comics_database.set_inset_info(PNG_INSET_DIR, PNG_INSET_EXT)

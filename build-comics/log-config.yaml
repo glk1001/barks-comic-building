@@ -1,0 +1,12 @@
+handlers:
+  - sink: ext://sys.stdout
+    level: ext://__main__.log_level
+    enqueue: True
+    backtrace: True
+    diagnose: True
+  - sink: fmt://{env://HOME}/Prj/github/barks-compleat-digital/barks-comic-building/logs/build-comics.log
+    level: "DEBUG"
+    rotation: "10 MB"
+    enqueue: True
+    backtrace: True
+    diagnose: True

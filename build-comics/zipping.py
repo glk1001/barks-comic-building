@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from barks_fantagraphics.comics_utils import get_relpath
+from loguru import logger
 
 if TYPE_CHECKING:
     from barks_fantagraphics.comic_book import ComicBook
 
 
 def zip_comic_book(comic: ComicBook) -> None:
-    logging.info(
+    logger.info(
         f'Zipping directory "{get_relpath(comic.get_dest_dir())}" to'
         f' "{get_relpath(comic.get_dest_comic_zip())}".',
     )
@@ -51,7 +51,7 @@ def create_symlinks_to_comic_zip(comic: ComicBook) -> None:
 
 
 def create_symlink_zip(zip_file: str, symlink_dir: str, symlink: str) -> None:
-    logging.info(
+    logger.info(
         f'Symlinking (relative) the comic zip file "{get_relpath(zip_file)}" to'
         f' "{get_relpath(symlink)}".',
     )
@@ -83,7 +83,7 @@ def relative_symlink(target: Path | str, destination: Path | str) -> None:
 
     relative_source = os.path.relpath(target, target_dir)
 
-    logging.debug(f'"{relative_source}" -> "{destination.name}" in "{get_relpath(target_dir)}"')
+    logger.debug(f'"{relative_source}" -> "{destination.name}" in "{get_relpath(target_dir)}"')
     target_dir_fd = os.open(str(target_dir.absolute()), os.O_RDONLY)
     try:
         os.symlink(relative_source, destination.name, dir_fd=target_dir_fd)

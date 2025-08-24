@@ -1,25 +1,14 @@
 # ruff: noqa: T201
 
-import logging
 import os
 import sys
 import time
 from pathlib import Path
 
+from loguru import logger
 from src.restore_pipeline import RestorePipeline, check_for_errors
 
-
-def setup_logging(log_level) -> None:
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s: %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=log_level,
-    )
-
-
 if __name__ == "__main__":
-    setup_logging(logging.INFO)
-
     SCALE = 4
     srce_file = Path(sys.argv[1])
     srce_upscale_file = Path(sys.argv[2])
@@ -54,6 +43,6 @@ if __name__ == "__main__":
     restore_process.do_part3()
     restore_process.do_part4_memory_hungry()
 
-    logging.info(f'\nTime taken to restore all files": {int(time.time() - start_restore)}s.')
+    logger.info(f'\nTime taken to restore all files": {int(time.time() - start_restore)}s.')
 
     check_for_errors([restore_process])

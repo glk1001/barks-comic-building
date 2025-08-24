@@ -1,17 +1,18 @@
 # ruff: noqa: T201
 
 import json
-import logging
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comic_book import ComicBook
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.page_classes import ComicDimensions
 from barks_fantagraphics.pages import PageType, get_sorted_srce_and_dest_pages
-from comic_utils.comics_logging import setup_logging
+from loguru import logger
+from loguru_config import LoguruConfig
 from PIL import Image
 
 
@@ -47,47 +48,50 @@ def get_story_dimensions(comic: ComicBook) -> Dimensions:
     return Dimensions(srce_dims, front_width, front_height)
 
 
-# TODO(glk): Some issue with type checking inspection?
-# noinspection PyTypeChecker
-cmd_args = CmdArgs("Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME)
-args_ok, error_msg = cmd_args.args_are_valid()
-if not args_ok:
-    logging.error(error_msg)
-    sys.exit(1)
+if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
+    cmd_args = CmdArgs("Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME)
+    args_ok, error_msg = cmd_args.args_are_valid()
+    if not args_ok:
+        logger.error(error_msg)
+        sys.exit(1)
 
-setup_logging(cmd_args.get_log_level())
+    # Global variable accessed by loguru-config.
+    log_level = cmd_args.get_log_level()
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-comics_database = cmd_args.get_comics_database()
+    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
+    comics_database = cmd_args.get_comics_database()
 
-titles = cmd_args.get_titles()
+    titles = cmd_args.get_titles()
 
-dimensions_dict = {}
-max_title_len = 0
-for title in titles:
-    comic_book = comics_database.get_comic_book(title)
+    dimensions_dict = {}
+    max_title_len = 0
+    for title in titles:
+        comic_book = comics_database.get_comic_book(title)
 
-    story_dims = get_story_dimensions(comic_book)
+        story_dims = get_story_dimensions(comic_book)
 
-    title_with_issue_num = comic_book.get_title_with_issue_num()
-    max_title_len = max(max_title_len, len(title_with_issue_num))
+        title_with_issue_num = comic_book.get_title_with_issue_num()
+        max_title_len = max(max_title_len, len(title_with_issue_num))
 
-    dimensions_dict[title_with_issue_num] = story_dims
+        dimensions_dict[title_with_issue_num] = story_dims
 
-for title, story_dims in dimensions_dict.items():
-    title_str = title + ":"
+    for title, story_dims in dimensions_dict.items():
+        title_str = title + ":"
 
-    box_dims = story_dims.srce_dims
-    bboxes_str = (
-        f"{box_dims.min_panels_bbox_width:4},{box_dims.max_panels_bbox_width}"
-        f" {box_dims.min_panels_bbox_height:4},{box_dims.max_panels_bbox_height}"
-        f" {box_dims.av_panels_bbox_width:4},{box_dims.av_panels_bbox_height}"
-    )
+        box_dims = story_dims.srce_dims
+        bboxes_str = (
+            f"{box_dims.min_panels_bbox_width:4},{box_dims.max_panels_bbox_width}"
+            f" {box_dims.min_panels_bbox_height:4},{box_dims.max_panels_bbox_height}"
+            f" {box_dims.av_panels_bbox_width:4},{box_dims.av_panels_bbox_height}"
+        )
 
-    front_str = (
-        ""
-        if story_dims.front_width == -1
-        else f"Front: {story_dims.front_width:4} x {story_dims.front_height:4}"
-    )
+        front_str = (
+            ""
+            if story_dims.front_width == -1
+            else f"Front: {story_dims.front_width:4} x {story_dims.front_height:4}"
+        )
 
-    print(f"{title_str:<{max_title_len + 1}} BBoxes: {bboxes_str}  {front_str}")
+        print(f"{title_str:<{max_title_len + 1}} BBoxes: {bboxes_str}  {front_str}")

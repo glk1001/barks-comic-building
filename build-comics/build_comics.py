@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import logging
 import os
 import shutil
 import sys
@@ -45,6 +44,7 @@ from barks_fantagraphics.pages import (
     get_sorted_srce_and_dest_pages_with_dimensions,
 )
 from comic_utils.pil_image_utils import METADATA_PROPERTY_GROUP
+from loguru import logger
 from zipping import create_symlinks_to_comic_zip, zip_comic_book
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ class ComicBookBuilder:
         self._zip_and_symlink_comic_book()
 
     def _init_pages(self) -> None:
-        logging.debug("Initializing pages...")
+        logger.debug("Initializing pages...")
         self._srce_and_dest_pages, self._srce_dim, self._required_dim = (
             self._get_srce_and_dest_pages_and_dimensions(self._comic)
         )
@@ -117,23 +117,23 @@ class ComicBookBuilder:
             DEST_TARGET_WIDTH - (2 * DEST_TARGET_X_MARGIN)
         )
 
-        logging.debug(f"Srce average panels bbox width: {srce_dim.av_panels_bbox_width}.")
-        logging.debug(f"Srce average panels bbox height: {srce_dim.av_panels_bbox_height}.")
-        logging.debug(f"Required panels bbox width: {required_dim.panels_bbox_width}.")
-        logging.debug(f"Required panels bbox height: {required_dim.panels_bbox_height}.")
-        logging.debug(f"Required page num y bottom: {required_dim.page_num_y_bottom}.")
-        logging.debug("")
+        logger.debug(f"Srce average panels bbox width: {srce_dim.av_panels_bbox_width}.")
+        logger.debug(f"Srce average panels bbox height: {srce_dim.av_panels_bbox_height}.")
+        logger.debug(f"Required panels bbox width: {required_dim.panels_bbox_width}.")
+        logger.debug(f"Required panels bbox height: {required_dim.panels_bbox_height}.")
+        logger.debug(f"Required page num y bottom: {required_dim.page_num_y_bottom}.")
+        logger.debug("")
 
         return srce_and_dest_pages, srce_dim, required_dim
 
     def _create_comic_book(self) -> None:
-        logging.debug("Creating comic book...")
+        logger.debug("Creating comic book...")
         self._create_dest_dirs()
         self._process_pages()
         self._process_additional_files()
 
     def _process_pages(self) -> None:
-        logging.debug("Processing pages...")
+        logger.debug("Processing pages...")
         delete_all_files_in_directory(self._comic.get_dest_dir())
         delete_all_files_in_directory(self._comic.get_dest_image_dir())
 
@@ -180,14 +180,14 @@ class ComicBookBuilder:
             if srce_page.page_type == PageType.BODY:
                 check_srce_page_image_min_height()
 
-            logging.info(
+            logger.info(
                 f'Convert "{get_abbrev_path(srce_page.page_filename)}"'
                 f" (page-type {srce_page.page_type.name})"
                 f' to "{get_abbrev_path(dest_page.page_filename)}"'
                 f" (page {get_page_num_str(dest_page):>2}.",
             )
 
-            logging.info(
+            logger.info(
                 f'Creating dest image "{get_abbrev_path(dest_page.page_filename)}"'
                 f' from srce file "{get_abbrev_path(srce_page.page_filename)}".',
             )
@@ -198,15 +198,15 @@ class ComicBookBuilder:
             )
 
             self._save_dest_image(dest_page, dest_page_image, srce_page)
-            logging.info(f'Saved changes to image "{get_abbrev_path(dest_page.page_filename)}".')
+            logger.info(f'Saved changes to image "{get_abbrev_path(dest_page.page_filename)}".')
 
-            logging.info("")
+            logger.info("")
         except Exception:
             _, _, tb = sys.exc_info()
             tb_info = traceback.extract_tb(tb)
             filename, line, func, text = tb_info[-1]
             err_msg = f'Error in process page at "{filename}:{line}" for statement "{text}".'
-            logging.exception(err_msg)
+            logger.exception(err_msg)
             global _process_page_error  # noqa: PLW0603
             _process_page_error = True
 
@@ -276,7 +276,7 @@ class ComicBookBuilder:
 
     # noinspection LongLine
     def _log_comic_book_params(self) -> None:
-        logging.info("")
+        logger.info("")
 
         calc_panels_bbox_height = round(
             (self._srce_dim.av_panels_bbox_height * self._required_dim.panels_bbox_width)
@@ -284,37 +284,37 @@ class ComicBookBuilder:
         )
 
         # fmt: off
-        logging.info(f'Comic book series:    "{self._comic.series_name}".')
-        logging.info(f'Comic book title:     "{get_safe_title(self._comic.get_comic_title())}".')
-        logging.info(f'Comic issue title:    "{self._comic.get_comic_issue_title()}".')
-        logging.info(f"Number in series:     {self._comic.number_in_series}.")
-        logging.info(f"Chronological number  {self._comic.chronological_number}.")
-        logging.info(f"Dest x margin:        {DEST_TARGET_X_MARGIN}.")
-        logging.info(f"Dest width:           {DEST_TARGET_WIDTH}.")
-        logging.info(f"Dest height:          {DEST_TARGET_HEIGHT}.")
-        logging.info(f"Dest aspect ratio:    {DEST_TARGET_ASPECT_RATIO :.2f}.")
-        logging.info(f"Dest jpeg quality:    {DEST_JPG_QUALITY}.")
-        logging.info(f"Dest compress level:  {DEST_JPG_COMPRESS_LEVEL}.")
-        logging.info(f"Srce min bbox wid:    {self._srce_dim.min_panels_bbox_width}.")
-        logging.info(f"Srce max bbox wid:    {self._srce_dim.max_panels_bbox_width}.")
-        logging.info(f"Srce min bbox hgt:    {self._srce_dim.min_panels_bbox_height}.")
-        logging.info(f"Srce max bbox hgt:    {self._srce_dim.max_panels_bbox_height}.")
-        logging.info(f"Srce av bbox wid:     {self._srce_dim.av_panels_bbox_width}.")
-        logging.info(f"Srce av bbox hgt:     {self._srce_dim.av_panels_bbox_height}.")
-        logging.info(f"Req panels bbox wid:  {self._required_dim.panels_bbox_width}.")
-        logging.info(f"Req panels bbox hgt:  {self._required_dim.panels_bbox_height}.")
-        logging.info(f"Calc panels bbox ht:  {calc_panels_bbox_height}.")
-        logging.info(f"Page num y bottom:    {self._required_dim.page_num_y_bottom}.")
-        logging.info(f'Ini file:             "{get_clean_path(self._comic.ini_file)}".')
-        logging.info(f'Srce dir:             "{get_abbrev_path(self._comic.dirs.srce_dir)}".')
-        logging.info(f'Srce upscayled dir:   "{get_abbrev_path(self._comic.dirs.srce_upscayled_dir)}".')
-        logging.info(f'Srce restored dir:    "{get_abbrev_path(self._comic.dirs.srce_restored_dir)}".')
-        logging.info(f'Srce fixes dir:       "{get_abbrev_path(self._comic.dirs.srce_fixes_dir)}".')
-        logging.info(f'Srce upscayled fixes: "{get_abbrev_path(self._comic.dirs.srce_upscayled_fixes_dir)}".')
-        logging.info(f'Srce segments dir:    "{get_abbrev_path(self._comic.dirs.panel_segments_dir)}".')
-        logging.info(f'Dest dir:             "{get_abbrev_path(self._comic.get_dest_dir())}".')
-        logging.info(f'Dest comic zip:       "{get_abbrev_path(self._comic.get_dest_comic_zip())}".')
-        logging.info(f'Dest series symlink:  "{get_abbrev_path(self._comic.get_dest_series_comic_zip_symlink())}".')
-        logging.info(f'Dest year symlink:    "{get_abbrev_path(self._comic.get_dest_year_comic_zip_symlink())}".')
-        logging.info("")
+        logger.info(f'Comic book series:    "{self._comic.series_name}".')
+        logger.info(f'Comic book title:     "{get_safe_title(self._comic.get_comic_title())}".')
+        logger.info(f'Comic issue title:    "{self._comic.get_comic_issue_title()}".')
+        logger.info(f"Number in series:     {self._comic.number_in_series}.")
+        logger.info(f"Chronological number  {self._comic.chronological_number}.")
+        logger.info(f"Dest x margin:        {DEST_TARGET_X_MARGIN}.")
+        logger.info(f"Dest width:           {DEST_TARGET_WIDTH}.")
+        logger.info(f"Dest height:          {DEST_TARGET_HEIGHT}.")
+        logger.info(f"Dest aspect ratio:    {DEST_TARGET_ASPECT_RATIO :.2f}.")
+        logger.info(f"Dest jpeg quality:    {DEST_JPG_QUALITY}.")
+        logger.info(f"Dest compress level:  {DEST_JPG_COMPRESS_LEVEL}.")
+        logger.info(f"Srce min bbox wid:    {self._srce_dim.min_panels_bbox_width}.")
+        logger.info(f"Srce max bbox wid:    {self._srce_dim.max_panels_bbox_width}.")
+        logger.info(f"Srce min bbox hgt:    {self._srce_dim.min_panels_bbox_height}.")
+        logger.info(f"Srce max bbox hgt:    {self._srce_dim.max_panels_bbox_height}.")
+        logger.info(f"Srce av bbox wid:     {self._srce_dim.av_panels_bbox_width}.")
+        logger.info(f"Srce av bbox hgt:     {self._srce_dim.av_panels_bbox_height}.")
+        logger.info(f"Req panels bbox wid:  {self._required_dim.panels_bbox_width}.")
+        logger.info(f"Req panels bbox hgt:  {self._required_dim.panels_bbox_height}.")
+        logger.info(f"Calc panels bbox ht:  {calc_panels_bbox_height}.")
+        logger.info(f"Page num y bottom:    {self._required_dim.page_num_y_bottom}.")
+        logger.info(f'Ini file:             "{get_clean_path(self._comic.ini_file)}".')
+        logger.info(f'Srce dir:             "{get_abbrev_path(self._comic.dirs.srce_dir)}".')
+        logger.info(f'Srce upscayled dir:   "{get_abbrev_path(self._comic.dirs.srce_upscayled_dir)}".')
+        logger.info(f'Srce restored dir:    "{get_abbrev_path(self._comic.dirs.srce_restored_dir)}".')
+        logger.info(f'Srce fixes dir:       "{get_abbrev_path(self._comic.dirs.srce_fixes_dir)}".')
+        logger.info(f'Srce upscayled fixes: "{get_abbrev_path(self._comic.dirs.srce_upscayled_fixes_dir)}".')
+        logger.info(f'Srce segments dir:    "{get_abbrev_path(self._comic.dirs.panel_segments_dir)}".')
+        logger.info(f'Dest dir:             "{get_abbrev_path(self._comic.get_dest_dir())}".')
+        logger.info(f'Dest comic zip:       "{get_abbrev_path(self._comic.get_dest_comic_zip())}".')
+        logger.info(f'Dest series symlink:  "{get_abbrev_path(self._comic.get_dest_series_comic_zip_symlink())}".')
+        logger.info(f'Dest year symlink:    "{get_abbrev_path(self._comic.get_dest_year_comic_zip_symlink())}".')
+        logger.info("")
         # fmt: on

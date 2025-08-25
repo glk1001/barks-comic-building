@@ -28,7 +28,6 @@ from barks_fantagraphics.comics_consts import (
     FRONT_MATTER_PAGES,
     PAINTING_PAGES,
     PageType,
-    get_font_path,
 )
 from barks_fantagraphics.comics_utils import get_clean_path, get_timestamp_as_str, get_timestamp_str
 from barks_fantagraphics.page_classes import (
@@ -86,7 +85,7 @@ def write_summary_file(
     dest_comic_zip = get_clean_path(comic.get_dest_comic_zip())
     dest_series_zip_symlink = get_clean_path(comic.get_dest_series_comic_zip_symlink())
     dest_year_zip_symlink = get_clean_path(comic.get_dest_year_comic_zip_symlink())
-    title_font_file = get_clean_path(get_font_path(comic.title_font_file))
+    title_font_file = get_clean_path(comic.title_font_file)
     intro_inset_file = get_clean_path(comic.intro_inset_file)
 
     with open(summary_file, "w") as f:

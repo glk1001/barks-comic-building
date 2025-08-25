@@ -55,28 +55,32 @@ def write_cropped_image_file(
     print(f'Source: "{srce_image_file}".')
     print(f'Segments: "{segments_file}".')
 
-    with segments_file.open() as f:
-        panel_segment_info = json.load(f)
+    if not panel_segments_file.is_file():
+        image = open_pil_image_for_reading(str(srce_image_file))
+        image.save(target_image_file, optimize=True, compress_level=9)
+    else:
+        with segments_file.open() as f:
+            panel_segment_info = json.load(f)
 
-    panel_box = panel_segment_info["panels"][int(panel) - 1]
+        panel_box = panel_segment_info["panels"][int(panel) - 1]
 
-    left = panel_box[0]
-    bottom = panel_box[1]
-    right = left + panel_box[2]
-    upper = bottom + panel_box[3]
-    if panel_typ == "cl":
-        left *= 4
-        bottom *= 4
-        right *= 4
-        upper *= 4
+        left = panel_box[0]
+        bottom = panel_box[1]
+        right = left + panel_box[2]
+        upper = bottom + panel_box[3]
+        if panel_typ == "cl":
+            left *= 4
+            bottom *= 4
+            right *= 4
+            upper *= 4
 
-    print(f"Panel {panel}: {left}, {bottom}, {right}, {upper}")
+        print(f"Panel {panel}: {left}, {bottom}, {right}, {upper}")
 
-    image = open_pil_image_for_reading(str(srce_image_file))
-    subimage = image.crop((left, bottom, right, upper))
-    subimage.save(target_image_file, optimize=True, compress_level=9)
+        image = open_pil_image_for_reading(str(srce_image_file))
+        subimage = image.crop((left, bottom, right, upper))
+        subimage.save(target_image_file, optimize=True, compress_level=9)
 
-    print(f'Saved cropped image to "{target_image_file}".')
+        print(f'Saved cropped image to "{target_image_file}".')
 
 
 def open_gimp(image_file: Path) -> None:
@@ -111,26 +115,25 @@ if __name__ == "__main__":
     ]
 
     if page not in valid_page_list:
-        print(f'Error: Page "{page}" is not in {valid_page_list}.')
+        print(f'ERROR: Page "{page}" is not in {valid_page_list}.')
         sys.exit(1)
     if panel_type not in PANEL_TYPES:
-        print(f'Error: Panel type "{panel_type}" is not in {list(PANEL_TYPES.keys())}.')
+        print(f'ERROR: Panel type "{panel_type}" is not in {list(PANEL_TYPES.keys())}.')
         sys.exit(1)
 
     srce_file = get_source_file(comics_database, panel_type, page)
     if not srce_file.is_file():
-        print(f'Error: Could not find restored file "{srce_file}".')
+        print(f'ERROR: Could not find restored file "{srce_file}".')
         sys.exit(1)
 
     panel_segments_dir = Path(comics_database.get_fantagraphics_panel_segments_volume_dir(volume))
     panel_segments_file = panel_segments_dir / (page + ".json")
     if not panel_segments_file.is_file():
-        print(f'Error: Could not find segments file "{panel_segments_file}".')
-        sys.exit(1)
+        print(f'WARN: Could not find segments file "{panel_segments_file}". Returning full page.')
 
     target_file = get_target_file(title, panel_type, page, panel)
     if target_file.is_file():
-        print(f'Error: Target file already exists. Cannot overwrite: "{target_file}".')
+        print(f'ERROR: Target file already exists. Cannot overwrite: "{target_file}".')
         sys.exit(1)
 
     print(f'"{title}" [{volume}]: {page}, {panel}, {PANEL_TYPES[panel_type]}')

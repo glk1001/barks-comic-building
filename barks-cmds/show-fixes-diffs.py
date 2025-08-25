@@ -1,4 +1,4 @@
-# ruff: noqa: T201, ERA001
+# ruff: noqa: ERA001
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def get_image_diffs(
     return score, num_diff_areas, image1, image2
 
 
-def show_diffs_for_title(ttl: str, out_dir: str) -> None:
+def show_diffs_for_title(ttl: str, out_dir: str) -> tuple[str, int]:
     out_dir = os.path.join(out_dir, ttl)
 
     logger.info(f'Checking fixes for for "{ttl}"...')
@@ -87,9 +87,11 @@ def show_diffs_for_title(ttl: str, out_dir: str) -> None:
     fixes_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
     show_diffs_for_files(ttl + "-orig", os.path.join(out_dir, "orig"), srce_files, fixes_files)
 
+    num_diffs = 0
+
     srce_upscayl_files = comic.get_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
     fixes_upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
-    show_diffs_for_upscayled_files(
+    num_diffs += show_diffs_for_upscayled_files(
         ttl + "-upscayl",
         os.path.join(out_dir, "upscayl"),
         srce_files,
@@ -99,12 +101,14 @@ def show_diffs_for_title(ttl: str, out_dir: str) -> None:
 
     srce_restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
     fixes_restored_files = comic.get_final_srce_story_files(RESTORABLE_PAGE_TYPES)
-    show_diffs_for_files(
+    num_diffs += show_diffs_for_files(
         ttl + "-restored",
         os.path.join(out_dir, "restored"),
         srce_restored_files,
         fixes_restored_files,
     )
+
+    return out_dir, num_diffs
 
 
 def show_diffs_for_upscayled_files(
@@ -113,14 +117,15 @@ def show_diffs_for_upscayled_files(
     srce_files: list[str],
     upscayled_srce_files: list[str],
     upscayled_fixes_files: list[tuple[str, ModifiedType]],
-) -> None:
+) -> int:
     logger.info(f'Showing diffs for "{ttl}".')
 
+    num_diffs = 0
     made_out_dir = False
     diff_threshold = 0.5
 
     for srce_file, upscayled_srce_file, upscayled_fixes_file in zip(
-        srce_files, upscayled_srce_files, upscayled_fixes_files
+        srce_files, upscayled_srce_files, upscayled_fixes_files, strict=True
     ):
         page_mod_type = upscayled_fixes_file[1]
         if page_mod_type != ModifiedType.MODIFIED:
@@ -138,18 +143,23 @@ def show_diffs_for_upscayled_files(
             srce_image.width, srce_image.height, upscayled_fixes_file[0], smaller_fixes_file
         )
 
-        show_diffs_for_file(diff_threshold, ttl, out_dir, srce_file, smaller_fixes_file)
+        num_diffs += show_diffs_for_file(
+            diff_threshold, ttl, out_dir, srce_file, smaller_fixes_file
+        )
+
+    return num_diffs
 
 
 def show_diffs_for_files(
     ttl: str, out_dir: str, srce_files: list[str], fixes_files: list[tuple[str, ModifiedType]]
-) -> None:
+) -> int:
     logger.info(f'Showing diffs for "{ttl}".')
 
+    num_diffs = 0
     made_out_dir = False
     diff_threshold = 0.9
 
-    for srce_file, fixes_file in zip(srce_files, fixes_files):
+    for srce_file, fixes_file in zip(srce_files, fixes_files, strict=True):
         page_mod_type = fixes_file[1]
         if page_mod_type != ModifiedType.MODIFIED:
             continue
@@ -158,12 +168,14 @@ def show_diffs_for_files(
             os.makedirs(out_dir, exist_ok=True)
             made_out_dir = True
 
-        show_diffs_for_file(diff_threshold, ttl, out_dir, srce_file, fixes_file[0])
+        num_diffs += show_diffs_for_file(diff_threshold, ttl, out_dir, srce_file, fixes_file[0])
+
+    return num_diffs
 
 
 def show_diffs_for_file(
     diff_threshold: float, ttl: str, out_dir: str, srce_file: str, fixes_file: str
-) -> None:
+) -> int:
     logger.info(
         f'Getting diffs for file "{get_abbrev_path(srce_file)}"'
         f' and "{get_abbrev_path(fixes_file)}".'
@@ -175,10 +187,10 @@ def show_diffs_for_file(
 
     page = Path(srce_file).stem
 
-    print(f'"{ttl}-{page}": image similarity = {ssim:.6f}, num diffs = {num_diffs}.')
+    logger.info(f'"{ttl}-{page}": image similarity = {ssim:.6f}, num diffs = {num_diffs}.')
 
     if num_diffs == 0:
-        return
+        return 0
 
     diff1_file = os.path.join(out_dir, page + "-1-srce.png")
     diff2_file = os.path.join(out_dir, page + "-2-fixes.png")
@@ -187,6 +199,8 @@ def show_diffs_for_file(
     # cv2.imwrite(os.path.join(out_dir, "diffs.png"), diffs)
     # cv2.imwrite(os.path.join(out_dir, "mask.png"), mask)
     # cv2.imwrite(os.path.join(out_dir, "image2-with-filled-diffs.png"), image2_filled)
+
+    return num_diffs
 
 
 if __name__ == "__main__":
@@ -207,4 +221,7 @@ if __name__ == "__main__":
     output_dir = "/tmp/fixes-diffs"
 
     for title in cmd_args.get_titles():
-        show_diffs_for_title(title, output_dir)
+        title_out_dir, n_diffs = show_diffs_for_title(title, output_dir)
+
+        if n_diffs > 0:
+            logger.info(f'{n_diffs} diff files written to "{title_out_dir}".')

@@ -24,11 +24,13 @@ def show_panel_bounds(title: str, out_dir: str) -> None:
     svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
     panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
 
-    for svg_file, panel_segments_file in zip(svg_files, panel_segments_files):
+    for svg_file, panel_segments_file in zip(svg_files, panel_segments_files, strict=True):
         png_file = svg_file + PNG_FILE_EXT
         bounds_img_file = os.path.join(out_dir, Path(svg_file).stem + "-with-bounds.png")
         if not write_bounds_to_image_file(png_file, panel_segments_file, bounds_img_file):
             raise RuntimeError("There were process errors.")
+
+    logger.info(f'Finished generating panel bounds images for "{title}" to directory "{out_dir}".')
 
 
 def write_bounds_to_image_file(
@@ -71,6 +73,8 @@ def write_bounds_to_image_file(
 
     # noinspection PyProtectedMember
     img_rects._image.save(bounds_img_file)
+
+    logger.info(f'Saved bounds to image file "{get_abbrev_path(bounds_img_file)}".')
 
     return True
 

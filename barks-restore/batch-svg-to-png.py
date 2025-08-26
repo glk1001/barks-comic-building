@@ -12,6 +12,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from src.image_io import svg_file_to_png
 
+APP_LOGGING_NAME = "bsvg"
+
 SCALE = 4
 
 

@@ -11,6 +11,8 @@ from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "bpan"
+
 
 def panel_bounds(title_list: list[str]) -> None:
     start = time.time()

@@ -5,6 +5,8 @@ import sys
 
 from src.upscale_image import upscale_image_file
 
+APP_LOGGING_NAME = "dups"
+
 if __name__ == "__main__":
     scale = 4
 

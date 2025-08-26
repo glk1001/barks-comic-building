@@ -11,6 +11,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from yearly_graph import create_yearly_plot
 
+APP_LOGGING_NAME = "ycnt"
+
 TEMP_PAGE_COUNTS = {
     Titles.DONALD_DUCK_FINDS_PIRATE_GOLD: 32,
     Titles.VICTORY_GARDEN_THE: 10,

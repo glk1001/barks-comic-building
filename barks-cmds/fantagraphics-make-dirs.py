@@ -5,6 +5,8 @@ from barks_fantagraphics.comics_cmd_args import CmdArgs
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "mdir"
+
 if __name__ == "__main__":
     cmd_args = CmdArgs("Make required Fantagraphics directories.")
     args_ok, error_msg = cmd_args.args_are_valid()

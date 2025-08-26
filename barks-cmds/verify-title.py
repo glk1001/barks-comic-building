@@ -8,6 +8,8 @@ from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "vttl"
+
 
 def get_display_title(ttl: str) -> str:
     title_is_configured, _ = comics_database.is_story_title(ttl)

@@ -12,6 +12,8 @@ from comic_utils.pil_image_utils import open_pil_image_for_reading
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "ettl"
+
 GIMP_EXE = ["/usr/bin/flatpak", "run", "org.gimp.GIMP"]
 
 # RESTORED_ROOT_DIR = /home/greg/Books/Carl Barks/Fantagraphics-restored

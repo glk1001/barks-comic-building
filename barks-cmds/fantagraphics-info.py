@@ -24,6 +24,8 @@ from barks_fantagraphics.fanta_comics_info import FantaComicBookInfo
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "ifan"
+
 EMPTY_FLAG = " "
 FIXES_FLAG = "F"
 

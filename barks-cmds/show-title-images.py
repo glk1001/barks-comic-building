@@ -9,6 +9,8 @@ from barks_fantagraphics.comics_consts import PageType
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "sttl"
+
 VIEWER_EXE = ["/usr/bin/eog"]
 
 

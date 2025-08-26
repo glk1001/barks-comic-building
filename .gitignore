@@ -8,6 +8,7 @@
 .idea/**/tasks.xml
 .idea/**/usage.statistics.xml
 .idea/**/shelf
+logs/
 
 # AWS User-specific
 .idea/**/aws.xml

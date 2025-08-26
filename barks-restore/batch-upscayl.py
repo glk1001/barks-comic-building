@@ -11,6 +11,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from src.upscale_image import upscale_image_file
 
+APP_LOGGING_NAME = "bups"
+
 SCALE = 4
 
 

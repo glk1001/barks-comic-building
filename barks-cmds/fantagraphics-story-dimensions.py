@@ -15,6 +15,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from PIL import Image
 
+APP_LOGGING_NAME = "sdim"
+
 
 @dataclass
 class Dimensions:

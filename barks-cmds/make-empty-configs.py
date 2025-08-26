@@ -10,6 +10,8 @@ from barks_fantagraphics.fanta_comics_info import FantaComicBookInfo, get_fanta_
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "mcfg"
+
 
 def get_issue_titles(
     title_info_list: list[tuple[str, FantaComicBookInfo]],

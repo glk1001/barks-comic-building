@@ -9,6 +9,8 @@ from barks_fantagraphics.title_search import BarksTitleSearch, unique_extend
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "fttl"
+
 EXTRA_ARGS: list[ExtraArg] = [
     ExtraArg("--prefix", action="store", type=str, default=""),
     ExtraArg("--word", action="store", type=str, default=""),

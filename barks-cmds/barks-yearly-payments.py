@@ -13,6 +13,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from yearly_graph import create_yearly_plot
 
+APP_LOGGING_NAME = "ypay"
+
 if __name__ == "__main__":
     cmd_args = CmdArgs("Barks yearly payments")
     args_ok, error_msg = cmd_args.args_are_valid()

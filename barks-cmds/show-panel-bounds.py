@@ -13,6 +13,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from PIL import Image, ImageDraw
 
+APP_LOGGING_NAME = "span"
+
 
 def show_panel_bounds(title: str, out_dir: str) -> None:
     out_dir = os.path.join(out_dir, title)

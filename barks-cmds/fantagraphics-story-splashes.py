@@ -14,6 +14,8 @@ from comic_utils.panel_segmentation import BIG_NUM, get_kumiko_panel_bound
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "spla"
+
 
 def get_story_splashes(comic: ComicBook) -> list[str]:
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)

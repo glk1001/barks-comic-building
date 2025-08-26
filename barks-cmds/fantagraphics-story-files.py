@@ -17,6 +17,8 @@ from barks_fantagraphics.pages import get_restored_srce_dependencies, get_sorted
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "sfil"
+
 
 def print_sources(indent: int, source_list: list[str]) -> None:
     if not source_list:

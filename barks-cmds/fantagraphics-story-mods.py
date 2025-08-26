@@ -20,6 +20,8 @@ from loguru_config import LoguruConfig
 if TYPE_CHECKING:
     from barks_fantagraphics.page_classes import CleanPage
 
+APP_LOGGING_NAME = "smod"
+
 
 def get_srce_dest_mods_map(comic: ComicBook) -> None | tuple[str, str]:
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
@@ -34,7 +36,9 @@ def get_srce_dest_mods_map(comic: ComicBook) -> None | tuple[str, str]:
 
     modified_dest_pages = [
         f"{get_page_num_str(dest):>4}    "
-        for srce, dest in zip(srce_and_dest_pages.srce_pages, srce_and_dest_pages.dest_pages)
+        for srce, dest in zip(
+            srce_and_dest_pages.srce_pages, srce_and_dest_pages.dest_pages, strict=True
+        )
         if get_page_mod_type(comic, srce) != ModifiedType.ORIGINAL
     ]
     if not modified_dest_pages:

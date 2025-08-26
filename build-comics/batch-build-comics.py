@@ -16,6 +16,8 @@ from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "bbld"
+
 
 def process_comic_book_titles(
     comics_db: ComicsDatabase,

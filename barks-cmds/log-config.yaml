@@ -1,6 +1,9 @@
+extra:
+  sys_name: ext://__main__.APP_LOGGING_NAME
+
 handlers:
   - sink: ext://sys.stdout
     level: ext://__main__.log_level
-    enqueue: True
+    format: ext://comic_utils.loguru_setup.log_to_console_formatter
     backtrace: True
     diagnose: True

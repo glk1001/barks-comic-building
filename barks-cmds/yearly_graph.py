@@ -3,6 +3,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+APP_LOGGING_NAME = "ygra"
+
 
 def create_yearly_plot(
     plot_title: str,

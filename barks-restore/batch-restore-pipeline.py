@@ -14,6 +14,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from src.restore_pipeline import RestorePipeline, check_for_errors
 
+APP_LOGGING_NAME = "bres"
+
 SCALE = 4
 SMALL_RAM = 16 * 1024 * 1024 * 1024
 

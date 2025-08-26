@@ -17,6 +17,8 @@ from loguru import logger
 from loguru_config import LoguruConfig
 from skimage.metrics import structural_similarity
 
+APP_LOGGING_NAME = "sdif"
+
 # TODO: Put these somewhere else
 SRCE_STANDARD_WIDTH = 2175
 SRCE_STANDARD_HEIGHT = 3000

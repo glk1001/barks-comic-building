@@ -8,6 +8,8 @@ from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from loguru import logger
 from loguru_config import LoguruConfig
 
+APP_LOGGING_NAME = "scnt"
+
 if __name__ == "__main__":
     cmd_args = CmdArgs("Fantagraphics volume page counts", CmdArgNames.VOLUME)
     args_ok, error_msg = cmd_args.args_are_valid()

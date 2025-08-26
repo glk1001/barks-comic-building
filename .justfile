@@ -37,12 +37,12 @@ page-count volume:
 
 # Build a title
 [group('comics')]
-build title:
+build-title title:
     uv run "{{ source_dir() }}/build-comics/batch-build-comics.py" build --log-level INFO --title "{{title}}"
 
 # Build a volume or volumes
 [group('comics')]
-build-volume volume:
+build volume:
     uv run "{{ source_dir() }}/build-comics/batch-build-comics.py" build --log-level INFO --volume "{{volume}}"
 
 # Check the integrity of a volume or volumes

@@ -33,6 +33,6 @@ if __name__ == "__main__":
     if num_errors > 0:
         print(f"\nComparison failed with {num_errors} errors.")
     else:
-        print("\nComparison successful. Directories are equivalent.")
+        print("\nComparison successful. All directories are equivalent.")
 
     sys.exit(num_errors)

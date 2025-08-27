@@ -55,6 +55,11 @@ check volume:
 upscayl volume:
     uv run "{{ source_dir() }}/barks-restore/batch-upscayl.py" --volume {{ volume }}
 
+# Upscayl all restoreable pages in a title
+[group('comics')]
+upscayl-title title:
+    uv run "{{ source_dir() }}/barks-restore/batch-upscayl.py" --title "{{title}}"
+
 # Restore all restoreable pages in a volume or volumes
 [group('comics')]
 restore volume:

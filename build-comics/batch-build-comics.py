@@ -11,7 +11,7 @@ from barks_fantagraphics.comics_database import ComicsDatabase, get_default_comi
 from barks_fantagraphics.comics_utils import get_titles_sorted_by_submission_date
 from build_comics import ComicBookBuilder
 from comic_utils.timing import Timing
-from comics_integrity import check_comics_integrity
+from comics_integrity import ComicsIntegrityChecker
 from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
@@ -172,7 +172,8 @@ if __name__ == "__main__":
     comics_database.set_inset_info(PNG_INSET_DIR, PNG_INSET_EXT)
 
     if cmd_args.cmd_name == CHECK_INTEGRITY_ARG:
-        exit_code = check_comics_integrity(comics_database, get_titles(cmd_args))
+        integrity_checker = ComicsIntegrityChecker(comics_database)
+        exit_code = integrity_checker.check_comics_integrity(get_titles(cmd_args))
     elif cmd_args.cmd_name == BUILD_ARG:
         exit_code = process_comic_book_titles(comics_database, get_titles(cmd_args))
     else:

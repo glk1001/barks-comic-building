@@ -1,4 +1,4 @@
-# ruff: noqa: ERA001, C901, T201
+# ruff: noqa: C901, T201
 
 import os
 from dataclasses import dataclass
@@ -90,11 +90,16 @@ class OutOfDateErrors:
 
 
 class ComicsIntegrityChecker:
-    def __init__(self, comics_db: ComicsDatabase) -> None:
+    def __init__(
+        self,
+        comics_db: ComicsDatabase,
+        no_check_for_unexpected_files: bool,
+        no_check_symlinks: bool,
+    ) -> None:
         self.comics_database = comics_db
 
-        self._check_for_unexpected_files = False
-        self._check_symlinks = False
+        self._check_for_unexpected_files = not no_check_for_unexpected_files
+        self._check_symlinks = not no_check_symlinks
 
     def check_comics_integrity(self, titles: list[str]) -> int:
         panel_bounding.warn_on_panels_bbox_height_less_than_av = False
@@ -166,14 +171,53 @@ class ComicsIntegrityChecker:
     def check_fantagraphics_files(self) -> int:
         logger.info("Checking Fantagraphics files.")
 
-        # TODO: Fix this look for 001
-        # ret_code = check_fantagraphics_original_dirs()
-        ret_code = self.check_all_fixes_and_additions_files()
+        ret_code = self.check_all_fantagraphics_original_dirs()
+        ret = self.check_all_fixes_and_additions_files()
+        if ret != 0:
+            ret_code = ret
 
         if ret_code == 0:
             logger.info("All Fantagraphics files are OK.")
         else:
             logger.error("There were issues with some Fantagraphics files.")
+
+        return ret_code
+
+    def check_all_fantagraphics_original_dirs(self) -> int:
+        ret_code = 0
+
+        for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
+            if self.check_fantagraphics_original_dirs(volume) != 0:
+                ret_code = 1
+
+        return ret_code
+
+    def check_fantagraphics_original_dirs(self, volume: int) -> int:
+        fanta_original_image_dir = Path(
+            self.comics_database.get_fantagraphics_volume_image_dir(volume)
+        )
+
+        images = sorted(fanta_original_image_dir.iterdir())
+
+        ret_code = 0
+        expected_image_num = 0
+        for file in images:
+            expected_image_num += 1
+            image_num = int(file.stem)
+            if image_num != expected_image_num:
+                print(
+                    f"{ERROR_MSG_PREFIX}Expecting image num {expected_image_num}."
+                    f' Original image file is out of order: "{file}".'
+                )
+                ret_code = 1
+
+        num_pages = self.comics_database.get_num_pages_in_fantagraphics_volume(volume)
+        if num_pages != expected_image_num:
+            print(
+                f'{ERROR_MSG_PREFIX}For volume "{fanta_original_image_dir}",'
+                f" expecting {num_pages} images but got {expected_image_num} images."
+            )
+            ret_code = 1
 
         return ret_code
 

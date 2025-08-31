@@ -80,6 +80,8 @@ LOG_LEVEL_ARG = "--log-level"
 COMICS_DATABASE_DIR_ARG = "--comics-database-dir"
 VOLUME_ARG = "--volume"
 TITLE_ARG = "--title"
+NO_CHECK_FOR_UNEXPECTED_FILES_ARG = "--no-check-for-unexpected-files"
+NO_CHECK_SYMLINKS_ARG = "--no-check-symlinks"
 
 BUILD_ARG = "build"
 CHECK_INTEGRITY_ARG = "check-integrity"
@@ -124,6 +126,16 @@ def get_args():
         action="store",
         type=str,
         default=get_default_comics_database_dir(),
+    )
+    check_integrity_parser.add_argument(
+        NO_CHECK_FOR_UNEXPECTED_FILES_ARG,
+        action="store_true",
+        default=False,
+    )
+    check_integrity_parser.add_argument(
+        NO_CHECK_SYMLINKS_ARG,
+        action="store_true",
+        default=False,
     )
     check_integrity_parser.add_argument(VOLUME_ARG, action="store", type=str, required=False)
     check_integrity_parser.add_argument(TITLE_ARG, action="store", type=str, required=False)
@@ -172,7 +184,9 @@ if __name__ == "__main__":
     comics_database.set_inset_info(PNG_INSET_DIR, PNG_INSET_EXT)
 
     if cmd_args.cmd_name == CHECK_INTEGRITY_ARG:
-        integrity_checker = ComicsIntegrityChecker(comics_database)
+        integrity_checker = ComicsIntegrityChecker(
+            comics_database, cmd_args.no_check_for_unexpected_files, cmd_args.no_check_symlinks
+        )
         exit_code = integrity_checker.check_comics_integrity(get_titles(cmd_args))
     elif cmd_args.cmd_name == BUILD_ARG:
         exit_code = process_comic_book_titles(comics_database, get_titles(cmd_args))

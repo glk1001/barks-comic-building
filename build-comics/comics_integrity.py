@@ -564,7 +564,6 @@ class ComicsIntegrityChecker:
             self.comics_database.get_root_dir("Misc"),
             self.comics_database.get_root_dir("Not-controversial-restored"),
             self.comics_database.get_root_dir("Paintings"),
-            self.comics_database.get_root_dir("Silent Night (Gemstone)"),
             THE_COMICS_DIR,
         ]
 

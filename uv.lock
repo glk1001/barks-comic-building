@@ -3,33 +3,12 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "barks-build-comic-images"
-version = "0.1.0"
-source = { editable = "../barks-build-comic-images" }
-dependencies = [
-    { name = "loguru" },
-    { name = "pillow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "pillow", specifier = ">=11.3.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.12.10" }]
-
-[[package]]
 name = "barks-comic-building"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "barks-build-comic-images" },
-    { name = "barks-fantagraphics" },
     { name = "bs4" },
     { name = "cairosvg" },
-    { name = "comic-utils" },
     { name = "cpi" },
     { name = "intspan" },
     { name = "loguru" },
@@ -52,11 +31,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "barks-build-comic-images", editable = "../barks-build-comic-images" },
-    { name = "barks-fantagraphics", editable = "../barks-fantagraphics" },
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "cairosvg", specifier = ">=2.8.2" },
-    { name = "comic-utils", editable = "../comic-utils" },
     { name = "cpi", specifier = ">=2.0.7" },
     { name = "intspan", specifier = ">=1.6.1" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -75,27 +51,6 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "ruff", specifier = ">=0.12.7" },
-]
-
-[[package]]
-name = "barks-fantagraphics"
-version = "0.1.0"
-source = { editable = "../barks-fantagraphics" }
-dependencies = [
-    { name = "intspan" },
-    { name = "loguru" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "intspan", specifier = ">=1.6.1" },
-    { name = "loguru", specifier = ">=0.7.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "ruff", specifier = ">=0.12.8" },
 ]
 
 [[package]]
@@ -255,26 +210,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d8/53/6f443c9a4a8358a93
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6", size = 25335, upload-time = "2022-10-25T02:36:20.889Z" },
 ]
-
-[[package]]
-name = "comic-utils"
-version = "0.1.0"
-source = { editable = "../comic-utils" }
-dependencies = [
-    { name = "loguru" },
-    { name = "opencv-python" },
-    { name = "pillow" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "opencv-python", specifier = ">=4.12.0.88" },
-    { name = "pillow", specifier = ">=11.3.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.12.8" }]
 
 [[package]]
 name = "contourpy"

@@ -6,16 +6,14 @@
       <excludeFolder url="file://$MODULE_DIR$/build-comics/scraps" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
     </content>
-    <content url="file://$MODULE_DIR$/../barks-fantagraphics">
-      <sourceFolder url="file://$MODULE_DIR$/../barks-fantagraphics/src" isTestSource="false" />
-      <excludeFolder url="file://$MODULE_DIR$/../barks-fantagraphics/.venv" />
-      <excludeFolder url="file://$MODULE_DIR$/../barks-fantagraphics/scraps" />
-      <excludeFolder url="file://$MODULE_DIR$/../barks-fantagraphics" />
+    <content url="file://$MODULE_DIR$/../barks-compleat-reader/src/barks-build-comic-images/src">
+      <sourceFolder url="file://$MODULE_DIR$/../barks-compleat-reader/src/barks-build-comic-images/src/barks_build_comic_images" isTestSource="false" />
     </content>
-    <content url="file://$MODULE_DIR$/../comic-utils">
-      <sourceFolder url="file://$MODULE_DIR$/../comic-utils/src" isTestSource="false" />
-      <excludeFolder url="file://$MODULE_DIR$/../comic-utils" />
-      <excludeFolder url="file://$MODULE_DIR$/../comic-utils/.venv" />
+    <content url="file://$MODULE_DIR$/../barks-compleat-reader/src/barks-fantagraphics/src">
+      <sourceFolder url="file://$MODULE_DIR$/../barks-compleat-reader/src/barks-fantagraphics/src/barks_fantagraphics" isTestSource="false" />
+    </content>
+    <content url="file://$MODULE_DIR$/../barks-compleat-reader/src/comic-utils/src">
+      <sourceFolder url="file://$MODULE_DIR$/../barks-compleat-reader/src/comic-utils/src/comic_utils" isTestSource="false" />
     </content>
     <orderEntry type="jdk" jdkName="uv (barks-comic-building)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

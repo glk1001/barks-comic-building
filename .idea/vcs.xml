@@ -2,7 +2,6 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/../barks-fantagraphics" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/../comic-utils" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../barks-compleat-reader" vcs="Git" />
   </component>
 </project>

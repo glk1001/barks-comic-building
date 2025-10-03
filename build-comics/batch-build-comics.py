@@ -77,7 +77,6 @@ def mark_process_end(process_timing: Timing) -> None:
 
 
 LOG_LEVEL_ARG = "--log-level"
-COMICS_DATABASE_DIR_ARG = "--comics-database-dir"
 VOLUME_ARG = "--volume"
 TITLE_ARG = "--title"
 NO_CHECK_FOR_UNEXPECTED_FILES_ARG = "--no-check-for-unexpected-files"

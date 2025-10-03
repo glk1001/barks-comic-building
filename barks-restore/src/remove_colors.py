@@ -1,5 +1,5 @@
-import os
 from collections import OrderedDict
+from pathlib import Path
 
 import cv2 as cv
 import numpy as np
@@ -55,40 +55,38 @@ def get_color_counts(image: cv.typing.MatLike) -> dict[tuple[int, int, int], int
     return all_colors
 
 
-def write_color_counts(filename: str, image: cv.typing.MatLike) -> None:
+def write_color_counts(filename: Path, image: cv.typing.MatLike) -> None:
     color_counts = get_color_counts(image)
     color_counts_descending = OrderedDict(
         sorted(color_counts.items(), key=lambda kv: kv[1], reverse=True)
     )
-    with open(filename, "w") as f:
+    with filename.open("w") as f:
         f.writelines(
             f"{color}: {color_counts_descending[color]}\n" for color in color_counts_descending
         )
 
 
 def remove_colors_from_image(
-    work_dir: str, work_file_stem: str, in_file: str, out_file: str
+    work_dir: Path, work_file_stem: str, in_file: Path, out_file: Path
 ) -> None:
-    out_image = cv.imread(in_file)
+    out_image = cv.imread(str(in_file))
 
     posterize_image(out_image)
-    posterized_image_file = os.path.join(
-        work_dir, work_file_stem + "-posterized-pre-remove-colors.png"
-    )
+    posterized_image_file = work_dir / (work_file_stem + "-posterized-pre-remove-colors.png")
     write_cv_image_file(posterized_image_file, out_image)
 
     if DEBUG_WRITE_COLOR_COUNTS:
-        posterized_counts_file = os.path.join(
-            work_dir, work_file_stem + "-posterized-color-counts-pre-remove-colors.txt"
+        posterized_counts_file = work_dir / (
+            work_file_stem + "-posterized-color-counts-pre-remove-colors.txt"
         )
         write_color_counts(posterized_counts_file, out_image)
 
-    out_image = cv.cvtColor(out_image, cv.COLOR_RGB2RGBA)
+    out_image = cv.cvtColor(str(out_image), cv.COLOR_RGB2RGBA)
     remove_colors(out_image)
 
     if DEBUG_WRITE_COLOR_COUNTS:
-        remaining_color_counts_file = os.path.join(
-            work_dir, work_file_stem + "-remaining-color-counts-post-remove-colors.txt"
+        remaining_color_counts_file = work_dir / (
+            work_file_stem + "-remaining-color-counts-post-remove-colors.txt"
         )
         write_color_counts(remaining_color_counts_file, out_image)
 

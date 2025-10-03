@@ -1,5 +1,4 @@
 import concurrent.futures
-import os
 import sys
 import time
 from pathlib import Path
@@ -41,13 +40,14 @@ def svgs_to_pngs(title_list: list[str]) -> None:
     logger.info(f"\nTime taken to convert all {num_png_files} files: {int(time.time() - start)}s.")
 
 
-def convert_svg_to_png(srce_svg: str) -> None:
+def convert_svg_to_png(srce_svg: Path) -> None:
     try:
-        if not os.path.isfile(srce_svg):
-            raise FileNotFoundError(f'Could not find srce file: "{srce_svg}".')
+        if not srce_svg.is_file():
+            msg = f'Could not find srce file: "{srce_svg}".'
+            raise FileNotFoundError(msg)
 
-        png_file = srce_svg + ".png"
-        if os.path.isfile(png_file):
+        png_file = srce_svg.with_suffix(".png")
+        if png_file.is_file():
             logger.warning(f'Dest png file exists - skipping: "{get_abbrev_path(png_file)}".')
             return
 

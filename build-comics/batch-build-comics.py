@@ -7,7 +7,7 @@ from pathlib import Path
 from additional_file_writing import write_summary_file
 from barks_fantagraphics.comic_book import ComicBook
 from barks_fantagraphics.comics_consts import PNG_INSET_DIR, PNG_INSET_EXT
-from barks_fantagraphics.comics_database import ComicsDatabase, get_default_comics_database_dir
+from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_titles_sorted_by_submission_date
 from build_comics import ComicBookBuilder
 from comic_utils.timing import Timing
@@ -101,12 +101,6 @@ def get_args():
     )
 
     build_comics_parser = subparsers.add_parser(BUILD_ARG, help="build comics")
-    build_comics_parser.add_argument(
-        COMICS_DATABASE_DIR_ARG,
-        action="store",
-        type=str,
-        default=get_default_comics_database_dir(),
-    )
     build_comics_parser.add_argument(VOLUME_ARG, action="store", type=str, required=False)
     build_comics_parser.add_argument(TITLE_ARG, action="store", type=str, required=False)
     build_comics_parser.add_argument(
@@ -120,12 +114,6 @@ def get_args():
     check_integrity_parser = subparsers.add_parser(
         CHECK_INTEGRITY_ARG,
         help="check the integrity of all previously built comics",
-    )
-    check_integrity_parser.add_argument(
-        COMICS_DATABASE_DIR_ARG,
-        action="store",
-        type=str,
-        default=get_default_comics_database_dir(),
     )
     check_integrity_parser.add_argument(
         NO_CHECK_FOR_UNEXPECTED_FILES_ARG,

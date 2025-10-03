@@ -1,9 +1,9 @@
-import os.path
+from pathlib import Path
 
 from vtracer import convert_image_to_svg_py
 
 
-def image_file_to_svg(in_file: str, out_file: str) -> None:
+def image_file_to_svg(in_file: Path, out_file: Path) -> None:
     # colormode (str, optional): True color image `color` (default) or Binary image `binary`.
     # color_precision (int, optional): Number of significant bits to use in an RGB channel.
     #                                  Defaults to 8.
@@ -25,13 +25,13 @@ def image_file_to_svg(in_file: str, out_file: str) -> None:
     # Testing on three single panel images showed defaults good but 'length_threshold=10' also
     # gives good results with smaller .svg files.
 
-    if not os.path.isfile(in_file):
+    if not in_file.is_file():
         msg = f'Could not find file "{in_file}".'
         raise FileNotFoundError(msg)
 
     convert_image_to_svg_py(
-        in_file,
-        out_file,
+        str(in_file),
+        str(out_file),
         colormode="binary",
         path_precision=3,
         mode="spline",

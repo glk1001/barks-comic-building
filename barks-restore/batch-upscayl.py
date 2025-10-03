@@ -1,4 +1,3 @@
-import os
 import sys
 import time
 from pathlib import Path
@@ -40,11 +39,11 @@ def upscayl(title_list: list[str]) -> None:
     )
 
 
-def upscayl_file(srce_file: str, dest_file: str) -> bool:
-    if not os.path.isfile(srce_file):
+def upscayl_file(srce_file: Path, dest_file: Path) -> bool:
+    if not srce_file.is_file():
         msg = f'Could not find srce file: "{srce_file}".'
         raise FileNotFoundError(msg)
-    if os.path.isfile(dest_file):
+    if dest_file.is_file():
         logger.warning(f'Dest upscayl file exists - skipping: "{get_abbrev_path(dest_file)}".')
         return False
 

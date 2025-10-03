@@ -1,5 +1,4 @@
 import concurrent.futures
-import os
 import sys
 import time
 from pathlib import Path
@@ -41,7 +40,7 @@ def copy_title(title_str: str) -> None:
     srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
     dest_restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
 
-    for srce_file, dest_file in zip(srce_files, dest_restored_files):
+    for srce_file, dest_file in zip(srce_files, dest_restored_files, strict=True):
         if Path(dest_file).is_file():
             logger.warning(
                 f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".',
@@ -61,8 +60,8 @@ def restore_title(title: str) -> None:
 
     comic = comics_database.get_comic_book(title)
 
-    title_work_dir = os.path.join(work_dir, title)
-    os.makedirs(title_work_dir, exist_ok=True)
+    title_work_dir = work_dir / title
+    title_work_dir.mkdir(parents=True, exist_ok=True)
 
     srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
     srce_upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
@@ -86,11 +85,12 @@ def restore_title(title: str) -> None:
         dest_restored_files,
         dest_restored_upscayled_files,
         dest_restored_svg_files,
+        strict=True,
     ):
-        if not os.path.isfile(srce_upscayl_file[0]):
+        if not srce_upscayl_file[0].is_file():
             logger.error(f'Could not find srce upscayl file - skipping: "{srce_upscayl_file[0]}".')
             continue
-        if os.path.isfile(dest_restored_file):
+        if dest_restored_file.is_file():
             logger.warning(
                 f'Dest file exists - skipping: "{get_abbrev_path(dest_restored_file)}".',
             )
@@ -192,8 +192,8 @@ if __name__ == "__main__":
     log_filename = "batch-restore.log"
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    work_dir = os.path.join(cmd_args.get_work_dir())
-    os.makedirs(work_dir, exist_ok=True)
+    work_dir = cmd_args.get_work_dir()
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     comics_database = cmd_args.get_comics_database()
 

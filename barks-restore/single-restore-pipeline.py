@@ -1,6 +1,5 @@
 # ruff: noqa: T201
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -16,16 +15,16 @@ if __name__ == "__main__":
     dest_upscayled_restored_file = Path(sys.argv[4])
     dest_svg_restored_file = Path(sys.argv[5])
 
-    out_dir = os.path.dirname(dest_restored_file)
-    if not os.path.isdir(out_dir):
+    out_dir = dest_restored_file.parent
+    if not out_dir.is_dir():
         print(f'ERROR: Can\'t find output directory: "{out_dir}".')
         sys.exit(1)
 
-    work_dir = os.path.join("/tmp/", "working")
-    os.makedirs(work_dir, exist_ok=True)
+    work_dir = Path("/tmp/") / "working"
+    work_dir.mkdir(parents=True, exist_ok=True)
 
-    input_image_dir = os.path.dirname(srce_file)
-    input_image_stem = Path(srce_file).stem
+    input_image_dir = srce_file.parent
+    input_image_stem = srce_file.stem
 
     start_restore = time.time()
 

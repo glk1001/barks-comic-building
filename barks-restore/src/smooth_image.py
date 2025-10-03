@@ -1,9 +1,11 @@
+from pathlib import Path
+
 from .gmic_exe import run_gmic
 
 
-def smooth_image_file(in_file: str, out_file: str) -> None:
+def smooth_image_file(in_file: Path, out_file: Path) -> None:
     smooth_cmd = [
-        in_file,
+        str(in_file),
         "fx_smooth_anisotropic",
         _get_gmic_smooth_anisotropic_params(),
         "-threshold[-1]",
@@ -11,7 +13,7 @@ def smooth_image_file(in_file: str, out_file: str) -> None:
         "normalize[-1]",
         "0,255",
         "-output[-1]",
-        out_file,
+        str(out_file),
     ]
 
     run_gmic(smooth_cmd)

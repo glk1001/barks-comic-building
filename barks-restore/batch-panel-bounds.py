@@ -1,5 +1,4 @@
 import concurrent.futures
-import os
 import sys
 import time
 from pathlib import Path
@@ -21,8 +20,8 @@ def panel_bounds(title_list: list[str]) -> None:
     for title in title_list:
         logger.info(f'Getting panel bounds for all pages in "{title}"...')
 
-        title_work_dir = os.path.join(work_dir, title)
-        os.makedirs(title_work_dir, exist_ok=True)
+        title_work_dir = work_dir / title
+        title_work_dir.mkdir(parents=True, exist_ok=True)
 
         bounding_box_processor = BoundingBoxProcessor(title_work_dir)
 
@@ -31,19 +30,17 @@ def panel_bounds(title_list: list[str]) -> None:
         srce_files = comic.get_final_srce_story_files(RESTORABLE_PAGE_TYPES)
         dest_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
 
-        if not os.path.isdir(comic.get_srce_original_fixes_image_dir()):
+        if not comic.get_srce_original_fixes_image_dir().is_dir():
             msg = (
                 f"Could not find panel bounds directory "
                 f'"{comic.get_srce_original_fixes_image_dir()}".'
             )
             raise FileNotFoundError(msg)
         # TODO: Put this in barks_fantagraphics
-        srce_panels_bounds_override_dir = os.path.join(
-            comic.get_srce_original_fixes_image_dir(), "bounded"
-        )
+        srce_panels_bounds_override_dir = comic.get_srce_original_fixes_image_dir() / "bounded"
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            for (srce_file, _), dest_file in zip(srce_files, dest_files):
+            for (srce_file, _), dest_file in zip(srce_files, dest_files, strict=True):
                 executor.submit(
                     get_page_panel_bounds,
                     bounding_box_processor,
@@ -54,22 +51,20 @@ def panel_bounds(title_list: list[str]) -> None:
 
         num_page_files += len(srce_files)
 
-    logger.info(
-        f"\nTime taken to process all {num_page_files} files: {int(time.time() - start)}s."
-    )
+    logger.info(f"\nTime taken to process all {num_page_files} files: {int(time.time() - start)}s.")
 
 
 def get_page_panel_bounds(
     bounding_box_processor: BoundingBoxProcessor,
-    srce_panels_bounds_override_dir: str,
-    srce_file: str,
-    dest_file: str,
+    srce_panels_bounds_override_dir: Path,
+    srce_file: Path,
+    dest_file: Path,
 ) -> None:
     try:
-        if not os.path.isfile(srce_file):
+        if not srce_file.is_file():
             msg = f'Could not find srce file: "{srce_file}".'
             raise FileNotFoundError(msg)
-        if os.path.isfile(dest_file):
+        if dest_file.is_file():
             logger.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
             return
 
@@ -93,7 +88,9 @@ def get_page_panel_bounds(
 if __name__ == "__main__":
     # TODO(glk): Some issue with type checking inspection?
     # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Panel Bounds", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR)
+    cmd_args = CmdArgs(
+        "Panel Bounds", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR
+    )
     args_ok, error_msg = cmd_args.args_are_valid()
     if not args_ok:
         logger.error(error_msg)
@@ -104,8 +101,8 @@ if __name__ == "__main__":
     log_filename = "batch-panel-bounds.log"
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    work_dir = os.path.join(cmd_args.get_work_dir())
-    os.makedirs(work_dir, exist_ok=True)
+    work_dir = cmd_args.get_work_dir()
+    work_dir.mkdir(parents=True, exist_ok=True)
 
     comics_database = cmd_args.get_comics_database()
 

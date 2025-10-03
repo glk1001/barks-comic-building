@@ -25,7 +25,7 @@ USE_EXISTING_WORK_FILES = False  # Use with care
 class RestorePipeline:
     def __init__(
         self,
-        work_dir: str,
+        work_dir: Path,
         srce_file: Path,
         srce_upscale_file: Path,
         scale: int,
@@ -34,39 +34,35 @@ class RestorePipeline:
         dest_svg_restored_file: Path,
     ) -> None:
         self.work_dir = work_dir
-        self.out_dir = os.path.dirname(dest_restored_file)
+        self.out_dir = dest_restored_file.parent
         self.srce_file = srce_file
         self.srce_upscale_file = srce_upscale_file
         self.scale = scale
-        self.dest_restored_file = str(dest_restored_file)
-        self.dest_upscayled_restored_file = str(dest_upscayled_restored_file)
-        self.dest_svg_restored_file = str(dest_svg_restored_file)
+        self.dest_restored_file = dest_restored_file
+        self.dest_upscayled_restored_file = dest_upscayled_restored_file
+        self.dest_svg_restored_file = dest_svg_restored_file
 
         self.errors_occurred = False
 
-        if not os.path.isdir(self.work_dir):
+        if not self.work_dir.is_dir():
             msg = f'Work directory not found: "{self.work_dir}".'
             raise FileNotFoundError(msg)
-        if not os.path.isdir(self.out_dir):
+        if not self.out_dir.is_dir():
             msg = f'Restored directory not found: "{self.out_dir}".'
             raise FileNotFoundError(msg)
-        if not os.path.exists(self.srce_upscale_file):
+        if not self.srce_upscale_file.is_file():
             msg = f'Upscayl file not found: "{self.srce_upscale_file}".'
             raise FileNotFoundError(msg)
 
         self.srce_upscale_stem = f"{self.srce_upscale_file.stem}-upscayled"
 
-        self.removed_artifacts_file = os.path.join(
-            work_dir, f"{self.srce_upscale_stem}-median-filtered.png"
+        self.removed_artifacts_file = work_dir / f"{self.srce_upscale_stem}-median-filtered.png"
+        self.removed_colors_file = work_dir / f"{self.srce_upscale_stem}-color-removed.png"
+        self.smoothed_removed_colors_file = (
+            work_dir / f"{self.srce_upscale_stem}-color-removed-smoothed.png"
         )
-        self.removed_colors_file = os.path.join(
-            work_dir, f"{self.srce_upscale_stem}-color-removed.png"
-        )
-        self.smoothed_removed_colors_file = os.path.join(
-            work_dir, f"{self.srce_upscale_stem}-color-removed-smoothed.png"
-        )
-        self.png_of_svg_file = self.dest_svg_restored_file + ".png"
-        self.inpainted_file = os.path.join(work_dir, f"{self.srce_upscale_stem}-inpainted.png")
+        self.png_of_svg_file = self.dest_svg_restored_file.with_suffix(".png")
+        self.inpainted_file = work_dir / f"{self.srce_upscale_stem}-inpainted.png"
 
     def do_part1(self) -> None:
         self.do_remove_jpg_artifacts()
@@ -84,7 +80,7 @@ class RestorePipeline:
         self.do_resize_restored_file()
 
     def do_remove_jpg_artifacts(self) -> None:
-        if USE_EXISTING_WORK_FILES and os.path.isfile(self.removed_artifacts_file):
+        if USE_EXISTING_WORK_FILES and self.removed_artifacts_file.is_file():
             logger.warning(
                 f"Removed artifacts file already exists - skipping:"
                 f' "{self.removed_artifacts_file}".'
@@ -103,7 +99,7 @@ class RestorePipeline:
 
             logger.info(
                 f"Time taken to remove jpeg artifacts for"
-                f' "{os.path.basename(self.removed_artifacts_file)}":'
+                f' "{self.removed_artifacts_file.name}":'
                 f" {int(time.time() - start)}s."
             )
         except Exception:
@@ -111,7 +107,7 @@ class RestorePipeline:
             logger.exception("Error removing jpg artifacts: ")
 
     def do_remove_colors(self) -> None:
-        if USE_EXISTING_WORK_FILES and os.path.isfile(self.removed_colors_file):
+        if USE_EXISTING_WORK_FILES and self.removed_colors_file.is_file():
             logger.warning(
                 f'Removed colors file already exists - skipping: "{self.removed_colors_file}".'
             )
@@ -129,7 +125,7 @@ class RestorePipeline:
             )
 
             logger.info(
-                f'Time taken to remove colors for "{os.path.basename(self.removed_colors_file)}":'
+                f'Time taken to remove colors for "{self.removed_colors_file.name}":'
                 f" {int(time.time() - start)}s."
             )
         except Exception:
@@ -137,7 +133,7 @@ class RestorePipeline:
             logger.exception("Error removing colors: ")
 
     def do_smooth_removed_colors(self) -> None:
-        if USE_EXISTING_WORK_FILES and os.path.isfile(self.smoothed_removed_colors_file):
+        if USE_EXISTING_WORK_FILES and self.smoothed_removed_colors_file.is_file():
             logger.warning(
                 f"Smoothed removed colors file already exists - skipping:"
                 f' "{self.smoothed_removed_colors_file}".'
@@ -151,7 +147,7 @@ class RestorePipeline:
             smooth_image_file(self.removed_colors_file, self.smoothed_removed_colors_file)
 
             logger.info(
-                f'Time taken to smooth "{os.path.basename(self.smoothed_removed_colors_file)}":'
+                f'Time taken to smooth "{self.smoothed_removed_colors_file.name}":'
                 f" {int(time.time() - start)}s."
             )
         except Exception:
@@ -165,7 +161,7 @@ class RestorePipeline:
             image_file_to_svg(self.smoothed_removed_colors_file, self.dest_svg_restored_file)
 
             logger.info(
-                f'Time taken to generate svg "{os.path.basename(self.dest_svg_restored_file)}":'
+                f'Time taken to generate svg "{self.dest_svg_restored_file.name}":'
                 f" {int(time.time() - start)}s."
             )
 
@@ -176,7 +172,7 @@ class RestorePipeline:
             logger.exception("Error generating svg: ")
 
     def do_inpaint(self) -> None:
-        if USE_EXISTING_WORK_FILES and os.path.isfile(self.inpainted_file):
+        if USE_EXISTING_WORK_FILES and self.inpainted_file.is_file():
             logger.warning(f'Inpainted file already exists - skipping: "{self.inpainted_file}".')
             return
 
@@ -187,14 +183,13 @@ class RestorePipeline:
             inpaint_image_file(
                 self.work_dir,
                 self.srce_upscale_stem,
-                str(self.srce_upscale_file),
+                self.srce_upscale_file,
                 self.removed_colors_file,
                 self.inpainted_file,
             )
 
             logger.info(
-                f'Time taken to inpaint "{os.path.basename(self.inpainted_file)}":'
-                f" {int(time.time() - start)}s."
+                f'Time taken to inpaint "{self.inpainted_file.name}": {int(time.time() - start)}s.'
             )
         except Exception:
             self.errors_occurred = True

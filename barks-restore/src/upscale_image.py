@@ -1,4 +1,3 @@
-import os
 import subprocess
 from pathlib import Path
 
@@ -6,22 +5,22 @@ from barks_fantagraphics.comics_utils import get_clean_path
 from comic_utils.pil_image_utils import add_png_metadata
 from loguru import logger
 
-UPSCAYL_BIN = os.path.join(str(Path.home()), ".local/share/upscayl/bin/upscayl-bin")
-UPSCAYL_MODELS_DIR = os.path.join(str(Path.home()), ".local/share/upscayl/models")
+UPSCAYL_BIN = Path.home() / ".local/share/upscayl/bin/upscayl-bin"
+UPSCAYL_MODELS_DIR = Path.home() / ".local/share/upscayl/models"
 UPSCAYL_MODEL = "ultramix_balanced"
 UPSCAYL_OUTPUT_FORMAT = "png"
 UPSCAYL_OUTPUT_EXTENSION = ".png"
 
 
-def upscale_image_file(in_file: str, out_file: str, scale: int = 2) -> None:
-    assert os.path.splitext(out_file)[1] == UPSCAYL_OUTPUT_EXTENSION
+def upscale_image_file(in_file: Path, out_file: Path, scale: int = 2) -> None:
+    assert out_file.suffix == UPSCAYL_OUTPUT_EXTENSION
 
     run_args = [
         UPSCAYL_BIN,
         "-i",
-        in_file,
+        str(in_file),
         "-o",
-        out_file,
+        str(out_file),
         "-s",
         str(scale),
         "-n",
@@ -31,7 +30,7 @@ def upscale_image_file(in_file: str, out_file: str, scale: int = 2) -> None:
         "-c",
         "0",
         "-m",
-        UPSCAYL_MODELS_DIR,
+        str(UPSCAYL_MODELS_DIR),
         "-v",
     ]
 

@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 
 from barks_fantagraphics.comics_utils import (
     dest_file_is_older_than_srce,
@@ -14,8 +14,8 @@ DATE_TIME_SEP = " "
 HOUR_SEP = ":"
 
 
-def get_shorter_ini_filename(ini_file: str) -> str:
-    return os.path.basename(ini_file)
+def get_shorter_ini_filename(ini_file: Path) -> str:
+    return ini_file.name
 
 
 def get_list_of_numbers(list_str: str) -> list[int]:
@@ -28,8 +28,8 @@ def get_list_of_numbers(list_str: str) -> list[int]:
     return list(range(int(p_start), int(p_end) + 1))
 
 
-def dest_file_is_out_of_date_wrt_srce(srce_file: str, dest_file: str) -> bool:
-    if not os.path.isfile(dest_file):
+def dest_file_is_out_of_date_wrt_srce(srce_file: Path, dest_file: Path) -> bool:
+    if not dest_file.is_file():
         logger.debug(f'Dest file "{dest_file}" not found.')
         return True
 
@@ -41,11 +41,11 @@ def dest_file_is_out_of_date_wrt_srce(srce_file: str, dest_file: str) -> bool:
 
 
 def zip_file_is_out_of_date_wrt_dest(
-    zip_file: str,
-    max_dest_file: str,
+    zip_file: Path,
+    max_dest_file: Path,
     max_dest_timestamp: float,
 ) -> bool:
-    if not os.path.isfile(zip_file):
+    if not zip_file.is_file():
         logger.debug(f'Dest zip file "{zip_file}" not found.')
         return False
 
@@ -63,7 +63,7 @@ def zip_file_is_out_of_date_wrt_dest(
     return False
 
 
-def symlink_is_out_of_date_wrt_dest(symlink: str, max_dest_timestamp: float) -> bool:
+def symlink_is_out_of_date_wrt_dest(symlink: Path, max_dest_timestamp: float) -> bool:
     if file_is_older_than_timestamp(symlink, max_dest_timestamp):
         logger.debug(get_symlink_out_of_date_wrt_max_dest_msg(symlink, max_dest_timestamp))
         return True
@@ -71,8 +71,8 @@ def symlink_is_out_of_date_wrt_dest(symlink: str, max_dest_timestamp: float) -> 
     return False
 
 
-def symlink_is_out_of_date_wrt_zip(symlink: str, zip_file: str) -> bool:
-    if not os.path.islink(symlink):
+def symlink_is_out_of_date_wrt_zip(symlink: Path, zip_file: Path) -> bool:
+    if not symlink.is_symlink():
         logger.debug(f'Dest file "{symlink}" not found.')
         return False
 
@@ -83,10 +83,10 @@ def symlink_is_out_of_date_wrt_zip(symlink: str, zip_file: str) -> bool:
     return False
 
 
-def get_file_out_of_date_with_other_file_msg(file: str, other_file: str, msg_prefix: str) -> str:
-    if not os.path.isfile(other_file):
+def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_prefix: str) -> str:
+    if not other_file.is_file():
         return f'File "{other_file}" is missing.'
-    if not os.path.isfile(file):
+    if not file.is_file():
         return f'File "{file}" is missing.'
 
     blank_prefix = f"{' ':<{len(msg_prefix)}}"
@@ -101,8 +101,8 @@ def get_file_out_of_date_with_other_file_msg(file: str, other_file: str, msg_pre
 
 
 def get_file_out_of_date_wrt_max_timestamp_msg(
-    file: str,
-    max_file: str,
+    file: Path,
+    max_file: Path,
     max_timestamp: float,
     msg_prefix: str,
 ) -> str:
@@ -116,7 +116,7 @@ def get_file_out_of_date_wrt_max_timestamp_msg(
     )
 
 
-def get_zip_file_out_of_date_wrt_max_dest_msg(zip_file: str, max_dest_timestamp: float) -> str:
+def get_zip_file_out_of_date_wrt_max_dest_msg(zip_file: Path, max_dest_timestamp: float) -> str:
     return (
         f"Zip file \"{get_abbrev_path(zip_file)}\" timestamp '{get_timestamp_str(zip_file)}',"
         f" is out of date WRT"
@@ -124,7 +124,7 @@ def get_zip_file_out_of_date_wrt_max_dest_msg(zip_file: str, max_dest_timestamp:
     )
 
 
-def get_symlink_out_of_date_wrt_zip_msg(symlink: str, zip_file: str) -> str:
+def get_symlink_out_of_date_wrt_zip_msg(symlink: Path, zip_file: Path) -> str:
     return (
         f"Symlink \"{get_abbrev_path(symlink)}\" timestamp '{get_timestamp_str(symlink)}',"
         f" is out of date WRT"
@@ -132,7 +132,7 @@ def get_symlink_out_of_date_wrt_zip_msg(symlink: str, zip_file: str) -> str:
     )
 
 
-def get_symlink_out_of_date_wrt_max_dest_msg(symlink: str, max_dest_timestamp: float) -> str:
+def get_symlink_out_of_date_wrt_max_dest_msg(symlink: Path, max_dest_timestamp: float) -> str:
     return (
         f"Symlink \"{get_abbrev_path(symlink)}\" timestamp '{get_timestamp_str(symlink)}',"
         f" is out of date WRT"

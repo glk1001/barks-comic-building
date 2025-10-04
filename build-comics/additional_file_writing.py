@@ -1,6 +1,6 @@
 import json
-import os
 from datetime import datetime
+from pathlib import Path
 
 from barks_build_comic_images.consts import (
     DEST_JPG_COMPRESS_LEVEL,
@@ -53,7 +53,7 @@ def write_summary_file(
     max_dest_timestamp: float,
     timing: Timing,
 ) -> None:
-    summary_file = os.path.join(comic.get_dest_dir(), SUMMARY_FILENAME)
+    summary_file = comic.get_dest_dir() / SUMMARY_FILENAME
 
     calc_panels_bbox_height = round(
         (srce_dim.av_panels_bbox_height * required_dim.panels_bbox_width)
@@ -70,7 +70,7 @@ def write_summary_file(
     )
     modified_body_pages = [
         get_page_num_str(dest)
-        for srce, dest in zip(pages.srce_pages, pages.dest_pages)
+        for srce, dest in zip(pages.srce_pages, pages.dest_pages, strict=True)
         if (get_page_mod_type(comic, srce) != ModifiedType.ORIGINAL)
         and (dest.page_type == PageType.BODY)
     ]
@@ -88,7 +88,7 @@ def write_summary_file(
     title_font_file = get_clean_path(comic.title_font_file)
     intro_inset_file = get_clean_path(comic.intro_inset_file)
 
-    with open(summary_file, "w") as f:
+    with summary_file.open("w") as f:
         f.write("Run Summary:\n")
         f.write(f"time of run              = {timing.start_time}\n")
         f.write(f"time taken               = {timing.get_elapsed_time_in_seconds()} seconds\n")
@@ -150,12 +150,12 @@ def write_summary_file(
         f.write("\n")
 
         f.write("Page List Summary:\n")
-        for srce_page, dest_page in zip(pages.srce_pages, pages.dest_pages):
+        for srce_page, dest_page in zip(pages.srce_pages, pages.dest_pages, strict=True):
             srce_is_modded = (
                 " ***M" if get_page_mod_type(comic, srce_page) != ModifiedType.ORIGINAL else ""
             )
-            srce_filename = f'"{os.path.basename(srce_page.page_filename)}" {srce_is_modded}'
-            dest_filename = f'"{os.path.basename(dest_page.page_filename)}"'
+            srce_filename = f'"{Path(srce_page.page_filename).name}" {srce_is_modded}'
+            dest_filename = f'"{Path(dest_page.page_filename).name}"'
             dest_page_type = f'"{dest_page.page_type.name}"'
             f.write(
                 f"Added srce {srce_filename:17}"
@@ -169,19 +169,19 @@ def write_summary_file(
 
 
 def write_readme_file(comic: ComicBook) -> None:
-    readme_file = os.path.join(comic.get_dest_dir(), README_FILENAME)
-    with open(readme_file, "w") as f:
+    readme_file = comic.get_dest_dir() / README_FILENAME
+    with readme_file.open("w") as f:
         f.write(f'Title:       "{get_safe_title(comic.title)}"\n')
         f.write(f'Ini Title:   "{comic.get_ini_title()}"\n')
         f.write(f'Issue Title: "{get_safe_title(comic.issue_title)}"\n')
         f.write("\n")
         now_str = datetime.now().astimezone().strftime("%b %d %Y %H:%M:%S")
         f.write(f"Created:           {now_str}\n")
-        f.write(f'Archived ini file: "{os.path.basename(comic.ini_file)}"\n')
+        f.write(f'Archived ini file: "{comic.ini_file.name}"\n')
 
 
 def write_metadata_file(comic: ComicBook, dest_pages: list[CleanPage]) -> None:
-    metadata_file = os.path.join(comic.get_dest_dir(), METADATA_FILENAME)
+    metadata_file = comic.get_dest_dir() / METADATA_FILENAME
 
     double_pages = {}
     page_num_str = {}
@@ -202,7 +202,7 @@ def write_metadata_file(comic: ComicBook, dest_pages: list[CleanPage]) -> None:
                 double_pages[orig_page_num] = (orig_page_num - 1, orig_page_num)
             left = not left
 
-    with open(metadata_file, "w") as f:
+    with metadata_file.open("w") as f:
         f.write(f"[{DOUBLE_PAGES_SECTION}]\n")
         for page in double_pages:
             left_page = double_pages[page][0]
@@ -222,7 +222,7 @@ def write_json_metadata(
     required_dim: RequiredDimensions,
     dest_pages: list[CleanPage],
 ) -> None:
-    metadata_file = os.path.join(comic.get_dest_dir(), JSON_METADATA_FILENAME)
+    metadata_file = comic.get_dest_dir() / JSON_METADATA_FILENAME
     metadata = {}
     metadata["title"] = get_safe_title(comic.title)
     metadata["ini_title"] = comic.get_ini_title()
@@ -230,8 +230,8 @@ def write_json_metadata(
     metadata["comic_title"] = get_safe_title(comic.get_comic_title())
     metadata["series_name"] = comic.series_name
     metadata["number_in_series"] = comic.number_in_series
-    metadata["srce_dir"] = get_clean_path(comic.dirs.srce_dir)
-    metadata["dest_dir"] = get_clean_path(comic.get_dest_dir())
+    metadata["srce_dir"] = str(get_clean_path(comic.dirs.srce_dir))
+    metadata["dest_dir"] = str(get_clean_path(comic.get_dest_dir()))
     metadata["publication_date"] = comic.publication_date
     metadata["submitted_date"] = comic.submitted_date
     metadata["submitted_year"] = comic.submitted_year
@@ -247,7 +247,7 @@ def write_json_metadata(
         required_dim.page_num_y_bottom,
     ]
     metadata["page_counts"] = get_page_counts(comic, dest_pages)
-    with open(metadata_file, "w") as f:
+    with metadata_file.open("w") as f:
         # noinspection PyTypeChecker
         json.dump(metadata, f, indent=4)
 
@@ -318,9 +318,9 @@ def write_srce_dest_map(
     required_dim: RequiredDimensions,
     pages: SrceAndDestPages,
 ) -> None:
-    src_dst_map_file = os.path.join(comic.get_dest_dir(), DEST_SRCE_MAP_FILENAME)
+    src_dst_map_file = comic.get_dest_dir() / DEST_SRCE_MAP_FILENAME
     srce_dest_map = get_srce_dest_map(comic, srce_dim, required_dim, pages)
-    with open(src_dst_map_file, "w") as f:
+    with src_dst_map_file.open("w") as f:
         # noinspection PyTypeChecker
         json.dump(srce_dest_map, f, indent=4)
 
@@ -329,12 +329,12 @@ def write_dest_panels_bboxes(
     comic: ComicBook,
     dest_pages: list[CleanPage],
 ) -> None:
-    dst_bboxes_file = os.path.join(comic.get_dest_dir(), DEST_PANELS_BBOXES_FILENAME)
+    dst_bboxes_file = comic.get_dest_dir() / DEST_PANELS_BBOXES_FILENAME
     bboxes_dict = {}
     for dest_page in dest_pages:
-        bbox_key = os.path.basename(dest_page.page_filename)
+        bbox_key = Path(dest_page.page_filename).name
         bboxes_dict[bbox_key] = dest_page.panels_bbox.get_box()
 
-    with open(dst_bboxes_file, "w") as f:
+    with dst_bboxes_file.open("w") as f:
         # noinspection PyTypeChecker
         json.dump(bboxes_dict, f, indent=4)

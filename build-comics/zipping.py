@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 import shutil
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from barks_fantagraphics.comics_utils import get_relpath
 from loguru import logger
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from barks_fantagraphics.comic_book import ComicBook
 
 
@@ -18,22 +19,22 @@ def zip_comic_book(comic: ComicBook) -> None:
         f' "{get_relpath(comic.get_dest_comic_zip())}".',
     )
 
-    os.makedirs(comic.get_dest_zip_root_dir(), exist_ok=True)
-    temp_zip_file = comic.get_dest_dir() + ".zip"
+    comic.get_dest_zip_root_dir().mkdir(parents=True, exist_ok=True)
+    temp_zip_file = comic.get_dest_dir().with_suffix(".zip")
 
-    shutil.make_archive(comic.get_dest_dir(), "zip", comic.get_dest_dir())
-    if not os.path.isfile(temp_zip_file):
+    shutil.make_archive(str(comic.get_dest_dir()), "zip", str(comic.get_dest_dir()))
+    if not temp_zip_file.is_file():
         msg = f'Could not create temporary zip file "{temp_zip_file}".'
         raise RuntimeError(msg)
 
-    os.replace(temp_zip_file, comic.get_dest_comic_zip())
-    if not os.path.isfile(comic.get_dest_comic_zip()):
+    temp_zip_file.replace(comic.get_dest_comic_zip())
+    if not comic.get_dest_comic_zip().is_file():
         msg = f'Could not create final comic zip "{comic.get_dest_comic_zip()}".'
         raise RuntimeError(msg)
 
 
 def create_symlinks_to_comic_zip(comic: ComicBook) -> None:
-    if not os.path.exists(comic.get_dest_comic_zip()):
+    if not comic.get_dest_comic_zip().is_file():
         msg = f'Could not find comic zip file "{comic.get_dest_comic_zip()}".'
         raise FileNotFoundError(msg)
 
@@ -50,24 +51,24 @@ def create_symlinks_to_comic_zip(comic: ComicBook) -> None:
     )
 
 
-def create_symlink_zip(zip_file: str, symlink_dir: str, symlink: str) -> None:
+def create_symlink_zip(zip_file: Path, symlink_dir: Path, symlink: Path) -> None:
     logger.info(
         f'Symlinking (relative) the comic zip file "{get_relpath(zip_file)}" to'
         f' "{get_relpath(symlink)}".',
     )
 
-    if not os.path.exists(symlink_dir):
-        os.makedirs(symlink_dir)
-    if os.path.islink(symlink):
-        os.remove(symlink)
+    if not symlink_dir.is_dir():
+        symlink_dir.mkdir()
+    if symlink.is_symlink():
+        symlink.unlink()
 
     relative_symlink(zip_file, symlink)
-    if not os.path.islink(symlink):
+    if not symlink.is_symlink():
         msg = f'Could not create symlink "{symlink}".'
         raise RuntimeError(msg)
 
 
-def relative_symlink(target: Path | str, destination: Path | str) -> None:
+def relative_symlink(target: Path, destination: Path) -> None:
     """Create a symlink pointing to ``target`` from ``location``.
 
     Args:
@@ -75,13 +76,10 @@ def relative_symlink(target: Path | str, destination: Path | str) -> None:
         destination: The location of the symlink itself.
 
     """
-    target = Path(target)
-    destination = Path(destination)
-
     target_dir = destination.parent
     target_dir.mkdir(exist_ok=True, parents=True)
 
-    relative_source = os.path.relpath(target, target_dir)
+    relative_source = target.relative_to(target_dir, walk_up=True)
 
     logger.debug(f'"{relative_source}" -> "{destination.name}" in "{get_relpath(target_dir)}"')
     target_dir_fd = os.open(str(target_dir.absolute()), os.O_RDONLY)

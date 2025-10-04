@@ -1,6 +1,6 @@
-# ruff: noqa: C901, T201
+# ruff: noqa: C901, T201, TD002, TD003, FIX002
 
-import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,7 +50,7 @@ MAX_FIXES_PAGE_NUM = 300
 
 @dataclass
 class ZipOutOfDateErrors:
-    file: str = ""
+    file: Path = None
     missing: bool = False
     out_of_date_wrt_ini: bool = False
     out_of_date_wrt_srce: bool = False
@@ -60,7 +60,7 @@ class ZipOutOfDateErrors:
 
 @dataclass
 class ZipSymlinkOutOfDateErrors:
-    symlink: str = ""
+    symlink: Path = None
     missing: bool = False
     out_of_date_wrt_ini: bool = False
     out_of_date_wrt_zip: bool = False
@@ -71,21 +71,21 @@ class ZipSymlinkOutOfDateErrors:
 @dataclass
 class OutOfDateErrors:
     title: str
-    ini_file: str
-    dest_dir_files_missing: list[str]
-    dest_dir_files_out_of_date: list[str]
-    srce_and_dest_files_missing: list[tuple[str, str]]
-    srce_and_dest_files_out_of_date: list[tuple[str, str]]
-    unexpected_dest_image_files: list[str]
+    ini_file: Path
+    dest_dir_files_missing: list[Path]
+    dest_dir_files_out_of_date: list[Path]
+    srce_and_dest_files_missing: list[tuple[Path, Path]]
+    srce_and_dest_files_out_of_date: list[tuple[Path, Path]]
+    unexpected_dest_image_files: list[Path]
     exception_errors: list[str]
     zip_errors: ZipOutOfDateErrors
     series_zip_symlink_errors: ZipSymlinkOutOfDateErrors
     year_zip_symlink_errors: ZipSymlinkOutOfDateErrors
     is_error: bool = False
     max_srce_timestamp: float = 0.0
-    max_srce_file: str = ""
+    max_srce_file: Path = None
     max_dest_timestamp: float = 0.0
-    max_dest_file: str = ""
+    max_dest_file: Path = None
     ini_timestamp: float = 0.0
 
 
@@ -139,7 +139,7 @@ class ComicsIntegrityChecker:
         return ret_code
 
     @staticmethod
-    def make_out_of_date_errors(title: str, ini_file: str) -> OutOfDateErrors:
+    def make_out_of_date_errors(title: str, ini_file: Path) -> OutOfDateErrors:
         return OutOfDateErrors(
             title=title,
             ini_file=ini_file,
@@ -247,26 +247,29 @@ class ComicsIntegrityChecker:
 
         # Standard fixes files.
         ret_code = 0
-        for file in os.listdir(fixes_dir):
+        for file in fixes_dir.iterdir():
             # TODO: Should 'bounded' be here?
-            if file == "bounded":
+            if file.name == "bounded":
                 continue
 
             file_stem = Path(file).stem
-            original_file = os.path.join(fanta_original_image_dir, file_stem + JPG_FILE_EXT)
+            original_file = fanta_original_image_dir / (file_stem + JPG_FILE_EXT)
 
             # TODO: Another special case. Needed?
-            if file.endswith("-fix.txt"):
-                jpg_file = os.path.join(fixes_dir, file[: -len("-fix.txt")] + JPG_FILE_EXT)
-                png_file = os.path.join(fixes_dir, file[: -len("-fix.txt")] + PNG_FILE_EXT)
-                if not os.path.isfile(jpg_file) and not os.path.isfile(png_file):
-                    print(f'{ERROR_MSG_PREFIX}Fixes text file has no .jpg or .png match: "{file}".')
+            if str(file).endswith("-fix.txt"):
+                jpg_file = fixes_dir / (str(file)[: -len("-fix.txt")] + JPG_FILE_EXT)
+                png_file = fixes_dir / (str(file)[: -len("-fix.txt")] + PNG_FILE_EXT)
+                if not jpg_file.is_file() and not png_file.is_file():
+                    print(
+                        f"{ERROR_MSG_PREFIX}Fixes text file has no"
+                        f' {JPG_FILE_EXT} or {PNG_FILE_EXT} match: "{file}".'
+                    )
                     ret_code = 1
                 continue
 
-            jpg_fixes_file = os.path.join(fixes_dir, file_stem + JPG_FILE_EXT)
-            png_fixes_file = os.path.join(fixes_dir, file_stem + PNG_FILE_EXT)
-            if not os.path.isfile(jpg_fixes_file) and not os.path.isfile(png_fixes_file):
+            jpg_fixes_file = fixes_dir / (file_stem + JPG_FILE_EXT)
+            png_fixes_file = fixes_dir / (file_stem + PNG_FILE_EXT)
+            if not jpg_fixes_file.is_file() and not png_fixes_file.is_file():
                 print(
                     f"{ERROR_MSG_PREFIX}Fixes file must be a .jpg or .png file:"
                     f' "{jpg_fixes_file}".',
@@ -275,24 +278,24 @@ class ComicsIntegrityChecker:
                 continue
 
             # Must be a jpg or png file.
-            if (Path(file).suffix != JPG_FILE_EXT) and (Path(file).suffix != PNG_FILE_EXT):
+            if file.suffix not in [JPG_FILE_EXT, PNG_FILE_EXT]:
                 print(f'{ERROR_MSG_PREFIX}Fixes file must be a .jpg or .png: "{jpg_fixes_file}".')
                 ret_code = 1
                 continue
 
             # Must not also be matching upscayl fixes file.
-            upscayl_fixes_file = os.path.join(upscayled_fixes_dir, file_stem + PNG_FILE_EXT)
-            if os.path.isfile(upscayl_fixes_file):
+            upscayl_fixes_file = upscayled_fixes_dir / (file_stem + PNG_FILE_EXT)
+            if upscayl_fixes_file.is_file():
                 print(
-                    f"{ERROR_MSG_PREFIX}Fixes file should not have"
+                    f'{ERROR_MSG_PREFIX}Fixes file "{file}" should not have a'
                     f' matching upscayled fixes file: "{upscayl_fixes_file}".',
                 )
                 ret_code = 1
                 continue
 
-            fixes_file = jpg_fixes_file if os.path.isfile(jpg_fixes_file) else png_fixes_file
+            fixes_file = jpg_fixes_file if jpg_fixes_file.is_file() else png_fixes_file
 
-            if not os.path.isfile(original_file):
+            if not original_file.is_file():
                 # If it's an added file it must have a valid page number.
                 page_num = Path(file).stem
                 if not page_num.isnumeric():
@@ -320,17 +323,17 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_basic_fixes(
-        self, fixes_root_dir: str, fixes_dir: str, upscayled_fixes_dir: str
+        self, fixes_root_dir: Path, fixes_dir: Path, upscayled_fixes_dir: Path
     ) -> int:
         if self._get_num_files_in_dir(fixes_root_dir) != 1:
             print(f'{ERROR_MSG_PREFIX}Directory "{fixes_root_dir}" has too many files.')
             return 1
 
-        if not os.path.isdir(fixes_dir):
+        if not fixes_dir.is_dir():
             print(f'{ERROR_MSG_PREFIX}Could not find fixes directory "{fixes_dir}".')
             return 1
 
-        if not os.path.isdir(upscayled_fixes_dir):
+        if not upscayled_fixes_dir.is_dir():
             print(
                 f"{ERROR_MSG_PREFIX}Could not find upscayled fixes directory:"
                 f' "{upscayled_fixes_dir}".',
@@ -356,7 +359,7 @@ class ComicsIntegrityChecker:
         upscayled_fixes_dir = (
             self.comics_database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume)
         )
-        if not os.path.isdir(fixes_dir):
+        if not fixes_dir.is_dir():
             print(
                 f"{ERROR_MSG_PREFIX}Could not find upscayled fixes directory:"
                 f' "{upscayled_fixes_dir}".',
@@ -364,13 +367,13 @@ class ComicsIntegrityChecker:
             return 1
 
         # Upscayled fixes files.
-        for file in os.listdir(upscayled_fixes_dir):
-            file_stem = Path(file).stem
-            original_file = os.path.join(fanta_original_image_dir, file_stem + JPG_FILE_EXT)
-            fixes_file = os.path.join(fixes_dir, file)
-            upscayled_fixes_file = os.path.join(upscayled_fixes_dir, file)
+        for file in upscayled_fixes_dir.iterdir():
+            file_stem = file.stem
+            original_file = fanta_original_image_dir / (file_stem + JPG_FILE_EXT)
+            fixes_file = fixes_dir / file.name
+            upscayled_fixes_file = file
 
-            if not os.path.isfile(upscayled_fixes_file):
+            if not upscayled_fixes_file.is_file():
                 print(
                     f"{ERROR_MSG_PREFIX}Upscayled fixes file must be a file:"
                     f' "{upscayled_fixes_file}".',
@@ -379,12 +382,11 @@ class ComicsIntegrityChecker:
                 continue
 
             # TODO: Another special case. Needed?
-            if file.endswith("-fix.txt"):
-                matching_fixes_file = os.path.join(
-                    upscayled_fixes_dir,
-                    file[: -len("-fix.txt")] + PNG_FILE_EXT,
+            if str(file).endswith("-fix.txt"):
+                matching_fixes_file = upscayled_fixes_dir / (
+                    str(file)[: -len("-fix.txt")] + PNG_FILE_EXT
                 )
-                if not os.path.isfile(matching_fixes_file):
+                if not matching_fixes_file.is_file():
                     print(
                         f"{ERROR_MSG_PREFIX}Upscayled fixes text file has no match:"
                         f' "{upscayled_fixes_file}".',
@@ -393,9 +395,9 @@ class ComicsIntegrityChecker:
                 continue
 
             # Must be a png file.
-            if Path(file).suffix != PNG_FILE_EXT:
+            if file.suffix != PNG_FILE_EXT:
                 print(
-                    f"{ERROR_MSG_PREFIX}Upscayled fixes file must be a png:"
+                    f"{ERROR_MSG_PREFIX}Upscayled fixes file must be {PNG_FILE_EXT}:"
                     f' "{upscayled_fixes_file}".',
                 )
                 ret_code = 1
@@ -403,21 +405,21 @@ class ComicsIntegrityChecker:
 
             # Upscayled fixes cannot be additions?
             # TODO: Will need comic object here to get censored titles
-            if not os.path.isfile(original_file) and not ComicBook.is_fixes_special_case_added(
+            if not original_file.is_file() and not ComicBook.is_fixes_special_case_added(
                 volume,
                 get_page_num_str(original_file),
             ):
                 print(
-                    f"{ERROR_MSG_PREFIX}Upscayled fixes file does not have matching original file:"
-                    f' "{upscayled_fixes_file}".',
+                    f'{ERROR_MSG_PREFIX}Upscayled fixes file "{upscayled_fixes_file}" does not'
+                    f' have a matching original file: "{original_file}".',
                 )
                 ret_code = 1
                 continue
 
-            if os.path.isfile(fixes_file):
+            if fixes_file.is_file():
                 print(
-                    f"{ERROR_MSG_PREFIX}Upscayled fixes file cannot have a matching fixes"
-                    f' file: "{upscayled_fixes_file}".',
+                    f'{ERROR_MSG_PREFIX}Upscayled fixes file "{upscayled_fixes_file}"'
+                    f' cannot have a matching fixes file: "{fixes_file}".',
                 )
                 ret_code = 1
                 continue
@@ -430,24 +432,22 @@ class ComicsIntegrityChecker:
         return False
 
     @staticmethod
-    def _get_num_files_in_dir(dirname: str) -> int:
-        return len(list(os.listdir(dirname)))
+    def _get_num_files_in_dir(dir_path: Path) -> int:
+        return len(list(dir_path.iterdir()))
 
-    def check_folder_and_contents_are_readonly(self, dir_path: str) -> int:
+    def check_folder_and_contents_are_readonly(self, dir_path: Path) -> int:
         ret_code = 0
 
-        for f in os.listdir(dir_path):
-            file_path = os.path.join(dir_path, f)
-
-            if os.path.isdir(file_path):
-                if os.access(file_path, os.W_OK):
+        for file_path in dir_path.iterdir():
+            if file_path.is_dir():
+                if file_path.stat().st_mode & stat.S_IWRITE:
                     print(f'{ERROR_MSG_PREFIX}Directory "{file_path}" is not readonly.')
                     ret_code = 1
                 if self.check_folder_and_contents_are_readonly(file_path) != 0:
                     ret_code = 1
                     continue
 
-            if os.access(file_path, os.W_OK):
+            if file_path.stat().st_mode & stat.S_IWRITE:
                 print(f'{ERROR_MSG_PREFIX}File "{file_path}" is not readonly.')
                 ret_code = 1
 
@@ -511,9 +511,9 @@ class ComicsIntegrityChecker:
         return ret_code
 
     @staticmethod
-    def _found_dir(dirname: str) -> bool:
-        if not os.path.isdir(dirname):
-            print(f'{ERROR_MSG_PREFIX}Could not find directory "{dirname}".')
+    def _found_dir(dir_path: Path) -> bool:
+        if not dir_path.is_dir():
+            print(f'{ERROR_MSG_PREFIX}Could not find directory "{dir_path}".')
             return False
         return True
 
@@ -698,13 +698,13 @@ class ComicsIntegrityChecker:
         errors.exception_errors = []
 
         inset_file = comic.intro_inset_file
-        if comic.get_title_enum() not in NON_COMIC_TITLES and not os.path.isfile(inset_file):
+        if comic.get_title_enum() not in NON_COMIC_TITLES and not inset_file.is_file():
             errors.exception_errors.append(f'Inset file not found: "{inset_file}"')
             return
 
         try:
             srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             errors.exception_errors.append(str(e))
             return
 
@@ -724,13 +724,13 @@ class ComicsIntegrityChecker:
         ):
             srce_page = pages[0]
             dest_page = pages[1]
-            if not os.path.isfile(dest_page.page_filename):
+            if not Path(dest_page.page_filename).is_file():
                 errors.srce_and_dest_files_missing.append(
-                    (srce_page.page_filename, dest_page.page_filename),
+                    (Path(srce_page.page_filename), Path(dest_page.page_filename)),
                 )
             else:
                 srce_dependencies = get_restored_srce_dependencies(comic, srce_page)
-                prev_timestamp = get_timestamp(dest_page.page_filename)
+                prev_timestamp = get_timestamp(Path(dest_page.page_filename))
                 prev_file = dest_page.page_filename
                 for dependency in srce_dependencies:
                     if not dependency.independent and is_a_comic:
@@ -744,9 +744,9 @@ class ComicsIntegrityChecker:
                         errors.max_srce_file = dependency.file
                         errors.max_srce_timestamp = dependency.timestamp
 
-                dest_timestamp = get_timestamp(dest_page.page_filename)
+                dest_timestamp = get_timestamp(Path(dest_page.page_filename))
                 if errors.max_dest_timestamp < dest_timestamp:
-                    errors.max_dest_file = dest_page.page_filename
+                    errors.max_dest_file = Path(dest_page.page_filename)
                     errors.max_dest_timestamp = dest_timestamp
 
     @staticmethod
@@ -757,24 +757,24 @@ class ComicsIntegrityChecker:
     ) -> None:
         allowed_dest_image_files = [f.page_filename for f in srce_and_dest_pages.dest_pages]
         dest_image_dir = comic.get_dest_image_dir()
-        if not os.path.isdir(dest_image_dir):
+        if not dest_image_dir.is_dir():
             errors.dest_dir_files_missing.append(dest_image_dir)
             return
 
-        for file in os.listdir(dest_image_dir):
-            dest_image_file = os.path.join(dest_image_dir, file)
+        for file in dest_image_dir.iterdir():
+            dest_image_file = dest_image_dir / file
             if dest_image_file not in allowed_dest_image_files:
                 errors.unexpected_dest_image_files.append(dest_image_file)
 
     def check_unexpected_files(
         self,
-        srce_dirs_list: list[str],
-        dest_dirs_info_list: list[tuple[str, str]],
-        allowed_zip_files: list[str],
-        allowed_zip_series_symlink_dirs: set[str],
-        allowed_zip_series_symlinks: list[str],
-        allowed_zip_year_symlink_dirs: set[str],
-        allowed_zip_year_symlinks: list[str],
+        srce_dirs_list: list[Path],
+        dest_dirs_info_list: list[tuple[Path, Path]],
+        allowed_zip_files: list[Path],
+        allowed_zip_series_symlink_dirs: set[Path],
+        allowed_zip_series_symlinks: list[Path],
+        allowed_zip_year_symlink_dirs: set[Path],
+        allowed_zip_year_symlinks: list[Path],
     ) -> int:
         ret_code = 0
 
@@ -792,32 +792,29 @@ class ComicsIntegrityChecker:
             ret_code = 1
 
         for dest_dir_info in dest_dirs_info_list:
-            ini_file = os.path.basename(dest_dir_info[0])
+            ini_file = dest_dir_info[0].name
             dest_dir = dest_dir_info[1]
 
-            if not os.path.isdir(dest_dir):
+            if not dest_dir.is_dir():
                 print(f'{ERROR_MSG_PREFIX}The dest directory "{dest_dir}" is missing.')
                 ret_code = 1
                 continue
 
-            for file in os.listdir(dest_dir):
-                if file in [IMAGES_SUBDIR, ini_file]:
+            for file in dest_dir.iterdir():
+                if file.name in [IMAGES_SUBDIR, ini_file]:
                     continue
-                if file not in DEST_NON_IMAGE_FILES:
-                    print(
-                        f"{ERROR_MSG_PREFIX}The info file"
-                        f' "{os.path.join(dest_dir, file)}" was unexpected.',
-                    )
+                if file.name not in DEST_NON_IMAGE_FILES:
+                    print(f'{ERROR_MSG_PREFIX}The info file "{file}" was unexpected.')
                     ret_code = 1
 
         if dest_dirs_info_list:
             allowed_dest_dirs = [d[1] for d in dest_dirs_info_list]
-            dest_dir = os.path.dirname(allowed_dest_dirs[0])
+            dest_dir = allowed_dest_dirs[0].parent
             if self.check_files_in_dir("dest", dest_dir, allowed_dest_dirs) != 0:
                 ret_code = 1
 
         if allowed_zip_files:
-            dest_dir = os.path.dirname(allowed_zip_files[0])
+            dest_dir = Path(allowed_zip_files[0].name)
             if self.check_files_in_dir("zip", dest_dir, allowed_zip_files) != 0:
                 ret_code = 1
 
@@ -827,7 +824,7 @@ class ComicsIntegrityChecker:
                     ret_code = 1
 
         if allowed_zip_year_symlinks:
-            year_symlink_parent_dir = os.path.dirname(next(iter(allowed_zip_year_symlink_dirs)))
+            year_symlink_parent_dir = next(iter(allowed_zip_year_symlink_dirs)).parent
             if (
                 self.check_files_in_dir(
                     "year dir",
@@ -848,26 +845,22 @@ class ComicsIntegrityChecker:
         return ret_code
 
     @staticmethod
-    def check_files_in_dir(file_type: str, the_dir: str, allowed_files: list[str]) -> int:
+    def check_files_in_dir(file_type: str, dir_path: Path, allowed_files: list[Path]) -> int:
         ret_code = 0
 
-        if not os.path.isdir(the_dir):
-            print(f'{ERROR_MSG_PREFIX}The directory "{the_dir}" is missing.')
+        if not dir_path.is_dir():
+            print(f'{ERROR_MSG_PREFIX}The directory "{dir_path}" is missing.')
             return 1
 
-        for file in os.listdir(the_dir):
-            full_file = os.path.join(the_dir, file)
-            if full_file not in allowed_files:
-                print(
-                    f"{ERROR_MSG_PREFIX}The {file_type} directory file"
-                    f' "{full_file}" was unexpected.'
-                )
+        for file in dir_path.iterdir():
+            if file not in allowed_files:
+                print(f'{ERROR_MSG_PREFIX}The {file_type} directory file "{file}" was unexpected.')
                 ret_code = 1
 
         return ret_code
 
     def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
-        if not os.path.exists(comic.get_dest_comic_zip()):
+        if not comic.get_dest_comic_zip().is_file():
             errors.zip_errors.missing = True
             errors.zip_errors.file = comic.get_dest_comic_zip()
             return
@@ -883,7 +876,7 @@ class ComicsIntegrityChecker:
             errors.zip_errors.timestamp = zip_timestamp
             errors.zip_errors.file = comic.get_dest_comic_zip()
 
-        ini_timestamp = get_timestamp(errors.ini_file)
+        ini_timestamp = get_timestamp(Path(errors.ini_file))
         if zip_timestamp < ini_timestamp:
             errors.zip_errors.out_of_date_wrt_ini = True
             errors.zip_errors.timestamp = zip_timestamp
@@ -894,7 +887,7 @@ class ComicsIntegrityChecker:
             logger.info("Check symlinks flag turned off. Not checking.")
             return
 
-        if not os.path.exists(comic.get_dest_series_comic_zip_symlink()):
+        if not comic.get_dest_series_comic_zip_symlink().is_symlink():
             errors.series_zip_symlink_errors.missing = True
             errors.series_zip_symlink_errors.symlink = comic.get_dest_series_comic_zip_symlink()
             return
@@ -918,7 +911,7 @@ class ComicsIntegrityChecker:
             errors.series_zip_symlink_errors.timestamp = series_zip_symlink_timestamp
             errors.series_zip_symlink_errors.symlink = comic.get_dest_series_comic_zip_symlink()
 
-        if not os.path.exists(comic.get_dest_year_comic_zip_symlink()):
+        if not comic.get_dest_year_comic_zip_symlink().is_symlink():
             errors.year_zip_symlink_errors.missing = True
             errors.year_zip_symlink_errors.symlink = comic.get_dest_year_comic_zip_symlink()
             return
@@ -945,18 +938,18 @@ class ComicsIntegrityChecker:
     @staticmethod
     def check_additional_files(comic: ComicBook, errors: OutOfDateErrors) -> None:
         dest_dir = comic.get_dest_dir()
-        if not os.path.exists(dest_dir):
+        if not dest_dir.is_dir():
             errors.dest_dir_files_missing.append(dest_dir)
             return
 
         for file in DEST_NON_IMAGE_FILES:
-            full_file = os.path.join(dest_dir, file)
-            if not os.path.exists(full_file):
-                errors.dest_dir_files_missing.append(full_file)
+            file_path = dest_dir / file
+            if not file_path.is_file():
+                errors.dest_dir_files_missing.append(file_path)
                 continue
-            file_timestamp = get_timestamp(full_file)
+            file_timestamp = get_timestamp(file_path)
             if file_timestamp < errors.max_srce_timestamp:
-                errors.dest_dir_files_out_of_date.append(full_file)
+                errors.dest_dir_files_out_of_date.append(file_path)
 
     def print_check_errors(self, errors: OutOfDateErrors) -> None:
         if (
@@ -1176,15 +1169,15 @@ class ComicsIntegrityChecker:
     @staticmethod
     def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:
         for srce_dest in errors.srce_and_dest_files_missing:
-            srce_file = srce_dest[0]
-            dest_file = srce_dest[1]
+            srce_file = Path(srce_dest[0])
+            dest_file = Path(srce_dest[1])
             print(
                 f'{ERROR_MSG_PREFIX} There is no dest file "{dest_file}"'
                 f' matching srce file "{srce_file}".',
             )
         for srce_dest in errors.srce_and_dest_files_out_of_date:
-            srce_file = srce_dest[0]
-            dest_file = srce_dest[1]
+            srce_file = Path(srce_dest[0])
+            dest_file = Path(srce_dest[1])
             print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))
 
         if (
@@ -1196,15 +1189,15 @@ class ComicsIntegrityChecker:
             print()
 
         if len(errors.dest_dir_files_missing) > 0:
-            for err_msg in errors.dest_dir_files_missing:
-                print(f'{ERROR_MSG_PREFIX}The dest file "{err_msg}" is missing.')
+            for missing_file in errors.dest_dir_files_missing:
+                print(f'{ERROR_MSG_PREFIX}The dest file "{missing_file}" is missing.')
             print()
 
         if len(errors.dest_dir_files_out_of_date) > 0:
-            for err_msg in errors.dest_dir_files_out_of_date:
+            for out_of_date_file in errors.dest_dir_files_out_of_date:
                 print(
                     get_file_out_of_date_wrt_max_timestamp_msg(
-                        err_msg,
+                        out_of_date_file,
                         errors.max_srce_file,
                         errors.max_srce_timestamp,
                         ERROR_MSG_PREFIX,

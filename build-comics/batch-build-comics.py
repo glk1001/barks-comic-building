@@ -6,7 +6,6 @@ from pathlib import Path
 
 from additional_file_writing import write_summary_file
 from barks_fantagraphics.comic_book import ComicBook
-from barks_fantagraphics.comics_consts import PNG_INSET_DIR, PNG_INSET_EXT
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_titles_sorted_by_submission_date
 from build_comics import ComicBookBuilder
@@ -58,7 +57,7 @@ def process_comic_book(comic: ComicBook) -> int:
     except AssertionError:
         _, _, tb = sys.exc_info()
         tb_info = traceback.extract_tb(tb)
-        filename, line, func, text = tb_info[-1]
+        filename, line, _func, text = tb_info[-1]
         msg = f'Assert failed at "{filename}:{line}" for statement "{text}".'
         logger.exception(msg)
         return 1
@@ -87,9 +86,8 @@ BUILD_ARG = "build"
 CHECK_INTEGRITY_ARG = "check-integrity"
 
 
-def get_args():
+def get_args() -> argparse.Namespace:
     global_parser = argparse.ArgumentParser(
-        #            prog="build-barks",
         description="Create a clean Barks comic from Fantagraphics source.",
     )
 
@@ -147,7 +145,7 @@ def get_args():
     return args
 
 
-def get_titles(args) -> list[str]:
+def get_titles(args: argparse.Namespace) -> list[str]:
     assert args.cmd_name in (CHECK_INTEGRITY_ARG, BUILD_ARG)
 
     if args.title:
@@ -168,8 +166,7 @@ if __name__ == "__main__":
     log_level = cmd_args.log_level
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = ComicsDatabase(cmd_args.comics_database_dir)
-    comics_database.set_inset_info(PNG_INSET_DIR, PNG_INSET_EXT)
+    comics_database = ComicsDatabase()
 
     if cmd_args.cmd_name == CHECK_INTEGRITY_ARG:
         integrity_checker = ComicsIntegrityChecker(

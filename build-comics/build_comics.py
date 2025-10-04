@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import concurrent.futures
-import os
 import shutil
 import sys
 import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from additional_file_writing import (
@@ -148,17 +148,20 @@ class ComicBookBuilder:
                 for srce_page, dest_page in zip(
                     self._srce_and_dest_pages.srce_pages,
                     self._srce_and_dest_pages.dest_pages,
+                    strict=True,
                 ):
                     executor.submit(self._process_page, srce_page, dest_page)
         else:
             for srce_page, dest_page in zip(
                 self._srce_and_dest_pages.srce_pages,
                 self._srce_and_dest_pages.dest_pages,
+                strict=True,
             ):
                 self._process_page(srce_page, dest_page)
 
         if _process_page_error:
-            raise RuntimeError("There were errors while processing pages.")
+            msg = "There were errors while processing pages."
+            raise RuntimeError(msg)
 
     def _process_page(
         self,
@@ -204,7 +207,7 @@ class ComicBookBuilder:
         except Exception:
             _, _, tb = sys.exc_info()
             tb_info = traceback.extract_tb(tb)
-            filename, line, func, text = tb_info[-1]
+            filename, line, _func, text = tb_info[-1]
             err_msg = f'Error in process page at "{filename}:{line}" for statement "{text}".'
             logger.exception(err_msg)
             global _process_page_error  # noqa: PLW0603
@@ -232,8 +235,8 @@ class ComicBookBuilder:
         indent = "      "
         return [
             indent,
-            f'{indent}{prefix}:Srce file: "{get_clean_path(srce_page.page_filename)}"',
-            f'{indent}{prefix}:Dest file: "{get_clean_path(dest_page.page_filename)}"',
+            f'{indent}{prefix}:Srce file: "{get_clean_path(Path(srce_page.page_filename))}"',
+            f'{indent}{prefix}:Dest file: "{get_clean_path(Path(dest_page.page_filename))}"',
             f"{indent}{prefix}:Dest created: {now_str}",
             f"{indent}{prefix}:Srce page num: {srce_page.page_num}",
             f"{indent}{prefix}:Srce page type: {srce_page.page_type.name}",
@@ -263,10 +266,10 @@ class ComicBookBuilder:
         write_dest_panels_bboxes(self._comic, self._srce_and_dest_pages.dest_pages)
 
     def _create_dest_dirs(self) -> None:
-        if not os.path.isdir(self._comic.get_dest_image_dir()):
-            os.makedirs(self._comic.get_dest_image_dir())
+        if not self._comic.get_dest_image_dir().is_dir():
+            self._comic.get_dest_image_dir().mkdir()
 
-        if not os.path.isdir(self._comic.get_dest_image_dir()):
+        if not self._comic.get_dest_image_dir().is_dir():
             msg = f'Could not make directory "{self._comic.get_dest_image_dir()}".'
             raise RuntimeError(msg)
 

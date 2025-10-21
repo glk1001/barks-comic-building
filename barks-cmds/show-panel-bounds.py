@@ -1,5 +1,4 @@
 import json
-import os.path
 import sys
 from pathlib import Path
 
@@ -16,42 +15,43 @@ from PIL import Image, ImageDraw
 APP_LOGGING_NAME = "span"
 
 
-def show_panel_bounds(title: str, out_dir: str) -> None:
-    out_dir = os.path.join(out_dir, title)
+def show_panel_bounds(title: str, out_dir: Path) -> None:
+    out_dir /= title
 
     logger.info(f'Generating panel bounds images for "{title}" to directory "{out_dir}"...')
 
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     comic = comics_database.get_comic_book(title)
     svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
     panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
 
     for svg_file, panel_segments_file in zip(svg_files, panel_segments_files, strict=True):
-        png_file = svg_file + PNG_FILE_EXT
-        bounds_img_file = os.path.join(out_dir, Path(svg_file).stem + "-with-bounds.png")
+        png_file = Path(str(svg_file) + PNG_FILE_EXT)
+        bounds_img_file = out_dir / (Path(svg_file).stem + "-with-bounds.png")
         if not write_bounds_to_image_file(png_file, panel_segments_file, bounds_img_file):
-            raise RuntimeError("There were process errors.")
+            msg = "There were process errors."
+            raise RuntimeError(msg)
 
     logger.info(f'Finished generating panel bounds images for "{title}" to directory "{out_dir}".')
 
 
 def write_bounds_to_image_file(
-    png_file: str, panel_segments_file: str, bounds_img_file: str
+    png_file: Path, panel_segments_file: Path, bounds_img_file: Path
 ) -> bool:
     logger.info(f'Writing bounds for image "{get_abbrev_path(png_file)}"...')
 
-    if not os.path.isfile(png_file):
+    if not png_file.is_file():
         logger.error(f'Could not find image file "{png_file}".')
         return False
-    if not os.path.isfile(panel_segments_file):
+    if not panel_segments_file.is_file():
         logger.error(f'Could not find panel segments file "{panel_segments_file}".')
         return False
-    if os.path.isfile(bounds_img_file):
+    if bounds_img_file.is_file():
         logger.info(f'Found existing image bounds file - skipping: "{bounds_img_file}".')
         return True
 
     logger.info(f'Loading panel segments file "{get_abbrev_path(panel_segments_file)}".')
-    with open(panel_segments_file) as f:
+    with panel_segments_file.open() as f:
         panel_segment_info = json.load(f)
 
     bw_image = get_bw_image_from_alpha(png_file)
@@ -74,9 +74,9 @@ def write_bounds_to_image_file(
     img_rects.rectangle([x_min, y_min, x_max, y_max], outline="red", width=2)
 
     # noinspection PyProtectedMember
-    img_rects._image.save(bounds_img_file)
+    img_rects._image.save(str(bounds_img_file))
 
-    logger.info(f'Saved bounds to image file "{get_abbrev_path(bounds_img_file)}".')
+    logger.info(f'Saved bounds to image file "{bounds_img_file}".')
 
     return True
 

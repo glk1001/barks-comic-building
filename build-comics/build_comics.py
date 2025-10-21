@@ -267,7 +267,7 @@ class ComicBookBuilder:
 
     def _create_dest_dirs(self) -> None:
         if not self._comic.get_dest_image_dir().is_dir():
-            self._comic.get_dest_image_dir().mkdir()
+            self._comic.get_dest_image_dir().mkdir(parents=True)
 
         if not self._comic.get_dest_image_dir().is_dir():
             msg = f'Could not make directory "{self._comic.get_dest_image_dir()}".'

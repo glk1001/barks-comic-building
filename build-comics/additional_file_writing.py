@@ -268,7 +268,9 @@ def get_page_counts(comic: ComicBook, dest_pages: list[CleanPage]) -> dict[str, 
 
     splash_page_count = len([p for p in dest_pages if p.page_type == PageType.SPLASH])
 
-    front_matter_page_count = len([p for p in dest_pages if p.page_type == PageType.FRONT_MATTER])
+    front_matter_page_count = len(
+        [p for p in dest_pages if p.page_type in [PageType.FRONT_MATTER, PageType.FRONT_NO_PANELS]]
+    )
 
     story_page_count = len([p for p in dest_pages if p.page_type == PageType.BODY])
 

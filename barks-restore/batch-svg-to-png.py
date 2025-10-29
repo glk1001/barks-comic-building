@@ -41,10 +41,11 @@ def svgs_to_pngs(title_list: list[str]) -> None:
 
 
 def convert_svg_to_png(srce_svg: Path) -> None:
+    # noinspection PyBroadException
     try:
         if not srce_svg.is_file():
             msg = f'Could not find srce file: "{srce_svg}".'
-            raise FileNotFoundError(msg)
+            raise FileNotFoundError(msg)  # noqa: TRY301
 
         png_file = srce_svg.with_suffix(".png")
         if png_file.is_file():
@@ -57,7 +58,7 @@ def convert_svg_to_png(srce_svg: Path) -> None:
         )
         svg_file_to_png(srce_svg, png_file)
 
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("Error: ")
         return
 

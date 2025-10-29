@@ -20,7 +20,7 @@ if __name__ == "__main__":
         print(f'ERROR: Can\'t find output directory: "{out_dir}".')
         sys.exit(1)
 
-    work_dir = Path("/tmp/") / "working"
+    work_dir = Path("/tmp/") / "working"  # noqa: S108
     work_dir.mkdir(parents=True, exist_ok=True)
 
     input_image_dir = srce_file.parent

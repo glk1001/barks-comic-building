@@ -4,17 +4,22 @@ line-length = 100
     select = ["ALL"]
 
     ignore = [
-        "INP001",
+        "PGH004",
         "D100", "D101", "D102", "D103", "D107", "D203", "D211", "D213",  # doc-strings
         "COM812",  # turn off trailing commas as recommended by the formatter
         "FBT001", "FBT002",  # boolean
+        "FIX002", "TD003",
+        "INP001",
         "LOG015", "G004",  # logging
         "S101", "S311",  # assert
     ]
 #    ignore = [
 #        "C901", "PLR0912",
-#        "FIX002",
 #        "LOG015", "G004",
 #        "PLR0913",
-#        "TD002", "TD003"
 #    ]
+
+    exclude = [
+        "barks-restore/experiments/*.py",
+        "build-comics/scraps/*.py",
+    ]

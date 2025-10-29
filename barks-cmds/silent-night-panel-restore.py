@@ -1,4 +1,4 @@
-# ruff: noqa: T201, ERA001
+# ruff: noqa
 
 import os
 import sys
@@ -47,6 +47,7 @@ def get_vertical_start(overall_bound: KumikoBound) -> int:
     # return overall_bound.top
 
 
+# noinspection PyTypeChecker
 def fix_panels(in_file: str, out_file: str) -> None:
     srce_image = open_pil_image_for_reading(in_file).convert("RGB")
     print(f'"{srce_image}": {srce_image.size}')
@@ -145,6 +146,7 @@ def get_extra_vertical_space(bounds_info: BoundsInfo) -> tuple[int, int]:
     return extra_space, num_panel_rows
 
 
+# noinspection PyTypeChecker
 def get_page_panel_bounds(
     bounding_box_processor: BoundingBoxProcessor, srce_file: str
 ) -> BoundsInfo:

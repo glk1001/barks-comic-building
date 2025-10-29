@@ -10,9 +10,11 @@ from compare_images import compare_images_in_dir
 
 def compare_build_dirs(dir1: Path, dir2: Path) -> int:
     if not dir1.is_dir():
-        raise FileNotFoundError(f'Error: Could not find build directory1: "{dir1}".')
+        msg = f'Error: Could not find build directory1: "{dir1}".'
+        raise FileNotFoundError(msg)
     if not dir2.is_dir():
-        raise FileNotFoundError(f'Error: Could not find build directory2: "{dir2}".')
+        msg = f'Error: Could not find build directory2: "{dir2}".'
+        raise FileNotFoundError(msg)
 
     errs = compare_dirs_excluding_images(dir1, dir2)
     errs += compare_dir_images(dir1, dir2)
@@ -44,7 +46,7 @@ def compare_dirs_excluding_images(dir1: Path, dir2: Path) -> int:
         str(dir2),
     ]
 
-    proc = subprocess.run(diff_command, capture_output=True, text=True, check=False)
+    proc = subprocess.run(diff_command, capture_output=True, text=True, check=False)  # noqa: S603
     if proc.returncode != 0:
         print(f"Error: Files differ between '{dir1}' and '{dir2}'.")
         print("--- diff output ---")
@@ -63,10 +65,12 @@ def compare_dir_images(dir1: Path, dir2: Path) -> int:
     dir2_images = dir2 / "images"
 
     if not dir1_images.is_dir():
-        raise FileNotFoundError(f'Could not find images dir "{dir1_images}"')
+        msg = f'Could not find images dir "{dir1_images}"'
+        raise FileNotFoundError(msg)
 
     if not dir2_images.is_dir():
-        raise FileNotFoundError(f'Could not find images dir "{dir2_images}"')
+        msg = f'Could not find images dir "{dir2_images}"'
+        raise FileNotFoundError(msg)
 
     print(f"Comparing images in '{dir1_images}' and '{dir2_images}'...")
     compare_fuzz = "0%"

@@ -1,4 +1,5 @@
 # ruff: noqa: T201, ERA001
+from pathlib import Path
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_DICT
 from bs4 import BeautifulSoup
@@ -27,7 +28,9 @@ TAG = "Tags.JUNIOR_WOODCHUCKS"
 #     return title_str
 
 
-with open(html_file, "r") as f:
+html_file = Path(html_file)
+
+with html_file.open() as f:
     html = f.read()
 
 bs = BeautifulSoup(html, "html.parser")
@@ -74,7 +77,7 @@ character_titles = sorted(character_titles, key=lambda x: x.value)
 print(f"{TAG}: [")
 for title in character_titles:
     print(f"    Titles.{title.name},")
-print(f"],")
+print("],")
 
 # title_tags = bs.body.find_all("div", ["storycode","title"])
 # for div in title_tags:

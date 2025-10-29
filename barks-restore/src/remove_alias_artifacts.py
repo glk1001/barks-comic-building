@@ -1,4 +1,4 @@
-# ruff: noqa: ERA001
+# ruff: noqa: ERA001, PTH118, S108, ANN001, ANN202
 
 import os
 

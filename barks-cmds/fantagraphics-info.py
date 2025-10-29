@@ -1,6 +1,5 @@
 # ruff: noqa: T201
 
-import os.path
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,7 +72,7 @@ def is_restored(comic: ComicBook) -> bool:
 
 
 def has_inset_file(comic: ComicBook) -> bool:
-    return os.path.isfile(comic.intro_inset_file)
+    return comic.intro_inset_file.is_file()
 
 
 def has_fixes(comic: ComicBook) -> bool:
@@ -94,7 +93,9 @@ def has_panel_bounds(comic: ComicBook) -> bool:
     restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
     panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
 
-    for restored_file, panel_segments_file in zip(restored_files, panel_segments_files):
+    for restored_file, panel_segments_file in zip(
+        restored_files, panel_segments_files, strict=True
+    ):
         if dest_file_is_older_than_srce(restored_file, panel_segments_file):
             logger.debug(
                 f'Panels segments file "{panel_segments_file}" is'
@@ -105,7 +106,7 @@ def has_panel_bounds(comic: ComicBook) -> bool:
     return True
 
 
-def is_built(comic: ComicBook) -> bool:
+def is_built(comic: ComicBook) -> bool:  # noqa: PLR0911
     if not has_panel_bounds(comic):
         return False
     if not is_restored(comic):
@@ -114,7 +115,7 @@ def is_built(comic: ComicBook) -> bool:
     panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
     max_panel_segments_timestamp = get_max_timestamp(panel_segments_files)
     zip_file = comic.get_dest_comic_zip()
-    if not os.path.isfile(zip_file):
+    if not zip_file.is_file():
         return False
     zip_file_timestamp = get_timestamp(zip_file)
 
@@ -123,7 +124,7 @@ def is_built(comic: ComicBook) -> bool:
         return False
 
     series_comic_zip_symlink = comic.get_dest_series_comic_zip_symlink()
-    if not os.path.islink(series_comic_zip_symlink):
+    if not series_comic_zip_symlink.is_symlink():
         return False
     series_comic_zip_symlink_timestamp = get_timestamp(series_comic_zip_symlink)
 
@@ -132,7 +133,7 @@ def is_built(comic: ComicBook) -> bool:
         return False
 
     year_comic_zip_symlink = comic.get_dest_year_comic_zip_symlink()
-    if not os.path.islink(year_comic_zip_symlink):
+    if not year_comic_zip_symlink.is_symlink():
         return False
     year_comic_zip_symlink_timestamp = get_timestamp(series_comic_zip_symlink)
 
@@ -143,11 +144,11 @@ def is_built(comic: ComicBook) -> bool:
     return True
 
 
-def all_files_exist(file_list: list[str]) -> bool:
+def all_files_exist(file_list: list[Path]) -> bool:
     if not file_list:
         return False
 
-    return all(os.path.isfile(file) for file in file_list)
+    return all(file.is_file() for file in file_list)
 
 
 def get_build_state_flag(comic: ComicBook) -> str:

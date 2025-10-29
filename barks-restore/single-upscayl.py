@@ -9,9 +9,9 @@ if __name__ == "__main__":
     input_image_file = Path(sys.argv[1])
 
     scale = 4
-    if len(sys.argv) >= 3:
+    if len(sys.argv) >= 3:  # noqa: PLR2004
         scale = int(sys.argv[2])
-        assert 2 <= scale <= 12
+        assert 2 <= scale <= 12  # noqa: PLR2004
 
     input_image_dir = input_image_file.parent
     input_image_stem = input_image_file.stem

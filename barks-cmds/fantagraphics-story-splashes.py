@@ -1,7 +1,6 @@
 # ruff: noqa: T201, ERA001
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -15,13 +14,16 @@ from loguru import logger
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "spla"
+MAX_NUM_PANELS_FOR_SPLASH = 5
 
 
 def get_story_splashes(comic: ComicBook) -> list[str]:
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
 
     splashes = []
-    for srce_page, dest_page in zip(srce_and_dest_pages.srce_pages, srce_and_dest_pages.dest_pages):
+    for srce_page, dest_page in zip(
+        srce_and_dest_pages.srce_pages, srce_and_dest_pages.dest_pages, strict=True
+    ):
         if srce_page.page_type is not PageType.BODY:
             continue
         if dest_page.page_num == 1:  # Don't count large panels on first page
@@ -30,11 +32,11 @@ def get_story_splashes(comic: ComicBook) -> list[str]:
         srce_page_str = get_page_str(srce_page.page_num)
 
         panels_info_file = comic.get_srce_panel_segments_file(srce_page_str)
-        if not os.path.isfile(panels_info_file):
+        if not panels_info_file.is_file():
             msg = f'Could not find panels segments info file "{panels_info_file}".'
             raise FileNotFoundError(msg)
 
-        with open(panels_info_file) as f:
+        with panels_info_file.open() as f:
             panels = json.load(f)["panels"]
 
         # print(f'Checking panel file "{panels_info_file}".')
@@ -48,7 +50,7 @@ MIN_MAX_MARGIN = 200
 
 
 def has_splash_page(panels: list[tuple[int, int, int, int]]) -> bool:
-    if len(panels) > 5:
+    if len(panels) > MAX_NUM_PANELS_FOR_SPLASH:
         return False
 
     max_width = -1

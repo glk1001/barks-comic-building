@@ -76,7 +76,7 @@ def _resize_png_file(
     in_file: Path, srce_scale: int, resized_file: Path, metadata: dict[str, str]
 ) -> None:
     assert srce_scale in [2, 4]
-    scale_percent = 25 if srce_scale == 4 else 50
+    scale_percent = 25 if srce_scale == 4 else 50  # noqa: PLR2004
 
     resize_cmd = [
         str(in_file),
@@ -91,7 +91,9 @@ def _resize_png_file(
     add_png_metadata(resized_file, metadata)
 
 
-def _write_cv_png_file(file: Path, image: cv.typing.MatLike, metadata: dict[str, str]) -> None:
+def _write_cv_png_file(
+    file: Path, image: cv.typing.MatLike, metadata: dict[str, str] | None
+) -> None:
     color_converted = cv.cvtColor(image, cv.COLOR_BGR2RGB)
     pil_image = Image.fromarray(color_converted)
 
@@ -105,7 +107,9 @@ def _write_cv_png_file(file: Path, image: cv.typing.MatLike, metadata: dict[str,
     )
 
 
-def _write_cv_jpeg_file(file: Path, image: cv.typing.MatLike, metadata: dict[str, str]) -> None:
+def _write_cv_jpeg_file(
+    file: Path, image: cv.typing.MatLike, metadata: dict[str, str] | None
+) -> None:
     comments_str = "" if metadata is None else "\n" + "\n".join(_get_metadata_as_list(metadata))
     color_converted = cv.cvtColor(image, cv.COLOR_BGR2RGB)
     pil_image = Image.fromarray(color_converted)

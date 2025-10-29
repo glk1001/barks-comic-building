@@ -10,10 +10,10 @@ def run_gmic(params: list[str]) -> None:
 
     logger.debug(f"Running gmic: {' '.join(run_args)}.")
 
-    process = subprocess.Popen(run_args, stdout=subprocess.PIPE, text=True)
+    process = subprocess.Popen(run_args, stdout=subprocess.PIPE, text=True)  # noqa: S603
 
     while True:
-        output = process.stdout.readline()
+        output = process.stdout.readline()  # ty: ignore[possibly-missing-attribute]
         if output == "" and process.poll() is not None:
             break
         if output:
@@ -21,4 +21,5 @@ def run_gmic(params: list[str]) -> None:
 
     rc = process.poll()
     if rc != 0:
-        raise RuntimeError("Gmic failed.")
+        msg = "Gmic failed."
+        raise RuntimeError(msg)

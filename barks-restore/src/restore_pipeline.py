@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 from typing import TYPE_CHECKING
 
@@ -22,8 +21,9 @@ if TYPE_CHECKING:
 USE_EXISTING_WORK_FILES = False  # Use with care
 
 
+# noinspection PyBroadException
 class RestorePipeline:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         work_dir: Path,
         srce_file: Path,
@@ -102,7 +102,7 @@ class RestorePipeline:
                 f' "{self.removed_artifacts_file.name}":'
                 f" {int(time.time() - start)}s."
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.errors_occurred = True
             logger.exception("Error removing jpg artifacts: ")
 
@@ -128,7 +128,7 @@ class RestorePipeline:
                 f'Time taken to remove colors for "{self.removed_colors_file.name}":'
                 f" {int(time.time() - start)}s."
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.errors_occurred = True
             logger.exception("Error removing colors: ")
 
@@ -150,7 +150,7 @@ class RestorePipeline:
                 f'Time taken to smooth "{self.smoothed_removed_colors_file.name}":'
                 f" {int(time.time() - start)}s."
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Error smoothing removed colors: ")
 
     def do_generate_svg(self) -> None:
@@ -167,7 +167,7 @@ class RestorePipeline:
 
             logger.info(f'\nSaving svg file to png file "{self.png_of_svg_file}"...')
             svg_file_to_png(self.dest_svg_restored_file, self.png_of_svg_file)
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.errors_occurred = True
             logger.exception("Error generating svg: ")
 
@@ -191,7 +191,7 @@ class RestorePipeline:
             logger.info(
                 f'Time taken to inpaint "{self.inpainted_file.name}": {int(time.time() - start)}s.'
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.errors_occurred = True
             logger.exception("Error inpainting: ")
 
@@ -208,10 +208,10 @@ class RestorePipeline:
             )
 
             logger.info(
-                f'Time taken to overlay inpainted file "{os.path.basename(self.inpainted_file)}":'
+                f'Time taken to overlay inpainted file "{self.inpainted_file.name}":'
                 f" {int(time.time() - start)}s."
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.errors_occurred = True
             logger.exception("Error overlaying inpainted file: ")
 
@@ -219,11 +219,9 @@ class RestorePipeline:
         try:
             logger.info(f'\nResizing restored file to "{self.dest_restored_file}"...')
 
-            srce_file = (
-                "N/A" if not os.path.isfile(self.srce_file) else get_clean_path(self.srce_file)
-            )
+            srce_file = "N/A" if not self.srce_file.is_file() else get_clean_path(self.srce_file)
 
-            # TODO: Save other params used in process.
+            # TODO(glk): Save other params used in process.
             restored_file_metadata = {
                 "Source file": f'"{srce_file}"',
                 "Upscayl file": f'"{get_clean_path(self.srce_upscale_file)}"',
@@ -236,13 +234,13 @@ class RestorePipeline:
                 self.dest_restored_file,
                 restored_file_metadata,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.errors_occurred = True
             logger.exception("Error resizing file: ")
 
 
-def check_file_exists(proc: RestorePipeline, file: str | Path) -> None:
-    if not os.path.exists(file):
+def check_file_exists(proc: RestorePipeline, file: Path) -> None:
+    if not file.is_file():
         logger.error(f'Could not find output artifact "{file}".')
         proc.errors_occurred = True
 

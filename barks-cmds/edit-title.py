@@ -58,7 +58,7 @@ def write_cropped_image_file(
     print(f'Segments: "{segments_file}".')
 
     if not panel_segments_file.is_file():
-        image = open_pil_image_for_reading(str(srce_image_file))
+        image = open_pil_image_for_reading(srce_image_file)
         image.save(target_image_file, optimize=True, compress_level=9)
     else:
         with segments_file.open() as f:
@@ -78,7 +78,7 @@ def write_cropped_image_file(
 
         print(f"Panel {panel}: {left}, {bottom}, {right}, {upper}")
 
-        image = open_pil_image_for_reading(str(srce_image_file))
+        image = open_pil_image_for_reading(srce_image_file)
         subimage = image.crop((left, bottom, right, upper))
         subimage.save(target_image_file, optimize=True, compress_level=9)
 
@@ -88,7 +88,7 @@ def write_cropped_image_file(
 def open_gimp(image_file: Path) -> None:
     command = [*GIMP_EXE, str(image_file)]
 
-    _proc = subprocess.Popen(command)
+    _proc = subprocess.Popen(command)  # noqa: S603
 
     print(f'Gimp should now be running with image "{image_file}".')
 

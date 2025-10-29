@@ -1,7 +1,7 @@
 # ruff: noqa: T201
 
-import os
 import sys
+import zipfile
 from pathlib import Path
 
 from barks_fantagraphics import panel_bounding
@@ -31,14 +31,14 @@ def print_sources(indent: int, source_list: list[str]) -> None:
 
 
 def get_filepath_with_date(
-    is_a_comic: bool, file: str, timestamp: float, out_of_date_marker: str
+    is_a_comic: bool, file: Path | zipfile.Path, timestamp: float, out_of_date_marker: str
 ) -> str:
-    if not is_a_comic and (("upscayled" in file) or ("svg" in file)):
+    if not is_a_comic and (("upscayled" in str(file)) or ("svg" in str(file))):
         return ""
 
     missing_timestamp = "FILE MISSING          "  # same length as timestamp str
 
-    if os.path.isfile(file):
+    if file.is_file():
         file_str = get_abbrev_path(file)
         file_timestamp = get_timestamp_as_str(timestamp, "-", date_time_sep=" ", hr_sep=":")
     else:
@@ -86,15 +86,15 @@ if __name__ == "__main__":
         print()
         print(f'"{title}" source files:')
 
-        for srce_page, dest_page in zip(srce_pages, dest_pages):
+        for srce_page, dest_page in zip(srce_pages, dest_pages, strict=True):
             dest_page_num = Path(dest_page.page_filename).stem
             srce_page_num = Path(srce_page.page_filename).stem
             page_type_str = dest_page.page_type.name
-            prev_timestamp = get_timestamp(dest_page.page_filename)
+            prev_timestamp = get_timestamp(Path(dest_page.page_filename))
 
             sources = [
                 get_filepath_with_date(
-                    is_a_comic_book, dest_page.page_filename, prev_timestamp, " "
+                    is_a_comic_book, Path(dest_page.page_filename), prev_timestamp, " "
                 )
             ]
             is_modded = False

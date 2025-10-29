@@ -45,7 +45,7 @@ from comic_utils.comic_consts import ROMAN_NUMERALS
 from comic_utils.timing import Timing
 
 
-def write_summary_file(
+def write_summary_file(  # noqa: PLR0913, PLR0915
     comic: ComicBook,
     srce_dim: ComicDimensions,
     required_dim: RequiredDimensions,
@@ -223,30 +223,31 @@ def write_json_metadata(
     dest_pages: list[CleanPage],
 ) -> None:
     metadata_file = comic.get_dest_dir() / JSON_METADATA_FILENAME
-    metadata = {}
-    metadata["title"] = get_safe_title(comic.title)
-    metadata["ini_title"] = comic.get_ini_title()
-    metadata["issue_title"] = get_safe_title(comic.issue_title)
-    metadata["comic_title"] = get_safe_title(comic.get_comic_title())
-    metadata["series_name"] = comic.series_name
-    metadata["number_in_series"] = comic.number_in_series
-    metadata["srce_dir"] = str(get_clean_path(comic.dirs.srce_dir))
-    metadata["dest_dir"] = str(get_clean_path(comic.get_dest_dir()))
-    metadata["publication_date"] = comic.publication_date
-    metadata["submitted_date"] = comic.submitted_date
-    metadata["submitted_year"] = comic.submitted_year
-    metadata["srce_min_panels_bbox_width"] = srce_dim.min_panels_bbox_width
-    metadata["srce_max_panels_bbox_width"] = srce_dim.max_panels_bbox_width
-    metadata["srce_av_panels_bbox_width"] = srce_dim.av_panels_bbox_width
-    metadata["srce_min_panels_bbox_height"] = srce_dim.min_panels_bbox_height
-    metadata["srce_max_panels_bbox_height"] = srce_dim.max_panels_bbox_height
-    metadata["srce_av_panels_bbox_height"] = srce_dim.av_panels_bbox_height
-    metadata["required_dim"] = [
-        required_dim.panels_bbox_width,
-        required_dim.panels_bbox_height,
-        required_dim.page_num_y_bottom,
-    ]
-    metadata["page_counts"] = get_page_counts(comic, dest_pages)
+    metadata = {
+        "title": get_safe_title(comic.title),
+        "ini_title": comic.get_ini_title(),
+        "issue_title": get_safe_title(comic.issue_title),
+        "comic_title": get_safe_title(comic.get_comic_title()),
+        "series_name": comic.series_name,
+        "number_in_series": comic.number_in_series,
+        "srce_dir": str(get_clean_path(comic.dirs.srce_dir)),
+        "dest_dir": str(get_clean_path(comic.get_dest_dir())),
+        "publication_date": comic.publication_date,
+        "submitted_date": comic.submitted_date,
+        "submitted_year": comic.submitted_year,
+        "srce_min_panels_bbox_width": srce_dim.min_panels_bbox_width,
+        "srce_max_panels_bbox_width": srce_dim.max_panels_bbox_width,
+        "srce_av_panels_bbox_width": srce_dim.av_panels_bbox_width,
+        "srce_min_panels_bbox_height": srce_dim.min_panels_bbox_height,
+        "srce_max_panels_bbox_height": srce_dim.max_panels_bbox_height,
+        "srce_av_panels_bbox_height": srce_dim.av_panels_bbox_height,
+        "required_dim": [
+            required_dim.panels_bbox_width,
+            required_dim.panels_bbox_height,
+            required_dim.page_num_y_bottom,
+        ],
+        "page_counts": get_page_counts(comic, dest_pages),
+    }
     with metadata_file.open("w") as f:
         # noinspection PyTypeChecker
         json.dump(metadata, f, indent=4)
@@ -274,7 +275,7 @@ def get_page_counts(comic: ComicBook, dest_pages: list[CleanPage]) -> dict[str, 
 
     story_page_count = len([p for p in dest_pages if p.page_type == PageType.BODY])
 
-    # TODO: What about paintings???
+    # TODO(glk): What about paintings???
     back_matter_page_count = len(
         [
             p

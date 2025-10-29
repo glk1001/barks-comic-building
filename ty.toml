@@ -1,0 +1,22 @@
+[environment]
+python = "./.venv"
+root = [
+    "./barks-cmds",
+    "./barks-restore",
+    "./build-comics",
+    "./scripts",
+]
+extra-paths = [
+    "../barks-compleat-reader/src/barks-reader/src",
+    "../barks-compleat-reader/src/barks-build-comic-images/src",
+    "../barks-compleat-reader/src/barks-fantagraphics/src",
+    "../barks-compleat-reader/src/comic-utils/src",
+]
+
+[src]
+exclude = [
+    "barks-restore/experiments/*.py",
+    "build-comics/scraps/*.py",
+    "barks-cmds/silent-night-panel-restore.py",
+    "build-comics/scraps",
+]

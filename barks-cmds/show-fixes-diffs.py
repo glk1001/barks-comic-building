@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os.path
 import sys
 from pathlib import Path
 
@@ -19,23 +18,23 @@ from skimage.metrics import structural_similarity
 
 APP_LOGGING_NAME = "sdif"
 
-# TODO: Put these somewhere else
+# TODO(glk): Put these somewhere else
 SRCE_STANDARD_WIDTH = 2175
 SRCE_STANDARD_HEIGHT = 3000
 
 
 def get_image_diffs(
-    diff_thresh: float, image1_file: str, image2_file: str
+    diff_thresh: float, image1_file: Path, image2_file: Path
 ) -> tuple[float, int, cv.typing.MatLike, cv.typing.MatLike]:
-    if not os.path.isfile(image1_file):
+    if not image1_file.is_file():
         msg = f'Could not find image1 file "{image1_file}".'
         raise FileNotFoundError(msg)
-    if not os.path.isfile(image2_file):
+    if not image2_file.is_file():
         msg = f'Could not find image2 file "{image2_file}".'
         raise FileNotFoundError(msg)
 
-    image1 = cv.imread(image1_file)
-    image2 = cv.imread(image2_file)
+    image1 = cv.imread(str(image1_file))
+    image2 = cv.imread(str(image2_file))
 
     # Use grayscale for the comparison.
     image1_grey = cv.cvtColor(image1, cv.COLOR_BGR2GRAY)
@@ -54,12 +53,12 @@ def get_image_diffs(
     # where the two input images that differ.
     thresh = cv.threshold(diffs, 0, 255, cv.THRESH_BINARY_INV | cv.THRESH_OTSU)[1]
     contours = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    contours = contours[0] if len(contours) == 2 else contours[1]
+    contours = contours[0] if len(contours) == 2 else contours[1]  # noqa: PLR2004
 
     # mask = np.zeros(image1.shape, dtype="uint8")
     # image2_filled = image2.copy()
 
-    image_width = image1.shape[1]
+    image_width = image1.shape[1]  # ty: ignore[possibly-missing-attribute]
     rect_line_thickness = int(3 * image_width / 2000)
     srce_rect_color = (0, 0, 255)
     fixed_rect_color = (0, 255, 0)
@@ -67,7 +66,7 @@ def get_image_diffs(
     num_diff_areas = 0
     for c in contours:
         area = cv.contourArea(c)
-        if area > 40:
+        if area > 40:  # noqa: PLR2004
             num_diff_areas += 1
             x, y, w, h = cv.boundingRect(c)
             cv.rectangle(image1, (x, y), (x + w, y + h), srce_rect_color, rect_line_thickness)
@@ -78,8 +77,8 @@ def get_image_diffs(
     return score, num_diff_areas, image1, image2
 
 
-def show_diffs_for_title(ttl: str, out_dir: str) -> tuple[str, int]:
-    out_dir = os.path.join(out_dir, ttl)
+def show_diffs_for_title(ttl: str, out_dir: Path) -> tuple[Path, int]:
+    out_dir /= ttl
 
     logger.info(f'Checking fixes for for "{ttl}"...')
 
@@ -87,7 +86,7 @@ def show_diffs_for_title(ttl: str, out_dir: str) -> tuple[str, int]:
 
     srce_files = comic.get_srce_original_story_files(RESTORABLE_PAGE_TYPES)
     fixes_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
-    show_diffs_for_files(ttl + "-orig", os.path.join(out_dir, "orig"), srce_files, fixes_files)
+    show_diffs_for_files(ttl + "-orig", out_dir / "orig", srce_files, fixes_files)
 
     num_diffs = 0
 
@@ -95,7 +94,7 @@ def show_diffs_for_title(ttl: str, out_dir: str) -> tuple[str, int]:
     fixes_upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
     num_diffs += show_diffs_for_upscayled_files(
         ttl + "-upscayl",
-        os.path.join(out_dir, "upscayl"),
+        out_dir / "upscayl",
         srce_files,
         srce_upscayl_files,
         fixes_upscayl_files,
@@ -105,7 +104,7 @@ def show_diffs_for_title(ttl: str, out_dir: str) -> tuple[str, int]:
     fixes_restored_files = comic.get_final_srce_story_files(RESTORABLE_PAGE_TYPES)
     num_diffs += show_diffs_for_files(
         ttl + "-restored",
-        os.path.join(out_dir, "restored"),
+        out_dir / "restored",
         srce_restored_files,
         fixes_restored_files,
     )
@@ -115,10 +114,10 @@ def show_diffs_for_title(ttl: str, out_dir: str) -> tuple[str, int]:
 
 def show_diffs_for_upscayled_files(
     ttl: str,
-    out_dir: str,
-    srce_files: list[str],
-    upscayled_srce_files: list[str],
-    upscayled_fixes_files: list[tuple[str, ModifiedType]],
+    out_dir: Path,
+    srce_files: list[Path],
+    upscayled_srce_files: list[Path],
+    upscayled_fixes_files: list[tuple[Path, ModifiedType]],
 ) -> int:
     logger.info(f'Showing diffs for "{ttl}".')
 
@@ -134,13 +133,13 @@ def show_diffs_for_upscayled_files(
             continue
 
         if not made_out_dir:
-            os.makedirs(out_dir, exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             made_out_dir = True
 
-        assert not os.path.isfile(upscayled_srce_file)
+        assert not upscayled_srce_file.is_file()
 
         srce_image = open_pil_image_for_reading(srce_file).convert("RGB")
-        smaller_fixes_file = "/tmp/smaller-fixes-image.jpg"
+        smaller_fixes_file = Path("/tmp/smaller-fixes-image.jpg")  # noqa: S108
         downscale_jpg(
             srce_image.width, srce_image.height, upscayled_fixes_file[0], smaller_fixes_file
         )
@@ -153,7 +152,7 @@ def show_diffs_for_upscayled_files(
 
 
 def show_diffs_for_files(
-    ttl: str, out_dir: str, srce_files: list[str], fixes_files: list[tuple[str, ModifiedType]]
+    ttl: str, out_dir: Path, srce_files: list[Path], fixes_files: list[tuple[Path, ModifiedType]]
 ) -> int:
     logger.info(f'Showing diffs for "{ttl}".')
 
@@ -167,7 +166,7 @@ def show_diffs_for_files(
             continue
 
         if not made_out_dir:
-            os.makedirs(out_dir, exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             made_out_dir = True
 
         num_diffs += show_diffs_for_file(diff_threshold, ttl, out_dir, srce_file, fixes_file[0])
@@ -176,7 +175,7 @@ def show_diffs_for_files(
 
 
 def show_diffs_for_file(
-    diff_threshold: float, ttl: str, out_dir: str, srce_file: str, fixes_file: str
+    diff_threshold: float, ttl: str, out_dir: Path, srce_file: Path, fixes_file: Path
 ) -> int:
     logger.info(
         f'Getting diffs for file "{get_abbrev_path(srce_file)}"'
@@ -194,10 +193,10 @@ def show_diffs_for_file(
     if num_diffs == 0:
         return 0
 
-    diff1_file = os.path.join(out_dir, page + "-1-srce.png")
-    diff2_file = os.path.join(out_dir, page + "-2-fixes.png")
-    cv.imwrite(diff1_file, image1_with_diffs)
-    cv.imwrite(diff2_file, image2_with_diffs)
+    diff1_file = out_dir / (page + "-1-srce.png")
+    diff2_file = out_dir / (page + "-2-fixes.png")
+    cv.imwrite(str(diff1_file), image1_with_diffs)
+    cv.imwrite(str(diff2_file), image2_with_diffs)
     # cv2.imwrite(os.path.join(out_dir, "diffs.png"), diffs)
     # cv2.imwrite(os.path.join(out_dir, "mask.png"), mask)
     # cv2.imwrite(os.path.join(out_dir, "image2-with-filled-diffs.png"), image2_filled)
@@ -220,7 +219,7 @@ if __name__ == "__main__":
 
     comics_database = cmd_args.get_comics_database()
 
-    output_dir = "/tmp/fixes-diffs"
+    output_dir = Path("/tmp/fixes-diffs")  # noqa: S108
 
     for title in cmd_args.get_titles():
         title_out_dir, n_diffs = show_diffs_for_title(title, output_dir)

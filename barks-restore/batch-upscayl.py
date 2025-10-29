@@ -30,7 +30,7 @@ def upscayl(title_list: list[str]) -> None:
         srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
         upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
 
-        for srce_file, (dest_file, _is_mod_file) in zip(srce_files, upscayl_files):
+        for srce_file, (dest_file, _is_mod_file) in zip(srce_files, upscayl_files, strict=True):
             if upscayl_file(srce_file[0], dest_file):
                 num_upscayled_files += 1
 

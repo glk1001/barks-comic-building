@@ -1,4 +1,4 @@
-# ruff: noqa: T201, ERA001
+# ruff: noqa: T201, ERA001, ANN001
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,7 +6,7 @@ import numpy as np
 APP_LOGGING_NAME = "ygra"
 
 
-def create_yearly_plot(
+def create_yearly_plot(  # noqa: D417, PLR0913
     plot_title: str,
     years,
     values,
@@ -15,8 +15,7 @@ def create_yearly_plot(
     height_px=1050,
     dpi=150,
 ) -> None:
-    """Create, saves, and display a plot of integer values against a range of years
-    at a specific output resolution.
+    """Create, save, and display a plot of integer values against a range of years.
 
     Args:
         plot_title
@@ -26,6 +25,7 @@ def create_yearly_plot(
         width_px (int): The desired width of the output image in pixels.
         height_px (int): The desired height of the output image in pixels.
         dpi (int): The resolution (dots per inch) for the output image.
+
     """
     if len(years) != len(values):
         print("Error: The lists of years and values must have the same number of elements.")
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         title,
         years=years_data,
         values=values_data,
-        output_filename="/tmp/barks-yearly-page-counts.png",
+        output_filename="/tmp/barks-yearly-page-counts.png",  # noqa: S108
         width_px=1000,
         height_px=732,
         dpi=100,  # A common DPI for screen resolutions

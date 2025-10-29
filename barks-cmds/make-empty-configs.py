@@ -1,6 +1,5 @@
 # ruff: noqa: ERA001
 
-import os.path
 import sys
 from pathlib import Path
 
@@ -31,12 +30,12 @@ def get_issue_titles(
 def create_empty_config_file(ttl: str, is_barks_ttl: bool) -> None:
     ini_file = comics_database.get_ini_file(ttl)
     # ini_file = os.path.join("/tmp", ttl + ".ini")
-    if os.path.exists(ini_file):
+    if ini_file.exists():
         msg = f'Ini file "{ini_file}" already exists.'
         raise FileExistsError(msg)
 
     logger.info(f'Creating empty config file: "{get_abbrev_path(ini_file)}".')
-    with open(ini_file, "w") as f:
+    with ini_file.open("w") as f:
         f.write("[info]\n")
         if is_barks_ttl:
             f.write(f"title = {ttl}\n")

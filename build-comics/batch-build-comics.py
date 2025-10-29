@@ -38,6 +38,7 @@ def process_comic_book_titles(
 def process_comic_book(comic: ComicBook) -> int:
     process_timing = Timing(datetime.now(UTC))
 
+    # noinspection PyBroadException
     try:
         comic_book_builder = ComicBookBuilder(comic)
 
@@ -61,7 +62,7 @@ def process_comic_book(comic: ComicBook) -> int:
         msg = f'Assert failed at "{filename}:{line}" for statement "{text}".'
         logger.exception(msg)
         return 1
-    except Exception:
+    except Exception:  # noqa: BLE001
         # raise Exception
         logger.exception("Build error: ")
         return 1

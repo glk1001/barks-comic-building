@@ -1,3 +1,4 @@
+import zipfile
 from pathlib import Path
 
 from barks_fantagraphics.comics_utils import (
@@ -102,7 +103,7 @@ def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_p
 
 def get_file_out_of_date_wrt_max_timestamp_msg(
     file: Path,
-    max_file: Path,
+    max_file: Path | zipfile.Path,
     max_timestamp: float,
     msg_prefix: str,
 ) -> str:

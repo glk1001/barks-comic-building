@@ -36,7 +36,7 @@ def panel_bounds(title_list: list[str]) -> None:
                 f'"{comic.get_srce_original_fixes_image_dir()}".'
             )
             raise FileNotFoundError(msg)
-        # TODO: Put this in barks_fantagraphics
+        # TODO(glk): Put this in barks_fantagraphics
         srce_panels_bounds_override_dir = comic.get_srce_original_fixes_image_dir() / "bounded"
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -60,10 +60,11 @@ def get_page_panel_bounds(
     srce_file: Path,
     dest_file: Path,
 ) -> None:
+    # noinspection PyBroadException
     try:
         if not srce_file.is_file():
             msg = f'Could not find srce file: "{srce_file}".'
-            raise FileNotFoundError(msg)
+            raise FileNotFoundError(msg)  # noqa: TRY301
         if dest_file.is_file():
             logger.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
             return
@@ -80,7 +81,7 @@ def get_page_panel_bounds(
 
         bounding_box_processor.save_panels_segment_info(dest_file, segment_info)
 
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("Error: ")
         return
 

@@ -1,6 +1,7 @@
-# ruff: noqa: C901, T201, TD002, TD003, FIX002
+# ruff: noqa: C901, T201, TD002
 
 import stat
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,7 +51,7 @@ MAX_FIXES_PAGE_NUM = 300
 
 @dataclass
 class ZipOutOfDateErrors:
-    file: Path = None
+    file: Path | None = None
     missing: bool = False
     out_of_date_wrt_ini: bool = False
     out_of_date_wrt_srce: bool = False
@@ -60,7 +61,7 @@ class ZipOutOfDateErrors:
 
 @dataclass
 class ZipSymlinkOutOfDateErrors:
-    symlink: Path = None
+    symlink: Path | None = None
     missing: bool = False
     out_of_date_wrt_ini: bool = False
     out_of_date_wrt_zip: bool = False
@@ -75,7 +76,7 @@ class OutOfDateErrors:
     dest_dir_files_missing: list[Path]
     dest_dir_files_out_of_date: list[Path]
     srce_and_dest_files_missing: list[tuple[Path, Path]]
-    srce_and_dest_files_out_of_date: list[tuple[Path, Path]]
+    srce_and_dest_files_out_of_date: list[tuple[Path | zipfile.Path, Path]]
     unexpected_dest_image_files: list[Path]
     exception_errors: list[str]
     zip_errors: ZipOutOfDateErrors
@@ -83,9 +84,9 @@ class OutOfDateErrors:
     year_zip_symlink_errors: ZipSymlinkOutOfDateErrors
     is_error: bool = False
     max_srce_timestamp: float = 0.0
-    max_srce_file: Path = None
+    max_srce_file: Path | zipfile.Path | None = None
     max_dest_timestamp: float = 0.0
-    max_dest_file: Path = None
+    max_dest_file: Path | None = None
     ini_timestamp: float = 0.0
 
 
@@ -731,7 +732,7 @@ class ComicsIntegrityChecker:
             else:
                 srce_dependencies = get_restored_srce_dependencies(comic, srce_page)
                 prev_timestamp = get_timestamp(Path(dest_page.page_filename))
-                prev_file = dest_page.page_filename
+                prev_file = Path(dest_page.page_filename)
                 for dependency in srce_dependencies:
                     if not dependency.independent and is_a_comic:
                         if (dependency.timestamp < 0) or (dependency.timestamp > prev_timestamp):
@@ -766,7 +767,7 @@ class ComicsIntegrityChecker:
             if dest_image_file not in allowed_dest_image_files:
                 errors.unexpected_dest_image_files.append(dest_image_file)
 
-    def check_unexpected_files(
+    def check_unexpected_files(  # noqa: PLR0912,PLR0913
         self,
         srce_dirs_list: list[Path],
         dest_dirs_info_list: list[tuple[Path, Path]],
@@ -859,7 +860,7 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
+    def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:  # noqa: PLR0912, PLR0915
         if not comic.get_dest_comic_zip().is_file():
             errors.zip_errors.missing = True
             errors.zip_errors.file = comic.get_dest_comic_zip()
@@ -951,7 +952,7 @@ class ComicsIntegrityChecker:
             if file_timestamp < errors.max_srce_timestamp:
                 errors.dest_dir_files_out_of_date.append(file_path)
 
-    def print_check_errors(self, errors: OutOfDateErrors) -> None:
+    def print_check_errors(self, errors: OutOfDateErrors) -> None:  # noqa: PLR0912
         if (
             len(errors.srce_and_dest_files_missing) > 0
             or len(errors.srce_and_dest_files_out_of_date) > 0
@@ -1167,7 +1168,7 @@ class ComicsIntegrityChecker:
             print(f'{ERROR_MSG_PREFIX} The dest image file "{get_relpath(file)}" was unexpected.')
 
     @staticmethod
-    def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:
+    def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:  # noqa: PLR0912
         for srce_dest in errors.srce_and_dest_files_missing:
             srce_file = Path(srce_dest[0])
             dest_file = Path(srce_dest[1])
@@ -1194,6 +1195,7 @@ class ComicsIntegrityChecker:
             print()
 
         if len(errors.dest_dir_files_out_of_date) > 0:
+            assert errors.max_srce_file
             for out_of_date_file in errors.dest_dir_files_out_of_date:
                 print(
                     get_file_out_of_date_wrt_max_timestamp_msg(

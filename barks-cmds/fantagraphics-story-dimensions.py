@@ -1,7 +1,6 @@
 # ruff: noqa: T201
 
 import json
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,8 +36,8 @@ def get_story_dimensions(comic: ComicBook) -> Dimensions:
         front_height = image.height
 
     srce_dims = ComicDimensions()
-    metadata_file = os.path.join(comic.get_dest_dir(), "comic-metadata.json")
-    with open(metadata_file) as f:
+    metadata_file = comic.get_dest_dir() / "comic-metadata.json"
+    with metadata_file.open() as f:
         comic_metadata = json.load(f)
         srce_dims.min_panels_bbox_width = comic_metadata["srce_min_panels_bbox_width"]
         srce_dims.max_panels_bbox_width = comic_metadata["srce_max_panels_bbox_width"]

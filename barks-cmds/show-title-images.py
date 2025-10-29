@@ -17,7 +17,7 @@ VIEWER_EXE = ["/usr/bin/eog"]
 def open_viewer(image_file: Path) -> None:
     command = [*VIEWER_EXE, str(image_file)]
 
-    _proc = subprocess.Popen(command)
+    _proc = subprocess.Popen(command)  # noqa: S603
 
     print(f'Image Viewer should now be showing image "{image_file}".')
 

@@ -1,9 +1,9 @@
 # ruff: noqa: T201
 
-import os.path
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_DICT, BARKS_TITLES, Titles
 from bs4 import BeautifulSoup
@@ -225,7 +225,7 @@ KYLING_TITLE_MAP = {
     "Isle of the Golden Geese": Titles.ISLE_OF_GOLDEN_GEESE,
 }
 
-html_file_base = "/home/greg/Books/Carl Barks/Misc/Pay Slips/html-source"
+html_file_base = Path("/home/greg/Books/Carl Barks/Misc/Pay Slips/html-source")
 
 ISSUE_PREFIXES_TO_SKIP = {"NF", "OG"}
 
@@ -244,13 +244,14 @@ def get_prelim_payment_info(row: list[str]) -> PrelimPaymentInfo:
 
     issue = row[0]
     ttl = get_stripped_new_lines(row[1])
-    barks_id = get_stripped_new_lines(row[2])
+    barks_id = get_stripped_new_lines(row[2])  # noqa: F841
 
     num_pages_str = row[3].replace("*", "").strip()
     try:
         num_pages = int(num_pages_str)
     except ValueError:
-        raise Exception(f'"{row[3]}" is not an int: "{row}".')
+        msg = f'"{row[3]}" is not an int: "{row}".'
+        raise Exception(msg)  # noqa: B904, TRY002
 
     accepted_date_str = get_stripped_new_lines(row[4])
     try:
@@ -287,11 +288,11 @@ def get_date(col: str, this_year: int) -> tuple[int, int, int]:
 
     mth_day_year = col.split(",")
     if len(mth_day_year) > 1:
-        assert len(mth_day_year) == 2
+        assert len(mth_day_year) == 2  # noqa: PLR2004
         yr = int(mth_day_year[1].strip(" *"))
 
     mth_day = mth_day_year[0].split(" ")
-    assert len(mth_day) == 2
+    assert len(mth_day) == 2  # noqa: PLR2004
 
     day = mth_day[1].strip()
     day = 1 if day == "??" else int(day)
@@ -329,20 +330,16 @@ def split_multi_titles(rows: list[list[str]]) -> list[list[str]]:
 
 
 def split_row(r: list[str], num_titles: int) -> list[list[str]]:
-    title_list = []
-
     issues = split_column(r[0], num_titles)
     titles = split_column(r[1], num_titles)
     num_pages = split_column(r[3], num_titles)
     accepted_dates = split_column(r[4], num_titles)
     payments = split_column(r[5], num_titles)
 
-    for i in range(num_titles):
-        title_list.append(
-            [issues[i], titles[i], r[2], num_pages[i], accepted_dates[i], payments[i], r[6]]
-        )
-
-    return title_list
+    return [
+        [issues[i], titles[i], r[2], num_pages[i], accepted_dates[i], payments[i], r[6]]
+        for i in range(num_titles)
+    ]
 
 
 def split_column(col: str, num_titles: int) -> list[str]:
@@ -367,10 +364,10 @@ class PaymentInfo:
 titles_with_prelim_payment_info = []
 
 for year in range(1958, 1960):
-    html_file = os.path.join(html_file_base, f"thepayments{year}.html")
+    html_file = html_file_base / f"thepayments{year}.html"
     print(f'\nProcessing file "{html_file}"...')
 
-    with open(html_file, encoding="ISO-8859-1") as f:
+    with html_file.open(encoding="ISO-8859-1") as f:
         html = f.read()
 
     bs = BeautifulSoup(html, "html.parser")
@@ -387,7 +384,7 @@ for year in range(1958, 1960):
         else:
             if cols[0].startswith("CODE"):
                 continue
-            cols.append(year)
+            cols.append(str(year))
             print("Appended: ", cols)
             year_data.append(cols)
 

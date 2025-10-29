@@ -74,15 +74,19 @@ class ComicBookBuilder:
         self._srce_and_dest_pages: SrceAndDestPages | None = None
 
     def get_srce_dim(self) -> ComicDimensions:
+        assert self._srce_dim
         return self._srce_dim
 
     def get_required_dim(self) -> RequiredDimensions:
+        assert self._required_dim
         return self._required_dim
 
     def get_srce_and_dest_pages(self) -> SrceAndDestPages:
+        assert self._srce_and_dest_pages
         return self._srce_and_dest_pages
 
     def get_max_dest_page_timestamp(self) -> float:
+        assert self._srce_and_dest_pages
         return get_max_timestamp(self._srce_and_dest_pages.dest_pages)
 
     def build(self) -> None:
@@ -141,6 +145,8 @@ class ComicBookBuilder:
         _process_page_error = False
 
         if USE_CONCURRENT_PROCESSES:
+            assert self._srce_and_dest_pages
+            assert self._srce_and_dest_pages
             # max_workers = min(32, (os.cpu_count() or 1) + 4)
             max_workers = None
             # with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -204,7 +210,7 @@ class ComicBookBuilder:
             logger.info(f'Saved changes to image "{get_abbrev_path(dest_page.page_filename)}".')
 
             logger.info("")
-        except Exception:
+        except Exception:  # noqa: BLE001
             _, _, tb = sys.exc_info()
             tb_info = traceback.extract_tb(tb)
             filename, line, _func, text = tb_info[-1]
@@ -247,6 +253,10 @@ class ComicBookBuilder:
         ]
 
     def _process_additional_files(self) -> None:
+        assert self._srce_and_dest_pages
+        assert self._srce_dim
+        assert self._required_dim
+
         shutil.copy2(self._comic.ini_file, self._comic.get_dest_dir())
 
         write_readme_file(self._comic)
@@ -280,6 +290,9 @@ class ComicBookBuilder:
     # noinspection LongLine
     def _log_comic_book_params(self) -> None:
         logger.info("")
+
+        assert self._srce_dim
+        assert self._required_dim
 
         calc_panels_bbox_height = round(
             (self._srce_dim.av_panels_bbox_height * self._required_dim.panels_bbox_width)

@@ -52,7 +52,7 @@ if __name__ == "__main__":
         title,
         years=years,
         values=values_data,
-        output_filename="/tmp/barks-yearly-payments.png",
+        output_filename="/tmp/barks-yearly-payments.png",  # noqa: S108
         width_px=1000,
         height_px=732,
         dpi=100,  # A common DPI for screen resolutions

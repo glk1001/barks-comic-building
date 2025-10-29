@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -66,9 +65,9 @@ def get_page_num_str(page: CleanPage) -> str:
 def get_mod_type(comic: ComicBook, srce: CleanPage) -> str:
     page_num = get_page_str(srce.page_num)
 
-    if os.path.isfile(comic.get_srce_original_fixes_story_file(page_num)):
+    if comic.get_srce_original_fixes_story_file(page_num).is_file():
         return "O"
-    if os.path.isfile(comic.get_srce_upscayled_fixes_story_file(page_num)):
+    if comic.get_srce_upscayled_fixes_story_file(page_num).is_file():
         return "U"
 
     msg = f'Expected to find a fixes file for "{srce.page_filename}".'

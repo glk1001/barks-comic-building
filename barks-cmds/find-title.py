@@ -5,7 +5,7 @@ from pathlib import Path
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO
 from barks_fantagraphics.comics_cmd_args import CmdArgs, ExtraArg
-from barks_fantagraphics.title_search import BarksTitleSearch, unique_extend
+from barks_fantagraphics.title_search import BarksTitleSearch
 from loguru import logger
 from loguru_config import LoguruConfig
 
@@ -37,13 +37,14 @@ if __name__ == "__main__":
     titles = []
 
     if prefix:
-        unique_extend(titles, title_search.get_titles_matching_prefix(prefix))
+        titles.append(title_search.get_titles_matching_prefix(prefix))
     if word:
-        unique_extend(titles, title_search.get_titles_containing(word))
+        titles.append(title_search.get_titles_containing(word))
 
     if not titles:
         print("No titles found.")
     else:
+        titles = list(set(titles))  # get rid of duplicate titles
         title_info_list = [BARKS_TITLE_INFO[t] for t in titles]
 
         if cmd_args.get_extra_arg("--sort"):

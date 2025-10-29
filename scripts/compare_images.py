@@ -11,19 +11,22 @@ def compare_images_in_dir(
 ) -> int:
     # --- Argument Validation ---
     if not dir1.is_dir():
-        raise FileNotFoundError(f'Error: Could not find directory1: "{dir1}".')
+        msg = f'Error: Could not find directory1: "{dir1}".'
+        raise FileNotFoundError(msg)
     if not dir2.is_dir():
-        raise FileNotFoundError(f'Error: Could not find directory2: "{dir2}".')
+        msg = f'Error: Could not find directory2: "{dir2}".'
+        raise FileNotFoundError(msg)
     if not fuzz.endswith("%"):
-        raise ValueError(f"Error: The fuzz amount must end with a '%': \"{fuzz}\".")
+        msg = f"Error: The fuzz amount must end with a '%': \"{fuzz}\"."
+        raise ValueError(msg)
 
     if fuzz != "0%":
         if not diff_dir:
-            raise ValueError(
-                f'Error: For non-zero fuzz amount "{fuzz}" you must specify a diff dir.'
-            )
-        if ae_cutoff <= 0.0001:
-            raise ValueError('Error: You must specify a non-zero "AE_CUTOFF" for non-zero fuzz.')
+            msg = f'Error: For non-zero fuzz amount "{fuzz}" you must specify a diff dir.'
+            raise ValueError(msg)
+        if ae_cutoff <= 0.0001:  # noqa: PLR2004
+            msg = 'Error: You must specify a non-zero "AE_CUTOFF" for non-zero fuzz.'
+            raise ValueError(msg)
 
     errors = 0
     files_in_dir1 = sorted(f for f in dir1.iterdir() if f.is_file())
@@ -102,7 +105,7 @@ def mae_compare(file1: Path, file2: Path) -> tuple[int, str]:
     command = ["compare", "-metric", "MAE", str(file1), str(file2), "NULL:"]
 
     # The metric value is printed to stderr
-    proc = subprocess.run(command, check=False, capture_output=True, text=True)
+    proc = subprocess.run(command, check=False, capture_output=True, text=True)  # noqa: S603
     metric_output = proc.stderr.strip()
 
     # The original script ignores the exit code from `compare` and parses the
@@ -145,7 +148,8 @@ def fuzz_ae_compare(
     """
     # Use Absolute Error (AE) for fuzz comparison
     if not diff_dir:
-        raise ValueError("diff_dir must be provided for non-zero fuzz.")
+        msg = "diff_dir must be provided for non-zero fuzz."
+        raise ValueError(msg)
 
     diff_dir.mkdir(parents=True, exist_ok=True)
     diff_file = diff_dir / f"diff-{file1.name}"
@@ -160,7 +164,7 @@ def fuzz_ae_compare(
         str(file2),
         str(diff_file),
     ]
-    proc = subprocess.run(command, check=False, capture_output=True, text=True)
+    proc = subprocess.run(command, check=False, capture_output=True, text=True)  # noqa: S603
     metric_output = proc.stderr.strip()
 
     result = 0
@@ -221,6 +225,6 @@ if __name__ == "__main__":
     )
 
     # if num_errors > 0:
-    #     print(f'"{args.dir1}": Found {num_errors} differing images.')
+    #     print(f'"{args.dir1}": Found {num_errors} differing images.')  # noqa: ERA001
 
     sys.exit(num_errors)

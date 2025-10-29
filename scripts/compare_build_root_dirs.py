@@ -17,14 +17,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if not args.dir1.is_dir():
-        raise FileNotFoundError(f'Error: Could not find build directory1: "{args.dir1}".')
+        msg = f'Error: Could not find build directory1: "{args.dir1}".'
+        raise FileNotFoundError(msg)
     if not args.dir2.is_dir():
-        raise FileNotFoundError(f'Error: Could not find build directory2: "{args.dir2}".')
+        msg = f'Error: Could not find build directory2: "{args.dir2}".'
+        raise FileNotFoundError(msg)
 
     num_errors = 0
     for file in args.dir1.iterdir():
         if not file.is_dir():
-            raise FileExistsError(f'Error: Expecting dir not file: "{file}".')
+            msg = f'Error: Expecting dir not file: "{file}".'
+            raise FileExistsError(msg)
 
         subdir1 = file
         subdir2 = args.dir2 / file.name

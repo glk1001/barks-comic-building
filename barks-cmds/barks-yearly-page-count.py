@@ -199,6 +199,7 @@ if __name__ == "__main__":
             num_pages = TEMP_PAGE_COUNTS[title_info.title]
         else:
             title_str = BARKS_TITLES[title_info.title]
+            # noinspection PyBroadException
             try:
                 comic_book = comics_database.get_comic_book(title_str)
             except Exception:  # noqa: BLE001
@@ -225,7 +226,7 @@ if __name__ == "__main__":
         title,
         years=years,
         values=values_data,
-        output_filename="/tmp/barks-yearly-page-counts.png",
+        output_filename="/tmp/barks-yearly-page-counts.png",  # noqa: S108
         width_px=1000,
         height_px=732,
         dpi=100,  # A common DPI for screen resolutions

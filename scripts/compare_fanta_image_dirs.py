@@ -48,14 +48,17 @@ if __name__ == "__main__":
     print(volumes)
 
     if not args.dir1.is_dir():
-        raise FileNotFoundError(f'Error: Could not find Fantagraphics directory1: "{args.dir1}".')
+        msg = f'Error: Could not find Fantagraphics directory1: "{args.dir1}".'
+        raise FileNotFoundError(msg)
     if not args.dir2.is_dir():
-        raise FileNotFoundError(f'Error: Could not find Fantagraphics directory2: "{args.dir2}".')
+        msg = f'Error: Could not find Fantagraphics directory2: "{args.dir2}".'
+        raise FileNotFoundError(msg)
 
     num_errors = 0
     for file1 in args.dir1.iterdir():
         if not file1.is_dir():
-            raise FileExistsError(f'Error: Expecting dir not file: "{file1}".')
+            msg = f'Error: Expecting dir not file: "{file1}".'
+            raise FileExistsError(msg)
 
         if not any(str(v) in str(file1.name) for v in volumes):
             continue

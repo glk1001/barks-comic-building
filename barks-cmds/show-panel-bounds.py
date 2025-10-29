@@ -74,7 +74,7 @@ def write_bounds_to_image_file(
     img_rects.rectangle([x_min, y_min, x_max, y_max], outline="red", width=2)
 
     # noinspection PyProtectedMember
-    img_rects._image.save(str(bounds_img_file))
+    img_rects._image.save(str(bounds_img_file))  # noqa: SLF001
 
     logger.info(f'Saved bounds to image file "{bounds_img_file}".')
 

@@ -5,6 +5,7 @@
       <excludeFolder url="file://$MODULE_DIR$/barks-restore/experiments" />
       <excludeFolder url="file://$MODULE_DIR$/build-comics/scraps" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/logs" />
     </content>
     <content url="file://$MODULE_DIR$/../barks-compleat-reader/src/barks-build-comic-images/src">
       <sourceFolder url="file://$MODULE_DIR$/../barks-compleat-reader/src/barks-build-comic-images/src/barks_build_comic_images" isTestSource="false" />

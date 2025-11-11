@@ -11,7 +11,7 @@ from barks_fantagraphics.comic_book import ModifiedType
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.pil_image_utils import downscale_jpg, open_pil_image_for_reading
+from comic_utils.pil_image_utils import downscale_jpg, load_pil_image_for_reading
 from loguru import logger
 from loguru_config import LoguruConfig
 from skimage.metrics import structural_similarity
@@ -138,7 +138,7 @@ def show_diffs_for_upscayled_files(
 
         assert not upscayled_srce_file.is_file()
 
-        srce_image = open_pil_image_for_reading(srce_file).convert("RGB")
+        srce_image = load_pil_image_for_reading(srce_file).convert("RGB")
         smaller_fixes_file = Path("/tmp/smaller-fixes-image.jpg")  # noqa: S108
         downscale_jpg(
             srce_image.width, srce_image.height, upscayled_fixes_file[0], smaller_fixes_file

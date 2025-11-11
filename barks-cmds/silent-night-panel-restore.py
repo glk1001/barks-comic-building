@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2 as cv
 from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 from comic_utils.panel_segmentation import KumikoBound, get_kumiko_panel_bound
-from comic_utils.pil_image_utils import open_pil_image_for_reading
+from comic_utils.pil_image_utils import load_pil_image_for_reading
 from PIL import Image, ImageDraw
 from PIL.Image import Image as PilImage
 from PIL.ImageDraw import ImageDraw as PilImageDraw
@@ -49,7 +49,7 @@ def get_vertical_start(overall_bound: KumikoBound) -> int:
 
 # noinspection PyTypeChecker
 def fix_panels(in_file: str, out_file: str) -> None:
-    srce_image = open_pil_image_for_reading(in_file).convert("RGB")
+    srce_image = load_pil_image_for_reading(in_file).convert("RGB")
     print(f'"{srce_image}": {srce_image.size}')
     assert srce_image.width == INPUT_IMAGE_WIDTH
     assert srce_image.height == INPUT_IMAGE_HEIGHT

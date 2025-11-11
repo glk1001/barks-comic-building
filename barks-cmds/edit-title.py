@@ -8,7 +8,7 @@ from pathlib import Path
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs, ExtraArg
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.pil_image_utils import open_pil_image_for_reading
+from comic_utils.pil_image_utils import load_pil_image_for_reading
 from loguru import logger
 from loguru_config import LoguruConfig
 
@@ -58,7 +58,7 @@ def write_cropped_image_file(
     print(f'Segments: "{segments_file}".')
 
     if not panel_segments_file.is_file():
-        image = open_pil_image_for_reading(srce_image_file)
+        image = load_pil_image_for_reading(srce_image_file)
         image.save(target_image_file, optimize=True, compress_level=9)
     else:
         with segments_file.open() as f:
@@ -78,7 +78,7 @@ def write_cropped_image_file(
 
         print(f"Panel {panel}: {left}, {bottom}, {right}, {upper}")
 
-        image = open_pil_image_for_reading(srce_image_file)
+        image = load_pil_image_for_reading(srce_image_file)
         subimage = image.crop((left, bottom, right, upper))
         subimage.save(target_image_file, optimize=True, compress_level=9)
 

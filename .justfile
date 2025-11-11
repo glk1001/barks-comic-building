@@ -11,9 +11,9 @@ barks_1tb_external_backup_big_dirs := "/media/greg/1TB_Backup/barks-backup/Carl 
 barks_music_external_backup_dir := "/media/greg/MusicBarksBackup/Books/Carl Barks"
 barks_restic_external_backup_dir := "/media/greg/restic_backup/Books/Carl Barks"
 
-barks_reader_config_dir := "$HOME/.config/barks-reader"
-barks_2tb_internal_barks_reader_config_backup_dir := "/mnt/2tb_drive/barks-reader"
-barks_2tb_external_barks_reader_config_backup_dir := "/media/greg/2tb_drive_backup/barks-reader"
+barks_reader_config_dir := "$HOME/opt/barks-reader/config"
+barks_2tb_internal_barks_reader_config_backup_dir := "/mnt/2tb_drive/barks-reader-config"
+barks_2tb_external_barks_reader_config_backup_dir := "/media/greg/2tb_drive_backup/barks-reader-config"
 
 _default:
     just --list --unsorted | tee /tmp/junk.log
@@ -85,6 +85,14 @@ panels volume:
 panels-title title:
     {{uv_run}} "{{ source_dir() }}/barks-restore/batch-panel-bounds.py" \
                --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --title "{{title}}"
+
+# Quickly browse a title
+show-title title:
+    {{uv_run}} {{source_dir()}}/barks-cmds/show-title-images.py --log-level WARNING --title "{{title}}"
+
+# Quickly edit a panel
+edit-title title type page-panel:
+    {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" --type {{type}} --p-p {{page-panel}}
 
 # Make empty config files for all restoreable pages in a volume or volumes
 [group('comics')]

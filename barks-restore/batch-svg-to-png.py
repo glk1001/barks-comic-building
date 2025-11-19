@@ -47,7 +47,7 @@ def convert_svg_to_png(srce_svg: Path) -> None:
             msg = f'Could not find srce file: "{srce_svg}".'
             raise FileNotFoundError(msg)  # noqa: TRY301
 
-        png_file = srce_svg.with_suffix(".png")
+        png_file = Path(str(srce_svg) + ".png")
         if png_file.is_file():
             logger.warning(f'Dest png file exists - skipping: "{get_abbrev_path(png_file)}".')
             return

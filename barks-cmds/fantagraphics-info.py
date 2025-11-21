@@ -211,8 +211,8 @@ def get_title_flags(
             build_state_flg = get_build_state_flag(comic_book)
             page_lst = ", ".join(get_abbrev_jpg_page_list(comic_book)).replace(" - ", "-")
             num_pgs = get_total_num_pages(comic_book)
-            if num_pgs <= 1:
-                msg = f'For title "{ttl}", the page count is to small.'
+            if num_pgs <= 0:
+                msg = f'For title "{ttl}", the page count is too small.'
                 raise RuntimeError(msg)
             has_front = get_has_front(comic_book)
             num_splashes = get_num_splashes(comic_book)

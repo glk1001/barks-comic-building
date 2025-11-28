@@ -90,7 +90,7 @@ def write_summary_file(  # noqa: PLR0913, PLR0915
 
     with summary_file.open("w") as f:
         f.write("Run Summary:\n")
-        f.write(f"time of run              = {timing.start_time}\n")
+        f.write(f"time of run              = {timing.get_start_time()}\n")
         f.write(f"time taken               = {timing.get_elapsed_time_in_seconds()} seconds\n")
         f.write(f'title                    = "{comic.title}"\n')
         f.write(f'ini title                = "{comic.get_ini_title()}"\n')

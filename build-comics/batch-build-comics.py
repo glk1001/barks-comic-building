@@ -1,7 +1,6 @@
 import argparse
 import sys
 import traceback
-from datetime import UTC, datetime
 from pathlib import Path
 
 from additional_file_writing import write_summary_file
@@ -36,7 +35,7 @@ def process_comic_book_titles(
 
 
 def process_comic_book(comic: ComicBook) -> int:
-    process_timing = Timing(datetime.now(UTC))
+    process_timing = Timing()
 
     # noinspection PyBroadException
     try:
@@ -44,7 +43,6 @@ def process_comic_book(comic: ComicBook) -> int:
 
         comic_book_builder.build()
 
-        process_timing.end_time = datetime.now(UTC)
         mark_process_end(process_timing)
 
         write_summary_file(

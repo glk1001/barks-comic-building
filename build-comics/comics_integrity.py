@@ -860,6 +860,7 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
+    # noinspection LongLine
     def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:  # noqa: PLR0912, PLR0915
         if not comic.get_dest_comic_zip().is_file():
             errors.zip_errors.missing = True

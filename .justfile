@@ -8,8 +8,12 @@ barks_2tb_internal_books_dir := "/mnt/2tb_drive/Books"
 barks_2tb_external_books_dir := "/media/greg/2tb_drive_backup/Books"
 barks_1tb_external_backup_dir := "/media/greg/1TB_Backup/barks-backup/Carl Barks"
 barks_1tb_external_backup_big_dirs := "/media/greg/1TB_Backup/barks-backup/Carl Barks-big-dirs"
+barks_1tb_external_backup_2_dir := "/media/greg/1TB_Backup_2/barks-backup/Carl Barks"
+barks_1tb_external_backup_2_big_dirs := "/media/greg/1TB_Backup_2/barks-backup/Carl Barks-big-dirs"
 barks_music_external_backup_dir := "/media/greg/MusicBarksBackup/Books/Carl Barks"
 barks_restic_external_backup_dir := "/media/greg/restic_backup/Books/Carl Barks"
+barks_750_external_backup_dir := "/media/greg/750_Backup/barks-backup/Books/Carl Barks"
+barks_750_external_backup_big_dirs := "/media/greg/750_Backup/barks-backup/Carl Barks-big-dirs"
 
 barks_reader_config_dir := "$HOME/opt/barks-reader/config"
 barks_2tb_internal_barks_reader_config_backup_dir := "/mnt/2tb_drive/barks-reader-config"
@@ -158,6 +162,12 @@ backup-to-1tb-external:
     rsync --delete -avh "{{barks_dir}}/" "{{barks_1tb_external_backup_dir}}/"
     rsync --delete -avh "{{barks_2tb_internal_books_dir}}/" "{{barks_1tb_external_backup_big_dirs}}/"
 
+# Rsync all Barks files to the 1tb external drive no. 2
+[group('rsync')]
+backup-to-1tb-external-2:
+    rsync --delete -avh "{{barks_dir}}/" "{{barks_1tb_external_backup_2_dir}}/"
+    rsync --delete -avh "{{barks_2tb_internal_books_dir}}/" "{{barks_1tb_external_backup_2_big_dirs}}/"
+
 # Rsync all Barks files to the 'music' external drive
 [group('rsync')]
 backup-to-music-external:
@@ -167,3 +177,9 @@ backup-to-music-external:
 [group('rsync')]
 backup-to-restic-external:
     rsync --delete -avh "{{barks_dir}}/" "{{barks_restic_external_backup_dir}}/"
+
+# Rsync all Barks files to the '750_Backup' external drive
+[group('rsync')]
+backup-to-750-backup-external:
+    rsync --delete -avh "{{barks_dir}}/" "{{barks_750_external_backup_dir}}/"
+    rsync --delete -avh "{{barks_2tb_internal_books_dir}}/" "{{barks_750_external_backup_big_dirs}}/"

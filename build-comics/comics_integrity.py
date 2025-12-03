@@ -480,7 +480,7 @@ class ComicsIntegrityChecker:
                 ret_code = 1
 
             if not self._found_dir(
-                self.comics_database.get_fantagraphics_restored_ocr_volume_dir(volume)
+                self.comics_database.get_fantagraphics_restored_raw_ocr_volume_dir(volume)
             ):
                 ret_code = 1
 
@@ -575,7 +575,7 @@ class ComicsIntegrityChecker:
             srce_dirs.append(self.comics_database.get_fantagraphics_restored_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_restored_upscayled_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_restored_svg_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_restored_ocr_root_dir())
+            srce_dirs.append(self.comics_database.get_fantagraphics_restored_raw_ocr_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_fixes_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_upscayled_fixes_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_fixes_scraps_root_dir())

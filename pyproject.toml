@@ -8,6 +8,7 @@ dependencies = [
     "bs4>=0.0.2",
     "cairosvg>=2.8.2",
     "cpi>=2.0.7",
+    "cryptography>=46.0.3",
     "intspan>=1.6.1",
     "loguru>=0.7.3",
     "loguru-config>=0.1.0",

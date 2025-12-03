@@ -64,7 +64,9 @@ def get_issue_titles(
 
 
 def is_upscayled(comic: ComicBook) -> bool:
-    return all_files_exist(comic.get_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES))
+    return all_files_exist(
+        [f[0] for f in comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)]
+    )
 
 
 def is_restored(comic: ComicBook) -> bool:

@@ -81,7 +81,7 @@ def remove_colors_from_image(
         )
         write_color_counts(posterized_counts_file, out_image)
 
-    out_image = cv.cvtColor(str(out_image), cv.COLOR_RGB2RGBA)
+    out_image = cv.cvtColor(out_image, cv.COLOR_RGB2RGBA)
     remove_colors(out_image)
 
     if DEBUG_WRITE_COLOR_COUNTS:

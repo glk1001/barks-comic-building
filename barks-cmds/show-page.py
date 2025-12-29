@@ -4,12 +4,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
-from barks_fantagraphics.comics_consts import PageType
 from loguru import logger
 from loguru_config import LoguruConfig
 
-APP_LOGGING_NAME = "sttl"
+APP_LOGGING_NAME = "svpg"
 
 VIEWER_EXE = ["/usr/bin/loupe"]
 
@@ -23,7 +23,7 @@ def open_viewer(image_file: Path) -> None:
 
 
 if __name__ == "__main__":
-    cmd_args = CmdArgs("Show title in viewer", CmdArgNames.TITLE)
+    cmd_args = CmdArgs("Show volume page in viewer", CmdArgNames.VOLUME | CmdArgNames.PAGE)
     args_ok, error_msg = cmd_args.args_are_valid()
     if not args_ok:
         logger.error(error_msg)
@@ -34,21 +34,16 @@ if __name__ == "__main__":
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     comics_database = cmd_args.get_comics_database()
-    title = cmd_args.get_title()
+    assert cmd_args.get_num_volumes() == 1
+    volume = cmd_args.get_volume()
+    page = get_page_str(int(cmd_args.get_pages()[0]))
 
-    comic = comics_database.get_comic_book(title)
-    volume = comic.get_fanta_volume()
-    valid_page_list = [
-        p.page_filenames for p in comic.page_images_in_order if p.page_type == PageType.BODY
-    ]
-
-    first_page = valid_page_list[0]
     restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
-    restored_srce_file = restored_dir / (first_page + ".png")
+    restored_srce_file = restored_dir / (page + ".png")
     if not restored_srce_file.is_file():
         print(f'Error: Could not find restored file "{restored_srce_file}".')
         sys.exit(1)
 
-    print(f'"{title}" [{volume}]: {first_page}')
+    print(f'{volume}: {page}')
 
     open_viewer(restored_srce_file)

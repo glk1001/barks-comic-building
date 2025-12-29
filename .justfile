@@ -90,6 +90,10 @@ panels-title title:
     {{uv_run}} "{{ source_dir() }}/barks-restore/batch-panel-bounds.py" \
                --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --title "{{title}}"
 
+# Quickly browse a page
+show-page volume page:
+    {{uv_run}} {{source_dir()}}/barks-cmds/show-page.py --log-level WARNING --volume "{{volume}}" --page "{{page}}"
+
 # Quickly browse a title
 show-title title:
     {{uv_run}} {{source_dir()}}/barks-cmds/show-title-images.py --log-level WARNING --title "{{title}}"

@@ -23,6 +23,8 @@ def open_viewer(image_file: Path) -> None:
 
 
 if __name__ == "__main__":
+    # TODO(glk): Some issue with type checking inspection?
+    # noinspection PyTypeChecker
     cmd_args = CmdArgs("Show volume page in viewer", CmdArgNames.VOLUME | CmdArgNames.PAGE)
     args_ok, error_msg = cmd_args.args_are_valid()
     if not args_ok:

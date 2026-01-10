@@ -1,23 +1,27 @@
 # ruff: noqa: T201
-
-import sys
 import zipfile
 from pathlib import Path
 
+import typer
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import NON_COMIC_TITLES
 from barks_fantagraphics.comic_book import ModifiedType
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs, ExtraArg
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import (
     get_abbrev_path,
     get_timestamp,
     get_timestamp_as_str,
 )
 from barks_fantagraphics.pages import get_restored_srce_dependencies, get_sorted_srce_and_dest_pages
-from loguru import logger
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
+from intspan import intspan
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "sfil"
+
+app = typer.Typer()
+log_level = ""
 
 
 def print_sources(indent: int, source_list: list[str]) -> None:
@@ -48,29 +52,26 @@ def get_filepath_with_date(
     return f'{file_timestamp}:{out_of_date_marker}"{file_str}"'
 
 
-MODS_ARG = "--mods"
-EXTRA_ARGS: list[ExtraArg] = [ExtraArg(MODS_ARG, action="store_true", type=None, default=False)]
-
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs(
-        "Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME, EXTRA_ARGS
-    )
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Fantagraphics source files")
+def main(
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    mods: bool = False,
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-    comics_database = cmd_args.get_comics_database()
-    mods_only = cmd_args.get_extra_arg(MODS_ARG)
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
 
-    titles = cmd_args.get_titles()
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
+    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
+    titles = get_titles(comics_database, volumes, title_str)
 
     for title in titles:
         comic_book = comics_database.get_comic_book(title)
@@ -88,7 +89,6 @@ if __name__ == "__main__":
 
         for srce_page, dest_page in zip(srce_pages, dest_pages, strict=True):
             dest_page_num = Path(dest_page.page_filename).stem
-            srce_page_num = Path(srce_page.page_filename).stem
             page_type_str = dest_page.page_type.name
             prev_timestamp = get_timestamp(Path(dest_page.page_filename))
 
@@ -113,7 +113,7 @@ if __name__ == "__main__":
                     sources.append(file_info)
                     prev_timestamp = dependency.timestamp
 
-            if not mods_only or is_modded:
+            if not mods or is_modded:
                 print(
                     f"    {dest_page_num}"
                     f" ({dest_page.page_num:02}) - {page_type_str:{max_len_page_type}}: ",
@@ -122,3 +122,7 @@ if __name__ == "__main__":
                 print_sources(4 + 2 + 5 + 2 + 3 + max_len_page_type + 2, sources)
 
         print()
+
+
+if __name__ == "__main__":
+    app()

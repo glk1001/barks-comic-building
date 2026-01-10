@@ -1,9 +1,9 @@
 # ruff: noqa: T201
 
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import typer
 from barks_fantagraphics.comic_book import (
     ComicBook,
     get_abbrev_jpg_page_list,
@@ -11,8 +11,9 @@ from barks_fantagraphics.comic_book import (
     get_num_splashes,
     get_total_num_pages,
 )
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs, ExtraArg
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_issue_titles, get_titles_and_info
 from barks_fantagraphics.comics_utils import (
     dest_file_is_older_than_srce,
     get_max_timestamp,
@@ -20,6 +21,8 @@ from barks_fantagraphics.comics_utils import (
     get_titles_and_info_sorted_by_submission_date,
 )
 from barks_fantagraphics.fanta_comics_info import FantaComicBookInfo
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
+from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 
@@ -46,21 +49,8 @@ BUILD_STATE_FLAGS = [
     BUILT_FLAG,
 ]
 
-
-def get_issue_titles(
-    title_info_list: list[tuple[str, FantaComicBookInfo]],
-) -> list[tuple[str, str, FantaComicBookInfo, bool]]:
-    comic_issue_title_info_list = []
-    for title_info in title_info_list:
-        ttl = title_info[0]
-        cb_info = title_info[1]
-        title_is_configured, _ = comics_database.is_story_title(ttl)
-        comic_issue_title = cb_info.get_short_issue_title()
-        comic_issue_title_info_list.append(
-            (ttl, comic_issue_title, title_info[1], title_is_configured)
-        )
-
-    return comic_issue_title_info_list
+app = typer.Typer()
+log_level = ""
 
 
 def is_upscayled(comic: ComicBook) -> bool:
@@ -185,6 +175,9 @@ class Flags:
 
 
 def get_title_flags(
+    comics_database: ComicsDatabase,
+    fixes_filter: list[str],
+    built_filter: list[str],
     issue_titles_info_list: list[tuple[str, str, FantaComicBookInfo, bool]],
 ) -> tuple[dict[str, Flags], int, int]:
     max_ttl_len = 0
@@ -240,12 +233,7 @@ def get_title_flags(
     return ttl_flags, max_ttl_len, max_issue_ttl_len
 
 
-FIXES_ARG = "--fixes"
-BUILT_ARG = "--built"
-
-
-def get_fixes_filter(args: CmdArgs) -> list[str]:
-    fixes_arg = args.get_extra_arg(FIXES_ARG)
+def get_fixes_filter(fixes_arg: str) -> list[str]:
     if not fixes_arg:
         return [EMPTY_FLAG, FIXES_FLAG]
 
@@ -257,8 +245,7 @@ def get_fixes_filter(args: CmdArgs) -> list[str]:
     return filt
 
 
-def get_built_filter(args: CmdArgs) -> list[str]:
-    built_arg = args.get_extra_arg(BUILT_ARG)
+def get_built_filter(built_arg: str) -> list[str]:
     if not built_arg:
         return BUILD_STATE_FLAGS
 
@@ -270,35 +257,40 @@ def get_built_filter(args: CmdArgs) -> list[str]:
     return filt
 
 
-if __name__ == "__main__":
-    extra_args: list[ExtraArg] = [
-        ExtraArg(FIXES_ARG, action="store", type=str, default=""),
-        ExtraArg(BUILT_ARG, action="store", type=str, default=""),
-    ]
-
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Fantagraphics info", CmdArgNames.TITLE | CmdArgNames.VOLUME, extra_args)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Fantagraphics info")
+def main(
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+    fixes: str = "",
+    built: str = "",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
 
-    fixes_filter = get_fixes_filter(cmd_args)
-    built_filter = get_built_filter(cmd_args)
-    display_volumes = not cmd_args.one_or_more_volumes() or len(cmd_args.get_volumes()) > 1
+    volumes = list(intspan(volumes_str))
 
-    titles_and_info = cmd_args.get_titles_and_info(configured_only=False)
+    comics_database = ComicsDatabase()
+
+    fixes_filter = get_fixes_filter(fixes)
+    built_filter = get_built_filter(built)
+    display_volumes = not volumes or len(volumes) > 1
+
+    titles_and_info = get_titles_and_info(
+        comics_database, volumes, title_str, configured_only=False
+    )
     titles_and_info = get_titles_and_info_sorted_by_submission_date(titles_and_info)
-    issue_titles_info = get_issue_titles(titles_and_info)
+    issue_titles_info = get_issue_titles(comics_database, titles_and_info)
 
-    title_flags, max_title_len, max_issue_title_len = get_title_flags(issue_titles_info)
+    title_flags, max_title_len, max_issue_title_len = get_title_flags(
+        comics_database, fixes_filter, built_filter, issue_titles_info
+    )
 
     for issue_title_info in issue_titles_info:
         title = issue_title_info[0]
@@ -322,3 +314,7 @@ if __name__ == "__main__":
             f" {front_str},{splash_str},"
             f" jpgs: {flags.page_list}"
         )
+
+
+if __name__ == "__main__":
+    app()

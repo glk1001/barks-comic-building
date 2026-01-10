@@ -1,11 +1,12 @@
 import json
-import sys
 from pathlib import Path
 
 import cv2 as cv
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
+import typer
 from barks_fantagraphics.comics_consts import PNG_FILE_EXT, RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_abbrev_path
+from comic_utils.common_typer_options import LogLevelArg, TitleArg
 from comic_utils.cv_image_utils import get_bw_image_from_alpha
 from comic_utils.panel_segmentation import get_min_max_panel_values
 from loguru import logger
@@ -14,8 +15,11 @@ from PIL import Image, ImageDraw
 
 APP_LOGGING_NAME = "span"
 
+app = typer.Typer()
+log_level = ""
 
-def show_panel_bounds(title: str, out_dir: Path) -> None:
+
+def show_panel_bounds(comics_database: ComicsDatabase, title: str, out_dir: Path) -> None:
     out_dir /= title
 
     logger.info(f'Generating panel bounds images for "{title}" to directory "{out_dir}"...')
@@ -81,19 +85,21 @@ def write_bounds_to_image_file(
     return True
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Show panel bounds for title", CmdArgNames.TITLE | CmdArgNames.WORK_DIR)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Show panel bounds for title")
+def main(
+    title_str: TitleArg,
+    output_dir: Path,
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    comics_database = ComicsDatabase()
 
-    show_panel_bounds(cmd_args.get_title(), cmd_args.get_work_dir())
+    show_panel_bounds(comics_database, title_str, output_dir)
+
+
+if __name__ == "__main__":
+    app()

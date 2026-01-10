@@ -1,13 +1,19 @@
 # ruff: noqa: T201
 
-import sys
 from collections import defaultdict
 from pathlib import Path
 
-from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, BARKS_TITLES, ONE_PAGERS, Titles
+import typer
+from barks_fantagraphics.barks_titles import (
+    BARKS_TITLE_INFO,
+    BARKS_TITLES,
+    NON_COMIC_TITLES,
+    ONE_PAGERS,
+    Titles,
+)
 from barks_fantagraphics.comic_book import get_total_num_pages
-from barks_fantagraphics.comics_cmd_args import CmdArgs
-from loguru import logger
+from barks_fantagraphics.comics_database import ComicsDatabase
+from comic_utils.common_typer_options import LogLevelArg
 from loguru_config import LoguruConfig
 from yearly_graph import create_yearly_plot
 
@@ -177,22 +183,23 @@ TEMP_PAGE_COUNTS = {
     Titles.KING_SCROOGE_THE_FIRST: 21,
 }
 
+app = typer.Typer()
+log_level = ""
 
-if __name__ == "__main__":
-    cmd_args = CmdArgs("Barks yearly page counts")
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
 
+@app.command(help="Barks yearly page counts")
+def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    comics_database = ComicsDatabase()
 
     page_counts = defaultdict(int)
     for title_info in BARKS_TITLE_INFO:
+        if title_info.title in NON_COMIC_TITLES:
+            continue
         if title_info.title in ONE_PAGERS:
             num_pages = 1
         elif title_info.title in TEMP_PAGE_COUNTS:
@@ -231,3 +238,7 @@ if __name__ == "__main__":
         height_px=732,
         dpi=100,  # A common DPI for screen resolutions
     )
+
+
+if __name__ == "__main__":
+    app()

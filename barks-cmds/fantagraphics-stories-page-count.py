@@ -1,29 +1,35 @@
 # ruff: noqa: T201
 
-import sys
 from pathlib import Path
 
+import typer
 from barks_fantagraphics.comic_book import get_total_num_pages
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
-from loguru import logger
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
+from comic_utils.common_typer_options import LogLevelArg, VolumesArg
+from intspan import intspan
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "scnt"
 
-if __name__ == "__main__":
-    cmd_args = CmdArgs("Fantagraphics volume page counts", CmdArgNames.VOLUME)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
+app = typer.Typer()
+log_level = ""
 
+
+@app.command(help="Fantagraphics volumes story page counts")
+def main(
+    volumes_str: VolumesArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
 
-    titles = cmd_args.get_titles()
+    titles = get_titles(comics_database, volumes, title="")
 
     page_count = 0
     for title in titles:
@@ -35,3 +41,7 @@ if __name__ == "__main__":
         page_count += num_pages
 
     print(f"{len(titles)} titles, {page_count} pages")
+
+
+if __name__ == "__main__":
+    app()

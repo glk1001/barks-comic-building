@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import cv2 as cv
 import numpy as np
+import typer
 from barks_fantagraphics.comic_book import ModifiedType
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import get_abbrev_path
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg  # noqa: TC002
 from comic_utils.pil_image_utils import downscale_jpg, load_pil_image_for_reading
+from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 from skimage.metrics import structural_similarity
@@ -21,6 +24,9 @@ APP_LOGGING_NAME = "sdif"
 # TODO(glk): Put these somewhere else
 SRCE_STANDARD_WIDTH = 2175
 SRCE_STANDARD_HEIGHT = 3000
+
+app = typer.Typer()
+log_level = ""
 
 
 def get_image_diffs(
@@ -37,8 +43,8 @@ def get_image_diffs(
     image2 = cv.imread(str(image2_file))
 
     # Use grayscale for the comparison.
-    image1_grey = cv.cvtColor(image1, cv.COLOR_BGR2GRAY)
-    image2_grey = cv.cvtColor(image2, cv.COLOR_BGR2GRAY)
+    image1_grey = cv.cvtColor(image1, cv.COLOR_BGR2GRAY)  # ty: ignore[no-matching-overload]
+    image2_grey = cv.cvtColor(image2, cv.COLOR_BGR2GRAY)  # ty: ignore[no-matching-overload]
 
     # Compute the SSIM and diff images between the two grayscale images.
     (score, diffs) = structural_similarity(image1_grey, image2_grey, full=True)
@@ -69,15 +75,17 @@ def get_image_diffs(
         if area > 40:  # noqa: PLR2004
             num_diff_areas += 1
             x, y, w, h = cv.boundingRect(c)
-            cv.rectangle(image1, (x, y), (x + w, y + h), srce_rect_color, rect_line_thickness)
-            cv.rectangle(image2, (x, y), (x + w, y + h), fixed_rect_color, rect_line_thickness)
+            cv.rectangle(image1, (x, y), (x + w, y + h), srce_rect_color, rect_line_thickness)  # ty: ignore[no-matching-overload]
+            cv.rectangle(image2, (x, y), (x + w, y + h), fixed_rect_color, rect_line_thickness)  # ty: ignore[no-matching-overload]
             # cv2.drawContours(mask, [c], 0, (0, 255, 0), -1)
             # cv2.drawContours(image2_filled, [c], 0, (0, 255, 0), -1)
 
-    return score, num_diff_areas, image1, image2
+    return score, num_diff_areas, image1, image2  # ty: ignore[invalid-return-type]
 
 
-def show_diffs_for_title(ttl: str, out_dir: Path) -> tuple[Path, int]:
+def show_diffs_for_title(
+    comics_database: ComicsDatabase, ttl: str, out_dir: Path
+) -> tuple[Path, int]:
     out_dir /= ttl
 
     logger.info(f'Checking fixes for for "{ttl}"...')
@@ -204,25 +212,33 @@ def show_diffs_for_file(
     return num_diffs
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("show fixes diffs", CmdArgNames.VOLUME | CmdArgNames.TITLE)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Show fixes diffs for volume or title")
+def main(
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
+
+    volumes = list(intspan(volumes_str))
+
+    comics_database = ComicsDatabase()
 
     output_dir = Path("/tmp/fixes-diffs")  # noqa: S108
 
-    for title in cmd_args.get_titles():
-        title_out_dir, n_diffs = show_diffs_for_title(title, output_dir)
+    for title in get_titles(comics_database, volumes, title_str):
+        title_out_dir, n_diffs = show_diffs_for_title(comics_database, title, output_dir)
 
         if n_diffs > 0:
             logger.info(f'{n_diffs} diff files written to "{title_out_dir}".')
+
+
+if __name__ == "__main__":
+    app()

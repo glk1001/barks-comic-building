@@ -1,23 +1,27 @@
-import sys
 from pathlib import Path
 
-from barks_fantagraphics.comics_cmd_args import CmdArgs
-from loguru import logger
+import typer
+from barks_fantagraphics.comics_database import ComicsDatabase
+from comic_utils.common_typer_options import LogLevelArg
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "mdir"
 
-if __name__ == "__main__":
-    cmd_args = CmdArgs("Make required Fantagraphics directories.")
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
+app = typer.Typer()
+log_level = ""
 
+
+@app.command(help="Make all required Fantagraphics directories")
+def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    comics_database = ComicsDatabase()
 
     comics_database.make_all_fantagraphics_directories()
+
+
+if __name__ == "__main__":
+    app()

@@ -4,12 +4,13 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Annotated
 
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs, ExtraArg
+import typer
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_database import ComicsDatabase
+from comic_utils.common_typer_options import LogLevelArg, TitleArg
 from comic_utils.pil_image_utils import load_pil_image_for_reading
-from loguru import logger
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "ettl"
@@ -26,18 +27,19 @@ PANEL_TYPES = {
     "si": "Silhouettes",
     "sp": "Splash",
 }
-EXTRA_ARGS: list[ExtraArg] = [
-    ExtraArg("--type", action="store", type=str, default=""),
-    ExtraArg("--p-p", action="store", type=str, default=""),
-]
+
+app = typer.Typer()
+log_level = ""
 
 
-def get_source_file(comics_db: ComicsDatabase, panel_typ: str, pge: str) -> Path:
+def get_source_file(comics_database: ComicsDatabase, volume: int, panel_typ: str, pge: str) -> Path:
     if panel_typ == "cl":
-        upscayl_dir = Path(comics_db.get_fantagraphics_restored_upscayled_volume_image_dir(volume))
+        upscayl_dir = Path(
+            comics_database.get_fantagraphics_restored_upscayled_volume_image_dir(volume)
+        )
         return upscayl_dir / (pge + ".png")
 
-    restored_dir = Path(comics_db.get_fantagraphics_restored_volume_image_dir(volume))
+    restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
     return restored_dir / (pge + ".png")
 
 
@@ -52,12 +54,12 @@ def get_target_file(ttl: str, panel_typ: str, pge: str, panl: str) -> Path:
 
 
 def write_cropped_image_file(
-    srce_image_file: Path, segments_file: Path, target_image_file: Path, panel_typ: str
+    srce_image_file: Path, segments_file: Path, target_image_file: Path, panel_typ: str, panel: str
 ) -> None:
     print(f'Source: "{srce_image_file}".')
     print(f'Segments: "{segments_file}".')
 
-    if not panel_segments_file.is_file():
+    if not segments_file.is_file():
         image = load_pil_image_for_reading(srce_image_file)
         image.save(target_image_file, optimize=True, compress_level=9)
     else:
@@ -93,22 +95,20 @@ def open_gimp(image_file: Path) -> None:
     print(f'Gimp should now be running with image "{image_file}".')
 
 
-if __name__ == "__main__":
-    cmd_args = CmdArgs("Edit title", CmdArgNames.TITLE, extra_args=EXTRA_ARGS)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Edit comic title page")
+def main(
+    title: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+    panel_type: Annotated[str, typer.Option("--type", help="Panel type")] = "",
+    page_panel: Annotated[str, typer.Option("--p-p", help="Page and panel")] = "",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
-    panel_type = cmd_args.get_extra_arg("--type")
-    page_panel = cmd_args.get_extra_arg("--p_p")
+    comics_database = ComicsDatabase()
     (page, panel) = page_panel.split("-")
-    title = cmd_args.get_title()
 
     comic = comics_database.get_comic_book(title)
     volume = comic.get_fanta_volume()
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         print(f'ERROR: Panel type "{panel_type}" is not in {list(PANEL_TYPES.keys())}.')
         sys.exit(1)
 
-    srce_file = get_source_file(comics_database, panel_type, page)
+    srce_file = get_source_file(comics_database, volume, panel_type, page)
     if not srce_file.is_file():
         print(f'ERROR: Could not find restored file "{srce_file}".')
         sys.exit(1)
@@ -140,6 +140,10 @@ if __name__ == "__main__":
 
     print(f'"{title}" [{volume}]: {page}, {panel}, {PANEL_TYPES[panel_type]}')
 
-    write_cropped_image_file(srce_file, panel_segments_file, target_file, panel_type)
+    write_cropped_image_file(srce_file, panel_segments_file, target_file, panel_type, panel)
 
     open_gimp(target_file)
+
+
+if __name__ == "__main__":
+    app()

@@ -4,14 +4,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+import typer
 from barks_fantagraphics.comic_book import get_page_str
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
-from loguru import logger
+from barks_fantagraphics.comics_database import ComicsDatabase
+from comic_utils.common_typer_options import LogLevelArg, PagesArg, VolumesArg
+from intspan import intspan
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "svpg"
 
 VIEWER_EXE = ["/usr/bin/loupe"]
+
+app = typer.Typer()
+log_level = ""
 
 
 def open_viewer(image_file: Path) -> None:
@@ -22,23 +27,23 @@ def open_viewer(image_file: Path) -> None:
     print(f'Image Viewer should now be showing image "{image_file}".')
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Show volume page in viewer", CmdArgNames.VOLUME | CmdArgNames.PAGE)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Open image viewer for Fanta volume page")
+def main(
+    volumes_str: VolumesArg = "",
+    page_num_str: PagesArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
-    assert cmd_args.get_num_volumes() == 1
-    volume = cmd_args.get_volume()
-    page = get_page_str(int(cmd_args.get_pages()[0]))
+    volumes = list(intspan(volumes_str))
+    assert volumes
+    assert len(volumes) == 1
+    volume = volumes[0]
+    comics_database = ComicsDatabase()
+    page = get_page_str(int(page_num_str))
 
     restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
     restored_srce_file = restored_dir / (page + ".png")
@@ -46,6 +51,10 @@ if __name__ == "__main__":
         print(f'Error: Could not find restored file "{restored_srce_file}".')
         sys.exit(1)
 
-    print(f'{volume}: {page}')
+    print(f"{volume}: {page}")
 
     open_viewer(restored_srce_file)
+
+
+if __name__ == "__main__":
+    app()

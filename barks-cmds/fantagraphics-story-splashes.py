@@ -1,20 +1,25 @@
 # ruff: noqa: T201, ERA001
 
 import json
-import sys
 from pathlib import Path
 
+import typer
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comic_book import ComicBook, get_page_str
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.fanta_comics_info import get_fanta_volume_str
 from barks_fantagraphics.pages import PageType, get_sorted_srce_and_dest_pages
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.panel_segmentation import BIG_NUM, get_kumiko_panel_bound
-from loguru import logger
+from intspan import intspan
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "spla"
 MAX_NUM_PANELS_FOR_SPLASH = 5
+
+app = typer.Typer()
+log_level = ""
 
 
 def get_story_splashes(comic: ComicBook) -> list[str]:
@@ -75,22 +80,25 @@ def has_splash_page(panels: list[tuple[int, int, int, int]]) -> bool:
     )
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Fantagraphics volumes splash pages")
+def main(
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
+
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
     panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-    comics_database = cmd_args.get_comics_database()
-    titles = cmd_args.get_titles()
+    titles = get_titles(comics_database, volumes, title_str)
 
     splashes_dict = {}
     max_title_len = 0
@@ -113,3 +121,7 @@ if __name__ == "__main__":
         splashes_str = ", ".join(story_splashes)
 
         print(f'"{title:<{max_title_len}}", {volume_str}, Splashes: {splashes_str}')
+
+
+if __name__ == "__main__":
+    app()

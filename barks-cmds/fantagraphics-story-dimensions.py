@@ -1,20 +1,25 @@
 # ruff: noqa: T201
 
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import typer
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comic_book import ComicBook
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.page_classes import ComicDimensions
 from barks_fantagraphics.pages import PageType, get_sorted_srce_and_dest_pages
-from loguru import logger
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
+from intspan import intspan
 from loguru_config import LoguruConfig
 from PIL import Image
 
 APP_LOGGING_NAME = "sdim"
+
+app = typer.Typer()
+log_level = ""
 
 
 @dataclass
@@ -49,23 +54,25 @@ def get_story_dimensions(comic: ComicBook) -> Dimensions:
     return Dimensions(srce_dims, front_width, front_height)
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Fantagraphics source files", CmdArgNames.TITLE | CmdArgNames.VOLUME)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
+@app.command(help="Fantagraphics volumes story panel dimensions")
+def main(
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-    comics_database = cmd_args.get_comics_database()
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
 
-    titles = cmd_args.get_titles()
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
+    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
+    titles = get_titles(comics_database, volumes, title_str)
 
     dimensions_dict = {}
     max_title_len = 0
@@ -96,3 +103,7 @@ if __name__ == "__main__":
         )
 
         print(f"{title_str:<{max_title_len + 1}} BBoxes: {bboxes_str}  {front_str}")
+
+
+if __name__ == "__main__":
+    app()

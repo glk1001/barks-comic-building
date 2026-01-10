@@ -1,32 +1,29 @@
 # ruff: noqa: T201
 
-import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
 from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, ONE_PAGERS
-from barks_fantagraphics.comics_cmd_args import CmdArgs
+from comic_utils.common_typer_options import LogLevelArg
 from cpi import inflate
-from loguru import logger
 from loguru_config import LoguruConfig
 from yearly_graph import create_yearly_plot
 
 APP_LOGGING_NAME = "ypay"
 
-if __name__ == "__main__":
-    cmd_args = CmdArgs("Barks yearly payments")
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
+app = typer.Typer()
+log_level = ""
 
+
+@app.command(help="Barks yearly payments")
+def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     # Global variable accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
-
-    comics_database = cmd_args.get_comics_database()
 
     payments_by_year = defaultdict(int)
     for title in BARKS_PAYMENTS:
@@ -57,3 +54,7 @@ if __name__ == "__main__":
         height_px=732,
         dpi=100,  # A common DPI for screen resolutions
     )
+
+
+if __name__ == "__main__":
+    app()

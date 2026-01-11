@@ -1,9 +1,9 @@
-# ruff: noqa: T201
-
 import argparse
 import subprocess
 import sys
 from pathlib import Path
+
+from loguru import logger
 
 
 def compare_images_in_dir(
@@ -36,7 +36,7 @@ def compare_images_in_dir(
         if not image_file2:
             continue
 
-        print(f'Comparing "{image_file1.name}"...')
+        logger.info(f'Comparing "{image_file1.name}"...')
         result_code, metric = compare_images(image_file1, image_file2, fuzz, ae_cutoff, diff_dir)
 
         if result_code != 0:
@@ -54,11 +54,11 @@ def get_image_file2(dir2: Path, image_file1: Path) -> Path | None:
         if file2_jpg.exists():
             image_file2 = file2_jpg
         else:
-            print(
-                f"\nWarning: Could not find corresponding file"
+            logger.warning(
+                f"Could not find corresponding file"
                 f' for "{image_file1.name}" in "{dir2}".'
+                f' Tried "{image_file2.name}" and "{file2_jpg.name}".'
             )
-            print(f'Tried "{image_file2.name}" and "{file2_jpg.name}".')
             return None
 
     return image_file2
@@ -123,8 +123,9 @@ def mae_compare(file1: Path, file2: Path) -> tuple[int, str]:
         result = 1
 
     if result == 1:
-        print(f'\nError comparing "{file1}": {mae_value}\n')
-        print(f"Compare command: {' '.join(command)}\n")
+        logger.error(
+            f'Error comparing "{file1}": {mae_value}. Compare command: {" ".join(command)}'
+        )
 
     return result, metric_output
 
@@ -156,10 +157,10 @@ def fuzz_ae_compare(
 
     command = [
         "compare",
-        "-fuzz",
-        fuzz,
         "-metric",
         "AE",
+        "-fuzz",
+        fuzz,
         str(file1),
         str(file2),
         str(diff_file),
@@ -170,16 +171,16 @@ def fuzz_ae_compare(
     result = 0
     ae_value = 0.0
     try:
-        # AE output is a single number (pixel count).
-        ae_value = float(metric_output)
+        # AE output is two numbers: pixel count; normalized count
+        ae_value = float(metric_output.split()[0])
         if ae_value > ae_cutoff:
             result = 1
     except (ValueError, IndexError):
         result = 1
 
     if result == 1:
-        print(f'\nError comparing "{file1}": {ae_value}\n')
-        print(f"Compare command: {' '.join(command)}\n")
+        logger.error(f'Error comparing "{file1}": {ae_value} > {ae_cutoff}.')
+        logger.error(f" Compare command: {' '.join(command)}")
     elif diff_file.exists():
         # Images are the same, no need for the diff file.
         diff_file.unlink()

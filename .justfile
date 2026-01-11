@@ -131,7 +131,9 @@ compare-all:
 [group('comics')]
 check-for-upscayl-errors volume:
     {{uv_run}} scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
-                                                   "{{barks_dir}}/Fantagraphics-original" 50% 10000 {{volume}}
+                                                   "{{barks_dir}}/Fantagraphics-original" \
+                                                   "/tmp/upscayl-diffs" \
+                                                   --volume {{volume}} --fuzz 50% --ae_cutoff 10000
 
 # Do a big image compare of restored to original looking for obvious changes
 [group('comics')]

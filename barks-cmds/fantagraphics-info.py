@@ -1,5 +1,3 @@
-# ruff: noqa: T201
-
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +23,8 @@ from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
+from rich.console import Console
+from rich.table import Table
 
 APP_LOGGING_NAME = "ifan"
 
@@ -288,9 +288,22 @@ def main(
     titles_and_info = get_titles_and_info_sorted_by_submission_date(titles_and_info)
     issue_titles_info = get_issue_titles(comics_database, titles_and_info)
 
-    title_flags, max_title_len, max_issue_title_len = get_title_flags(
+    title_flags, _, _ = get_title_flags(
         comics_database, fixes_filter, built_filter, issue_titles_info
     )
+
+    console = Console()
+    table = Table()
+    table.add_column("Title")
+    table.add_column("Issue")
+    if display_volumes:
+        table.add_column("Vol")
+    table.add_column("Fix")
+    table.add_column("State")
+    table.add_column("Pages", justify="right")
+    table.add_column("Front")
+    table.add_column("Splash")
+    table.add_column("Jpgs")
 
     for issue_title_info in issue_titles_info:
         title = issue_title_info[0]
@@ -301,19 +314,29 @@ def main(
 
         issue_title = issue_title_info[1]
         flags = title_flags[title]
-        volume_str = "" if not display_volumes else f" {comic_book_info.fantagraphics_volume}, "
-        num_front = 1 if flags.has_front else 0
-        front_str = f"f:{num_front}"
-        splash_str = f"s:{flags.num_splashes}"
 
-        print(
-            f'"{flags.display_title:<{max_title_len}}", {issue_title:<{max_issue_title_len}},'
-            f"{volume_str}"
-            f" {flags.fixes_flag} {flags.build_state_flag}, "
-            f" {flags.num_pages:2d} pp,"
-            f" {front_str},{splash_str},"
-            f" jpgs: {flags.page_list}"
+        row = [
+            flags.display_title,
+            issue_title,
+        ]
+        if display_volumes:
+            row.append(str(comic_book_info.fantagraphics_volume))
+
+        row.extend(
+            [
+                flags.fixes_flag,
+                flags.build_state_flag,
+                f"{flags.num_pages} pp",
+                f"f:{1 if flags.has_front else 0}",
+                f"s:{flags.num_splashes}",
+                flags.page_list,
+            ]
         )
+
+        style = "orange1" if flags.build_state_flag != BUILT_FLAG else None
+        table.add_row(*row, style=style)
+
+    console.print(table)
 
 
 if __name__ == "__main__":

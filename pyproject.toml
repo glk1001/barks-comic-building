@@ -18,6 +18,7 @@ dependencies = [
     "pillow>=11.2.1",
     "psutil>=7.0.0",
     "pyyaml>=6.0.2",
+    "rich>=14.2.0",
     "scikit-image>=0.25.2",
     "typer>=0.21.1",
     "vtracer>=0.6.11",

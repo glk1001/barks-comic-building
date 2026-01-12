@@ -4,6 +4,7 @@ from pathlib import Path
 import typer
 from barks_fantagraphics.comic_book import (
     ComicBook,
+    ModifiedType,
     get_abbrev_jpg_page_list,
     get_has_front,
     get_num_splashes,
@@ -18,7 +19,7 @@ from barks_fantagraphics.comics_utils import (
     get_timestamp,
     get_titles_and_info_sorted_by_submission_date,
 )
-from barks_fantagraphics.fanta_comics_info import FantaComicBookInfo
+from barks_fantagraphics.fanta_comics_info import HAND_RESTORED_TITLES, FantaComicBookInfo
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from intspan import intspan
 from loguru import logger
@@ -54,12 +55,18 @@ log_level = ""
 
 
 def is_upscayled(comic: ComicBook) -> bool:
+    if comic.get_ini_title() in HAND_RESTORED_TITLES:
+        return True
+
     return all_files_exist(
         [f[0] for f in comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)]
     )
 
 
 def is_restored(comic: ComicBook) -> bool:
+    if comic.get_ini_title() in HAND_RESTORED_TITLES:
+        return True
+
     return all_files_exist(comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES))
 
 
@@ -68,11 +75,19 @@ def has_inset_file(comic: ComicBook) -> bool:
 
 
 def has_fixes(comic: ComicBook) -> bool:
-    mods = [f[1] for f in comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)]
+    mods = [
+        f[1]
+        for f in comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
+        if f[1] != ModifiedType.ORIGINAL
+    ]
     if any(mods):
         return True
 
-    mods = [f[1] for f in comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)]
+    mods = [
+        f[1]
+        for f in comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
+        if f[1] != ModifiedType.ORIGINAL
+    ]
     return any(mods)
 
 
@@ -81,6 +96,8 @@ def has_panel_bounds(comic: ComicBook) -> bool:
         return False
     if not all_files_exist(comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)):
         return False
+    if comic.get_ini_title() in HAND_RESTORED_TITLES:
+        return True
 
     restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
     panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)

@@ -44,17 +44,22 @@ page-count volume:
 # Build a title
 [group('comics')]
 build-title title:
-    {{uv_run}} "{{ source_dir() }}/build-comics/batch-build-comics.py" build --log-level INFO --title "{{title}}"
+    {{uv_run}} "{{ source_dir() }}/build-comics/batch-build-comics.py" --log-level INFO --title "{{title}}"
 
 # Build a volume or volumes
 [group('comics')]
-build volume:
-    {{uv_run}} "{{ source_dir() }}/build-comics/batch-build-comics.py" build --log-level INFO --volume "{{volume}}"
+build-volume volume:
+    {{uv_run}} "{{ source_dir() }}/build-comics/batch-build-comics.py" --log-level INFO --volume "{{volume}}"
+
+# Check the integrity of a title
+[group('comics')]
+check-title title:
+    {{uv_run}} "{{ source_dir() }}/build-comics/check-build-comics-integrity.py" --log-level WARNING --title "{{title}}"
 
 # Check the integrity of a volume or volumes
 [group('comics')]
-check volume:
-    {{uv_run}} "{{ source_dir() }}/build-comics/batch-build-comics.py" check-integrity --log-level WARNING --volume {{volume}}
+check-volume volume:
+    {{uv_run}} "{{ source_dir() }}/build-comics/check-build-comics-integrity.py" --log-level WARNING --volume "{{volume}}"
 
 # Upscayl all restoreable pages in a volume or volumes
 [group('comics')]

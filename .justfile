@@ -100,7 +100,13 @@ show-title title:
 
 # Quickly edit a panel
 edit-title title type page-panel:
-    {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" --type {{type}} --p-p {{page-panel}}
+    {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" \
+                                                                             --type {{type}} --p-p {{page-panel}}
+
+# Quickly edit a comic page panel
+edit-comic-title title type comic-page-panel:
+    {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" \
+                                                                             --type {{type}} --cp-p {{comic-page-panel}}
 
 # Make empty config files for all restoreable pages in a volume or volumes
 [group('comics')]

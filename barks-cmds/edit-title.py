@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, TitleArg
@@ -101,20 +102,32 @@ def main(
     log_level_str: LogLevelArg = "DEBUG",
     panel_type: Annotated[str, typer.Option("--type", help="Panel type")] = "",
     page_panel: Annotated[str, typer.Option("--p-p", help="Page and panel")] = "",
+    comic_page_panel: Annotated[str, typer.Option("--cp-p", help="Comic page and panel")] = "",
 ) -> None:
     # Global variable accessed by loguru-config.
     global log_level  # noqa: PLW0603
     log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
+    if page_panel and comic_page_panel:
+        msg = "Options --p-p and --cp-p are mutually exclusive."
+        raise typer.BadParameter(msg)
+
     comics_database = ComicsDatabase()
-    (page, panel) = page_panel.split("-")
 
     comic = comics_database.get_comic_book(title)
     volume = comic.get_fanta_volume()
     valid_page_list = [
         p.page_filenames for p in comic.page_images_in_order if p.page_type == PageType.BODY
     ]
+
+    if page_panel:
+        (page, panel) = page_panel.split("-")
+    else:
+        (comic_page, panel) = comic_page_panel.split("-")
+        first_page = int(valid_page_list[0])
+        page = first_page + int(comic_page) - 1
+        page = get_page_str(page)
 
     if page not in valid_page_list:
         print(f'ERROR: Page "{page}" is not in {valid_page_list}.')

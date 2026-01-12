@@ -23,6 +23,8 @@ SAFETY_MARGIN = 3
 REQUIRED_HEIGHT = 10500
 REQUIRED_OVERALL_HEIGHT = REQUIRED_HEIGHT + 2 * SAFETY_MARGIN
 
+COMIC_BUILDING_DIR = Path(__file__).parent.parent
+
 
 @dataclass
 class KumikoBoundWithPanelNum:
@@ -54,7 +56,7 @@ def fix_panels(in_file: str, out_file: str) -> None:
     assert srce_image.width == INPUT_IMAGE_WIDTH
     assert srce_image.height == INPUT_IMAGE_HEIGHT
 
-    bounding_box_processor = BoundingBoxProcessor(work_dir, no_panel_expansion=True)
+    bounding_box_processor = BoundingBoxProcessor(work_dir, COMIC_BUILDING_DIR, no_panel_expansion=True)
     bounds_info = get_page_panel_bounds(bounding_box_processor, in_file)
     print(bounds_info)
     assert 0 < bounds_info[0].height <= REQUIRED_OVERALL_HEIGHT

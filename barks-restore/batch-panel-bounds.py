@@ -12,6 +12,8 @@ from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "bpan"
 
+COMIC_BUILDING_DIR = Path(__file__).parent.parent
+
 
 def panel_bounds(title_list: list[str]) -> None:
     start = time.time()
@@ -23,7 +25,7 @@ def panel_bounds(title_list: list[str]) -> None:
         title_work_dir = work_dir / title
         title_work_dir.mkdir(parents=True, exist_ok=True)
 
-        bounding_box_processor = BoundingBoxProcessor(title_work_dir)
+        bounding_box_processor = BoundingBoxProcessor(title_work_dir, COMIC_BUILDING_DIR)
 
         comic = comics_database.get_comic_book(title)
 

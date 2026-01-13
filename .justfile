@@ -53,13 +53,15 @@ build-volume volume:
 
 # Check the integrity of a title
 [group('comics')]
-check-title title:
-    {{uv_run}} "{{ source_dir() }}/build-comics/check-build-comics-integrity.py" --log-level WARNING --title "{{title}}"
+check-title title *flags:
+    {{uv_run}} "{{ source_dir() }}/build-comics/check-build-comics-integrity.py" \
+               --log-level WARNING --title "{{title}}" {{flags}}
 
 # Check the integrity of a volume or volumes
 [group('comics')]
-check-volume volume:
-    {{uv_run}} "{{ source_dir() }}/build-comics/check-build-comics-integrity.py" --log-level WARNING --volume "{{volume}}"
+check-volume volume *flags:
+    {{uv_run}} "{{ source_dir() }}/build-comics/check-build-comics-integrity.py" \
+               --log-level WARNING --volume "{{volume}}" {{flags}}
 
 # Upscayl all restoreable pages in a volume or volumes
 [group('comics')]

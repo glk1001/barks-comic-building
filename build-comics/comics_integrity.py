@@ -96,11 +96,13 @@ class ComicsIntegrityChecker:
         comics_db: ComicsDatabase,
         no_check_for_unexpected_files: bool,
         no_check_symlinks: bool,
+        no_check_ini_file_dates: bool,
     ) -> None:
         self.comics_database = comics_db
 
         self._check_for_unexpected_files = not no_check_for_unexpected_files
         self._check_symlinks = not no_check_symlinks
+        self._check_ini_file_dates = not no_check_ini_file_dates
 
     def check_comics_integrity(self, titles: list[str]) -> int:
         panel_bounding.warn_on_panels_bbox_height_less_than_av = False
@@ -557,14 +559,17 @@ class ComicsIntegrityChecker:
         extra_srce_dirs = [
             self.comics_database.get_root_dir("Fantagraphics-censorship-fixes"),
             self.comics_database.get_root_dir("Articles"),
+            self.comics_database.get_root_dir("Barks Panels Pngs"),
             self.comics_database.get_root_dir("Books"),
             self.comics_database.get_root_dir("Bugs"),
             self.comics_database.get_root_dir("CBL_Index"),
             self.comics_database.get_root_dir("Comics Scans"),
+            self.comics_database.get_root_dir("Compleat Barks Disney Reader"),
             self.comics_database.get_root_dir("Glk Covers"),
             self.comics_database.get_root_dir("Misc"),
             self.comics_database.get_root_dir("Not-controversial-restored"),
             self.comics_database.get_root_dir("Paintings"),
+            self.comics_database.get_root_dir("Projects"),
             THE_COMICS_DIR,
         ]
 
@@ -575,7 +580,7 @@ class ComicsIntegrityChecker:
             srce_dirs.append(self.comics_database.get_fantagraphics_restored_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_restored_upscayled_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_restored_svg_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_restored_raw_ocr_root_dir())
+            srce_dirs.append(self.comics_database.get_fantagraphics_restored_ocr_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_fixes_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_upscayled_fixes_root_dir())
             srce_dirs.append(self.comics_database.get_fantagraphics_fixes_scraps_root_dir())
@@ -648,7 +653,7 @@ class ComicsIntegrityChecker:
         title = get_safe_title(comic.get_comic_title())
 
         num_pages = get_total_num_pages(comic)
-        if num_pages <= 1:
+        if (num_pages <= 1) and (comic.get_title_enum() not in NON_COMIC_TITLES):
             print(f'\n{ERROR_MSG_PREFIX}For "{title}", the page count is too small.')
             return 1
 
@@ -712,8 +717,8 @@ class ComicsIntegrityChecker:
         self.check_missing_or_out_of_date_dest_files(comic, srce_and_dest_pages, errors)
         self.check_unexpected_dest_image_files(comic, srce_and_dest_pages, errors)
 
-    @staticmethod
     def check_missing_or_out_of_date_dest_files(
+        self,
         comic: ComicBook,
         srce_and_dest_pages: SrceAndDestPages,
         errors: OutOfDateErrors,
@@ -734,6 +739,8 @@ class ComicsIntegrityChecker:
                 prev_timestamp = get_timestamp(Path(dest_page.page_filename))
                 prev_file = Path(dest_page.page_filename)
                 for dependency in srce_dependencies:
+                    if not self._check_ini_file_dates and (dependency.file.suffix == ".ini"):
+                        dependency.timestamp = 0.0
                     if not dependency.independent and is_a_comic:
                         if (dependency.timestamp < 0) or (dependency.timestamp > prev_timestamp):
                             errors.srce_and_dest_files_out_of_date.append(
@@ -764,7 +771,7 @@ class ComicsIntegrityChecker:
 
         for file in dest_image_dir.iterdir():
             dest_image_file = dest_image_dir / file
-            if dest_image_file not in allowed_dest_image_files:
+            if str(dest_image_file) not in allowed_dest_image_files:
                 errors.unexpected_dest_image_files.append(dest_image_file)
 
     def check_unexpected_files(  # noqa: PLR0912,PLR0913
@@ -815,7 +822,7 @@ class ComicsIntegrityChecker:
                 ret_code = 1
 
         if allowed_zip_files:
-            dest_dir = Path(allowed_zip_files[0].name)
+            dest_dir = allowed_zip_files[0].parent
             if self.check_files_in_dir("zip", dest_dir, allowed_zip_files) != 0:
                 ret_code = 1
 
@@ -878,7 +885,9 @@ class ComicsIntegrityChecker:
             errors.zip_errors.timestamp = zip_timestamp
             errors.zip_errors.file = comic.get_dest_comic_zip()
 
-        ini_timestamp = get_timestamp(Path(errors.ini_file))
+        ini_timestamp = (
+            0.0 if not self._check_ini_file_dates else get_timestamp(Path(errors.ini_file))
+        )
         if zip_timestamp < ini_timestamp:
             errors.zip_errors.out_of_date_wrt_ini = True
             errors.zip_errors.timestamp = zip_timestamp
@@ -1178,6 +1187,7 @@ class ComicsIntegrityChecker:
                 f' matching srce file "{srce_file}".',
             )
         for srce_dest in errors.srce_and_dest_files_out_of_date:
+            assert type(srce_dest[0]) is Path
             srce_file = Path(srce_dest[0])
             dest_file = Path(srce_dest[1])
             print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))

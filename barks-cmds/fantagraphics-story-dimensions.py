@@ -18,9 +18,6 @@ from PIL import Image
 
 APP_LOGGING_NAME = "sdim"
 
-app = typer.Typer()
-log_level = ""
-
 
 @dataclass
 class Dimensions:
@@ -52,6 +49,10 @@ def get_story_dimensions(comic: ComicBook) -> Dimensions:
         srce_dims.av_panels_bbox_height = comic_metadata["srce_av_panels_bbox_height"]
 
     return Dimensions(srce_dims, front_width, front_height)
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Fantagraphics volumes story panel dimensions")

@@ -17,10 +17,6 @@ APP_LOGGING_NAME = "bpan"
 
 COMIC_BUILDING_DIR = Path(__file__).parent.parent
 
-app = typer.Typer()
-log_level = ""
-log_filename = "batch-panel-bounds.log"
-
 
 def panel_bounds(comics_database: ComicsDatabase, title_list: list[str], work_dir: Path) -> None:
     start = time.time()
@@ -93,6 +89,11 @@ def get_page_panel_bounds(
     except Exception:  # noqa: BLE001
         logger.exception("Error: ")
         return
+
+
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-panel-bounds.log"
 
 
 @app.command(help="Make panel bounds files")

@@ -50,9 +50,6 @@ BUILD_STATE_FLAGS = [
     BUILT_FLAG,
 ]
 
-app = typer.Typer()
-log_level = ""
-
 
 def is_upscayled(comic: ComicBook) -> bool:
     if comic.get_ini_title() in HAND_RESTORED_TITLES:
@@ -272,6 +269,10 @@ def get_built_filter(built_arg: str) -> list[str]:
         raise RuntimeError(msg)
 
     return filt
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Fantagraphics info")

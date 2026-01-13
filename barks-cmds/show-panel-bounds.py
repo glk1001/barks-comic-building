@@ -15,9 +15,6 @@ from PIL import Image, ImageDraw
 
 APP_LOGGING_NAME = "span"
 
-app = typer.Typer()
-log_level = ""
-
 
 def show_panel_bounds(comics_database: ComicsDatabase, title: str, out_dir: Path) -> None:
     out_dir /= title
@@ -83,6 +80,10 @@ def write_bounds_to_image_file(
     logger.info(f'Saved bounds to image file "{bounds_img_file}".')
 
     return True
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Show panel bounds for title")

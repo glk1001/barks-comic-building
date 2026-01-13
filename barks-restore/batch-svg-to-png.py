@@ -18,10 +18,6 @@ APP_LOGGING_NAME = "bsvg"
 
 SCALE = 4
 
-app = typer.Typer()
-log_level = ""
-log_filename = "batch-svg-to-png.log"
-
 
 def svgs_to_pngs(comics_database: ComicsDatabase, title_list: list[str]) -> None:
     start = time.time()
@@ -68,6 +64,11 @@ def convert_svg_to_png(srce_svg: Path) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("Error: ")
         return
+
+
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-svg-to-png.log"
 
 
 @app.command(help="Create png files from svg files")

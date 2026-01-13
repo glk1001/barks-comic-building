@@ -17,10 +17,6 @@ APP_LOGGING_NAME = "bups"
 
 SCALE = 4
 
-app = typer.Typer()
-log_level = ""
-log_filename = "batch-upscayl.log"
-
 
 def upscayl(comics_database: ComicsDatabase, title_list: list[str]) -> None:
     start = time.time()
@@ -65,6 +61,11 @@ def upscayl_file(srce_file: Path, dest_file: Path) -> bool:
     logger.info(f"\nTime taken to upscayl file: {int(time.time() - start)}s.")
 
     return True
+
+
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-upscayl.log"
 
 
 @app.command(help="Make upscayled files")

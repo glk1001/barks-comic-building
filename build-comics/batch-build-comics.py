@@ -16,10 +16,6 @@ from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "bbld"
 
-app = typer.Typer()
-log_level = ""
-log_filename = "build-comics.log"
-
 
 def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]) -> int:
     assert len(titles) > 0
@@ -73,6 +69,11 @@ def mark_process_end(process_timing: Timing) -> None:
     logger.info(
         f"Time taken to complete comic: {process_timing.get_elapsed_time_in_seconds()} seconds",
     )
+
+
+app = typer.Typer()
+log_level = ""
+log_filename = "build-comics.log"
 
 
 @app.command(help="Create a clean Barks comic from Fantagraphics source")

@@ -18,9 +18,6 @@ from loguru_config import LoguruConfig
 APP_LOGGING_NAME = "spla"
 MAX_NUM_PANELS_FOR_SPLASH = 5
 
-app = typer.Typer()
-log_level = ""
-
 
 def get_story_splashes(comic: ComicBook) -> list[str]:
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
@@ -78,6 +75,10 @@ def has_splash_page(panels: list[tuple[int, int, int, int]]) -> bool:
         abs(max_width - min_width) > MIN_MAX_MARGIN
         and abs(max_height - min_height) > MIN_MAX_MARGIN
     )
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Fantagraphics volumes splash pages")

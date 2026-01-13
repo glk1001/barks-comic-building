@@ -23,9 +23,6 @@ if TYPE_CHECKING:
 
 APP_LOGGING_NAME = "smod"
 
-app = typer.Typer()
-log_level = ""
-
 
 def get_srce_dest_mods_map(comic: ComicBook) -> None | tuple[str, str]:
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
@@ -77,6 +74,10 @@ def get_mod_type(comic: ComicBook, srce: CleanPage) -> str:
 
     msg = f'Expected to find a fixes file for "{srce.page_filename}".'
     raise FileNotFoundError(msg)
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Fantagraphics modified source files")

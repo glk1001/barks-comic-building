@@ -21,10 +21,6 @@ APP_LOGGING_NAME = "bres"
 SCALE = 4
 SMALL_RAM = 16 * 1024 * 1024 * 1024
 
-app = typer.Typer()
-log_level = ""
-log_filename = "batch-restore.log"
-
 
 def restore(comics_database: ComicsDatabase, title_list: list[str], work_dir: Path) -> None:
     start = time.time()
@@ -191,6 +187,11 @@ def run_restore(restore_processes: list[RestorePipeline]) -> None:
     with concurrent.futures.ProcessPoolExecutor(part4_max_workers) as executor:
         for process in restore_processes:
             executor.submit(run_restore_part4, process)
+
+
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-restore.log"
 
 
 @app.command(help="Make restored files")

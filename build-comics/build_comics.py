@@ -185,7 +185,7 @@ class ComicBookBuilder:
 
         # noinspection PyBroadException
         try:
-            srce_page_image = open_image_for_reading(srce_page.page_filename)
+            srce_page_image = open_image_for_reading(Path(srce_page.page_filename))
             if srce_page.page_type == PageType.BODY:
                 check_srce_page_image_min_height()
 

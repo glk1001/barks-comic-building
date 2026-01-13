@@ -29,9 +29,6 @@ PANEL_TYPES = {
     "sp": "Splash",
 }
 
-app = typer.Typer()
-log_level = ""
-
 
 def get_source_file(comics_database: ComicsDatabase, volume: int, panel_typ: str, pge: str) -> Path:
     if panel_typ == "cl":
@@ -94,6 +91,10 @@ def open_gimp(image_file: Path) -> None:
     _proc = subprocess.Popen(command)  # noqa: S603
 
     print(f'Gimp should now be running with image "{image_file}".')
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Edit comic title page")

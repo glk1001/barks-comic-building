@@ -25,9 +25,6 @@ APP_LOGGING_NAME = "sdif"
 SRCE_STANDARD_WIDTH = 2175
 SRCE_STANDARD_HEIGHT = 3000
 
-app = typer.Typer()
-log_level = ""
-
 
 def get_image_diffs(
     diff_thresh: float, image1_file: Path, image2_file: Path
@@ -210,6 +207,10 @@ def show_diffs_for_file(
     # cv2.imwrite(os.path.join(out_dir, "image2-with-filled-diffs.png"), image2_filled)
 
     return num_diffs
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Show fixes diffs for volume or title")

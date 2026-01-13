@@ -15,9 +15,6 @@ APP_LOGGING_NAME = "sttl"
 
 VIEWER_EXE = ["/usr/bin/loupe"]
 
-app = typer.Typer()
-log_level = ""
-
 
 def open_viewer(image_file: Path) -> None:
     command = [*VIEWER_EXE, str(image_file)]
@@ -25,6 +22,10 @@ def open_viewer(image_file: Path) -> None:
     _proc = subprocess.Popen(command)  # noqa: S603
 
     print(f'Image Viewer should now be showing image "{image_file}".')
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Open image viewer for comic page")

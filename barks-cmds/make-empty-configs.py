@@ -19,9 +19,6 @@ APP_LOGGING_NAME = "mcfg"
 TOC_PAGE_OFFSET = 7
 TOC_DIR = INTERNAL_DATA_DIR
 
-app = typer.Typer()
-log_level = ""
-
 
 def create_empty_config_file(  # noqa: PLR0913
     comics_database: ComicsDatabase,
@@ -49,6 +46,10 @@ def create_empty_config_file(  # noqa: PLR0913
         f.write("[pages]\n")
         f.write("title_empty = TITLE\n")
         f.write(f"{first_page} - {last_page} = BODY\n")
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Make empty comic configs")

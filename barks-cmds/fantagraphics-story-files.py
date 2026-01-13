@@ -20,9 +20,6 @@ from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "sfil"
 
-app = typer.Typer()
-log_level = ""
-
 
 def print_sources(indent: int, source_list: list[str]) -> None:
     if not source_list:
@@ -50,6 +47,10 @@ def get_filepath_with_date(
         file_timestamp = missing_timestamp
 
     return f'{file_timestamp}:{out_of_date_marker}"{file_str}"'
+
+
+app = typer.Typer()
+log_level = ""
 
 
 @app.command(help="Fantagraphics source files")

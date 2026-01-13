@@ -4,16 +4,34 @@ import sys
 import time
 from pathlib import Path
 
+import typer
+from comic_utils.common_typer_options import LogLevelArg
 from loguru import logger
+from loguru_config import LoguruConfig
 from src.restore_pipeline import RestorePipeline, check_for_errors
 
-if __name__ == "__main__":
-    SCALE = 4
-    srce_file = Path(sys.argv[1])
-    srce_upscale_file = Path(sys.argv[2])
-    dest_restored_file = Path(sys.argv[3])
-    dest_upscayled_restored_file = Path(sys.argv[4])
-    dest_svg_restored_file = Path(sys.argv[5])
+APP_LOGGING_NAME = "srst"
+
+SCALE = 4
+
+app = typer.Typer()
+log_level = ""
+log_filename = "single-restore-pipeline.log"
+
+
+@app.command(help="Make single restored file")
+def main(  # noqa: PLR0913
+    srce_file: Path,
+    srce_upscale_file: Path,
+    dest_restored_file: Path,
+    dest_upscayled_restored_file: Path,
+    dest_svg_restored_file: Path,
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
+    # Global variable accessed by loguru-config.
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
+    LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     out_dir = dest_restored_file.parent
     if not out_dir.is_dir():
@@ -45,3 +63,7 @@ if __name__ == "__main__":
     logger.info(f'\nTime taken to restore all files": {int(time.time() - start_restore)}s.')
 
     check_for_errors([restore_process])
+
+
+if __name__ == "__main__":
+    app()

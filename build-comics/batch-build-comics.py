@@ -18,6 +18,7 @@ APP_LOGGING_NAME = "bbld"
 
 app = typer.Typer()
 log_level = ""
+log_filename = "build-comics.log"
 
 
 def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]) -> int:

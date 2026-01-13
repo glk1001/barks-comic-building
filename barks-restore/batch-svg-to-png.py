@@ -1,12 +1,15 @@
 import concurrent.futures
-import sys
 import time
 from pathlib import Path
 
+import typer
 from barks_fantagraphics.barks_titles import is_non_comic_title
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import get_abbrev_path
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
+from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 from src.image_io import svg_file_to_png
@@ -15,8 +18,12 @@ APP_LOGGING_NAME = "bsvg"
 
 SCALE = 4
 
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-svg-to-png.log"
 
-def svgs_to_pngs(title_list: list[str]) -> None:
+
+def svgs_to_pngs(comics_database: ComicsDatabase, title_list: list[str]) -> None:
     start = time.time()
 
     num_png_files = 0
@@ -63,20 +70,26 @@ def convert_svg_to_png(srce_svg: Path) -> None:
         return
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs("Convert titles from svg to png", CmdArgNames.TITLE | CmdArgNames.VOLUME)
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
-    # Global variables accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
-    log_filename = "batch-svg-to-png.log"
+@app.command(help="Create png files from svg files")
+def main(
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
+    # Global variable accessed by loguru-config.
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    comics_database = cmd_args.get_comics_database()
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
 
-    svgs_to_pngs(cmd_args.get_titles())
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
+
+    svgs_to_pngs(comics_database, get_titles(comics_database, volumes, title_str))
+
+
+if __name__ == "__main__":
+    app()

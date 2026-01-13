@@ -8,7 +8,7 @@ handlers:
     enqueue: True
     backtrace: True
     diagnose: True
-  - sink: fmt://{env://HOME}/Prj/github/barks-compleat-digital/barks-comic-building/logs/build-comics.log
+  - sink: fmt://{env://HOME}/Prj/github/barks-compleat-digital/barks-comic-building/logs/{ext://__main__.log_filename}
     level: "DEBUG"
     format: ext://comic_utils.loguru_setup.log_to_file_formatter
     rotation: "10 MB"

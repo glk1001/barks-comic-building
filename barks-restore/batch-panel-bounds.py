@@ -1,12 +1,15 @@
 import concurrent.futures
-import sys
 import time
 from pathlib import Path
 
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
+import typer
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import get_abbrev_path
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
+from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 
@@ -14,8 +17,12 @@ APP_LOGGING_NAME = "bpan"
 
 COMIC_BUILDING_DIR = Path(__file__).parent.parent
 
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-panel-bounds.log"
 
-def panel_bounds(title_list: list[str]) -> None:
+
+def panel_bounds(comics_database: ComicsDatabase, title_list: list[str], work_dir: Path) -> None:
     start = time.time()
 
     num_page_files = 0
@@ -88,25 +95,29 @@ def get_page_panel_bounds(
         return
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs(
-        "Panel Bounds", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR
-    )
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
-    # Global variables accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
-    log_filename = "batch-panel-bounds.log"
+@app.command(help="Make panel bounds files")
+def main(
+    work_dir: Path = typer.Option(...),  # noqa: B008
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
+    # Global variable accessed by loguru-config.
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    work_dir = cmd_args.get_work_dir()
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
+
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
+
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    comics_database = cmd_args.get_comics_database()
+    panel_bounds(comics_database, get_titles(comics_database, volumes, title_str), work_dir)
 
-    panel_bounds(cmd_args.get_titles())
+
+if __name__ == "__main__":
+    app()

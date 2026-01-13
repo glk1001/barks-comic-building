@@ -1,14 +1,17 @@
 import concurrent.futures
-import sys
 import time
 from pathlib import Path
 
 import psutil
+import typer
 from barks_fantagraphics.barks_titles import is_non_comic_title
-from barks_fantagraphics.comics_cmd_args import CmdArgNames, CmdArgs
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import get_abbrev_path
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.pil_image_utils import copy_file_to_png
+from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 from src.restore_pipeline import RestorePipeline, check_for_errors
@@ -18,22 +21,28 @@ APP_LOGGING_NAME = "bres"
 SCALE = 4
 SMALL_RAM = 16 * 1024 * 1024 * 1024
 
+app = typer.Typer()
+log_level = ""
+log_filename = "batch-restore.log"
 
-def restore(title_list: list[str]) -> None:
+
+def restore(comics_database: ComicsDatabase, title_list: list[str], work_dir: Path) -> None:
     start = time.time()
 
+    num_restored = 0
     for title in title_list:
         if is_non_comic_title(title):
-            copy_title(title)
+            num_restored += copy_title(comics_database, title)
         else:
-            restore_title(title)
+            num_restored += restore_title(comics_database, title, work_dir)
 
-    logger.info(
-        f'\nTime taken to restore all {len(title_list)} titles": {int(time.time() - start)}s.',
-    )
+    if num_restored > 0:
+        logger.info(
+            f'\nTime taken to restore all {len(title_list)} titles": {int(time.time() - start)}s.',
+        )
 
 
-def copy_title(title_str: str) -> None:
+def copy_title(comics_database: ComicsDatabase, title_str: str) -> int:
     logger.info(f'Copying non-comic title "{title_str}".')
 
     comic = comics_database.get_comic_book(title_str)
@@ -52,8 +61,10 @@ def copy_title(title_str: str) -> None:
         )
         copy_file_to_png(srce_file[0], dest_file)
 
+    return len(srce_files)
 
-def restore_title(title: str) -> None:
+
+def restore_title(comics_database: ComicsDatabase, title: str, work_dir: Path) -> int:
     start = time.time()
 
     logger.info(f'Processing story "{title}".')
@@ -114,6 +125,10 @@ def restore_title(title: str) -> None:
             ),
         )
 
+    if len(restore_processes) == 0:
+        logger.info(f'No pages to restore for title "{title}".')
+        return 0
+
     run_restore(restore_processes)
 
     logger.info(
@@ -122,6 +137,8 @@ def restore_title(title: str) -> None:
     )
 
     check_for_errors(restore_processes)
+
+    return len(restore_processes)
 
 
 part1_max_workers = None
@@ -176,25 +193,29 @@ def run_restore(restore_processes: list[RestorePipeline]) -> None:
             executor.submit(run_restore_part4, process)
 
 
-if __name__ == "__main__":
-    # TODO(glk): Some issue with type checking inspection?
-    # noinspection PyTypeChecker
-    cmd_args = CmdArgs(
-        "Restore titles", CmdArgNames.TITLE | CmdArgNames.VOLUME | CmdArgNames.WORK_DIR
-    )
-    args_ok, error_msg = cmd_args.args_are_valid()
-    if not args_ok:
-        logger.error(error_msg)
-        sys.exit(1)
-
-    # Global variables accessed by loguru-config.
-    log_level = cmd_args.get_log_level()
-    log_filename = "batch-restore.log"
+@app.command(help="Make restored files")
+def main(
+    work_dir: Path = typer.Option(...),  # noqa: B008
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    log_level_str: LogLevelArg = "DEBUG",
+) -> None:
+    # Global variable accessed by loguru-config.
+    global log_level  # noqa: PLW0603
+    log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    work_dir = cmd_args.get_work_dir()
+    if volumes_str and title_str:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
+
+    volumes = list(intspan(volumes_str))
+    comics_database = ComicsDatabase()
+
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    comics_database = cmd_args.get_comics_database()
+    restore(comics_database, get_titles(comics_database, volumes, title_str), work_dir)
 
-    restore(cmd_args.get_titles())
+
+if __name__ == "__main__":
+    app()

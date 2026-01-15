@@ -1,5 +1,4 @@
 # ruff: noqa: T201
-
 import json
 import subprocess
 import sys
@@ -10,8 +9,10 @@ import typer
 from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.common_typer_options import LogLevelArg, TitleArg
+from barks_fantagraphics.comics_helpers import get_title_from_volume_page
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.pil_image_utils import load_pil_image_for_reading
+from intspan import intspan
 from loguru_config import LoguruConfig
 
 APP_LOGGING_NAME = "ettl"
@@ -98,7 +99,8 @@ log_level = ""
 
 
 @app.command(help="Edit comic title page")
-def main(
+def main(  # noqa: C901, PLR0913, PLR0915
+    volumes_str: VolumesArg = "",
     title: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
     panel_type: Annotated[str, typer.Option("--type", help="Panel type")] = "",
@@ -110,32 +112,49 @@ def main(
     log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
+    if volumes_str and title:
+        msg = "Options --volume and --title are mutually exclusive."
+        raise typer.BadParameter(msg)
     if page_panel and comic_page_panel:
         msg = "Options --p-p and --cp-p are mutually exclusive."
         raise typer.BadParameter(msg)
+    if volumes_str and comic_page_panel:
+        msg = "Options --volume and --cp-p are mutually exclusive."
+        raise typer.BadParameter(msg)
 
-    comics_database = ComicsDatabase()
-
-    comic = comics_database.get_comic_book(title)
-    volume = comic.get_fanta_volume()
-    valid_page_list = [
-        p.page_filenames for p in comic.page_images_in_order if p.page_type == PageType.BODY
-    ]
-
-    if page_panel:
-        (page, panel) = page_panel.split("-")
-    else:
-        (comic_page, panel) = comic_page_panel.split("-")
-        first_page = int(valid_page_list[0])
-        page = first_page + int(comic_page) - 1
-        page = get_page_str(page)
-
-    if page not in valid_page_list:
-        print(f'ERROR: Page "{page}" is not in {valid_page_list}.')
-        sys.exit(1)
     if panel_type not in PANEL_TYPES:
         print(f'ERROR: Panel type "{panel_type}" is not in {list(PANEL_TYPES.keys())}.')
         sys.exit(1)
+
+    comics_database = ComicsDatabase()
+
+    if volumes_str:
+        volumes = list(intspan(volumes_str))
+        assert len(volumes) == 1
+        volume = volumes[0]
+        (page, panel) = page_panel.split("-")
+        page = get_page_str(int(page))
+        title, comic_page = get_title_from_volume_page(comics_database, volume, page)
+        assert title
+        assert comic_page != -1
+    else:
+        comic = comics_database.get_comic_book(title)
+        volume = comic.get_fanta_volume()
+
+        valid_page_list = [
+            p.page_filenames for p in comic.page_images_in_order if p.page_type == PageType.BODY
+        ]
+        if page_panel:
+            (page, panel) = page_panel.split("-")
+        else:
+            (comic_page, panel) = comic_page_panel.split("-")
+            first_page = int(valid_page_list[0])
+            page = first_page + int(comic_page) - 1
+
+        page = get_page_str(int(page))
+        if page not in valid_page_list:
+            print(f'ERROR: Page "{page}" is not in {valid_page_list}.')
+            sys.exit(1)
 
     srce_file = get_source_file(comics_database, volume, panel_type, page)
     if not srce_file.is_file():

@@ -97,20 +97,25 @@ panels-title title:
     {{uv_run}} "{{ source_dir() }}/barks-restore/batch-panel-bounds.py" \
                --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --title "{{title}}"
 
-# Quickly browse a page
-show-page volume page:
-    {{uv_run}} {{source_dir()}}/barks-cmds/show-page.py --log-level WARNING --volume "{{volume}}" --page "{{page}}"
+# Quickly browse a volume page
+show-volume volume page:
+    {{uv_run}} {{source_dir()}}/barks-cmds/show-volume-page.py --log-level WARNING --volume "{{volume}}" --page "{{page}}"
 
-# Quickly browse a title
-show-title title:
-    {{uv_run}} {{source_dir()}}/barks-cmds/show-title-images.py --log-level WARNING --title "{{title}}"
+# Quickly browse a title page
+show-title title page="1":
+    {{uv_run}} {{source_dir()}}/barks-cmds/show-title-page.py --log-level WARNING --title "{{title}}" --page "{{page}}"
 
-# Quickly edit a panel
-edit-title title type page-panel:
-    {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" \
-                                                                             --type {{type}} --p-p {{page-panel}}
+# Quickly edit a volume panel
+edit-volume-panel volume type page-panel:
+    {{uv_run}} {{source_dir()}}/barks-cmds/edit-page.py --log-level WARNING --volume "{{volume}}" \
+                                                                            --type {{type}} --p-p {{page-panel}}
 
-# Quickly edit a comic page panel
+# Quickly edit a title panel from a volume page number
+edit-title-panel title type page-panel:
+    {{uv_run}} {{source_dir()}}/barks-cmds/edit-page.py --log-level WARNING --title "{{title}}" \
+                                                                            --type {{type}} --p-p {{page-panel}}
+
+# Quickly edit a tile panel from a comic page number
 edit-comic-title title type comic-page-panel:
     {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" \
                                                                              --type {{type}} --cp-p {{comic-page-panel}}

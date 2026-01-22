@@ -116,9 +116,9 @@ edit-title-panel title type page-panel:
                                                                             --type {{type}} --p-p {{page-panel}}
 
 # Quickly edit a tile panel from a comic page number
-edit-comic-title title type comic-page-panel:
-    {{uv_run}} {{source_dir()}}/barks-cmds/edit-title.py --log-level WARNING --title "{{title}}" \
-                                                                             --type {{type}} --cp-p {{comic-page-panel}}
+edit-comic-panel title type comic-page-panel:
+    {{uv_run}} {{source_dir()}}/barks-cmds/edit-page.py --log-level WARNING --title "{{title}}" \
+                                                                            --type {{type}} --cp-p {{comic-page-panel}}
 
 # Make empty config files for all restoreable pages in a volume or volumes
 [group('comics')]

@@ -1187,7 +1187,7 @@ class ComicsIntegrityChecker:
                 f' matching srce file "{srce_file}".',
             )
         for srce_dest in errors.srce_and_dest_files_out_of_date:
-            assert type(srce_dest[0]) is Path
+            assert isinstance(srce_dest[0], Path), f'"{type(srce_dest[0])}"; file: "{srce_dest[0]}"'
             srce_file = Path(srce_dest[0])
             dest_file = Path(srce_dest[1])
             print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))

@@ -13,6 +13,7 @@ APP_LOGGING_NAME = "cbld"
 
 app = typer.Typer()
 log_level = ""
+log_filename = "check-build-comics-integrity.log"
 
 
 @app.command(help="Check the integrity of all previously built comics")

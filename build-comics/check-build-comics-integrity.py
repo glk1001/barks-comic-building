@@ -17,13 +17,12 @@ log_filename = "check-build-comics-integrity.log"
 
 
 @app.command(help="Check the integrity of all previously built comics")
-def main(  # noqa: PLR0913
+def main(
     volumes_str: VolumesArg = "",
     title_str: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
     no_check_for_unexpected_files: bool = False,
     no_check_symlinks: bool = False,
-    no_check_ini_file_dates: bool = False,
 ) -> None:
     # Global variable accessed by loguru-config.
     global log_level  # noqa: PLW0603
@@ -38,7 +37,7 @@ def main(  # noqa: PLR0913
     comics_database = ComicsDatabase()
 
     integrity_checker = ComicsIntegrityChecker(
-        comics_database, no_check_for_unexpected_files, no_check_symlinks, no_check_ini_file_dates
+        comics_database, no_check_for_unexpected_files, no_check_symlinks
     )
     exit_code = integrity_checker.check_comics_integrity(
         get_titles(comics_database, volumes, title_str)

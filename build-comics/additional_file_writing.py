@@ -9,7 +9,6 @@ from barks_build_comic_images.consts import (
     DEST_SRCE_MAP_FILENAME,
     DOUBLE_PAGES,
     DOUBLE_PAGES_SECTION,
-    JSON_METADATA_FILENAME,
     METADATA_FILENAME,
     PAGE_NUMBERS_SECTION,
     README_FILENAME,
@@ -42,6 +41,7 @@ from barks_fantagraphics.pages import (
     get_srce_dest_map,
 )
 from comic_utils.comic_consts import ROMAN_NUMERALS
+from comic_utils.sys_utils import get_hash_str
 from comic_utils.timing import Timing
 
 
@@ -222,10 +222,12 @@ def write_json_metadata(
     required_dim: RequiredDimensions,
     dest_pages: list[CleanPage],
 ) -> None:
-    metadata_file = comic.get_dest_dir() / JSON_METADATA_FILENAME
+    metadata_file = comic.get_metadata_filepath()
+
     metadata = {
         "title": get_safe_title(comic.title),
         "ini_title": comic.get_ini_title(),
+        "ini_hash": get_hash_str(comic.ini_file),
         "issue_title": get_safe_title(comic.issue_title),
         "comic_title": get_safe_title(comic.get_comic_title()),
         "series_name": comic.series_name,

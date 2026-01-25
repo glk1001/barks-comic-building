@@ -1,5 +1,5 @@
 # ruff: noqa: C901, T201, TD002
-
+import json
 import stat
 import zipfile
 from dataclasses import dataclass
@@ -34,6 +34,7 @@ from barks_fantagraphics.pages import (
     get_sorted_srce_and_dest_pages,
 )
 from comic_utils.comic_consts import JPG_FILE_EXT
+from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 from utils import (
     DATE_SEP,
@@ -50,10 +51,17 @@ MAX_FIXES_PAGE_NUM = 300
 
 
 @dataclass
+class HashErrors:
+    metadata_file: Path | None = None
+    expected_hash: str = ""
+    file_to_hash: Path | None = None
+    file_hash: str = ""
+
+
+@dataclass
 class ZipOutOfDateErrors:
     file: Path | None = None
     missing: bool = False
-    out_of_date_wrt_ini: bool = False
     out_of_date_wrt_srce: bool = False
     out_of_date_wrt_dest: bool = False
     timestamp: float = 0.0
@@ -63,7 +71,6 @@ class ZipOutOfDateErrors:
 class ZipSymlinkOutOfDateErrors:
     symlink: Path | None = None
     missing: bool = False
-    out_of_date_wrt_ini: bool = False
     out_of_date_wrt_zip: bool = False
     out_of_date_wrt_dest: bool = False
     timestamp: float = 0.0
@@ -72,7 +79,6 @@ class ZipSymlinkOutOfDateErrors:
 @dataclass
 class OutOfDateErrors:
     title: str
-    ini_file: Path
     dest_dir_files_missing: list[Path]
     dest_dir_files_out_of_date: list[Path]
     srce_and_dest_files_missing: list[tuple[Path, Path]]
@@ -87,7 +93,6 @@ class OutOfDateErrors:
     max_srce_file: Path | zipfile.Path | None = None
     max_dest_timestamp: float = 0.0
     max_dest_file: Path | None = None
-    ini_timestamp: float = 0.0
 
 
 class ComicsIntegrityChecker:
@@ -96,13 +101,11 @@ class ComicsIntegrityChecker:
         comics_db: ComicsDatabase,
         no_check_for_unexpected_files: bool,
         no_check_symlinks: bool,
-        no_check_ini_file_dates: bool,
     ) -> None:
         self.comics_database = comics_db
 
         self._check_for_unexpected_files = not no_check_for_unexpected_files
         self._check_symlinks = not no_check_symlinks
-        self._check_ini_file_dates = not no_check_ini_file_dates
 
     def check_comics_integrity(self, titles: list[str]) -> int:
         panel_bounding.warn_on_panels_bbox_height_less_than_av = False
@@ -116,9 +119,6 @@ class ComicsIntegrityChecker:
             return 1
 
         if self.check_fantagraphics_files() != 0:
-            return 1
-
-        if self.check_ini_files_match_series_info() != 0:
             return 1
 
         unexpected_files = self.check_no_unexpected_files() != 0
@@ -142,10 +142,9 @@ class ComicsIntegrityChecker:
         return ret_code
 
     @staticmethod
-    def make_out_of_date_errors(title: str, ini_file: Path) -> OutOfDateErrors:
+    def make_out_of_date_errors(title: str) -> OutOfDateErrors:
         return OutOfDateErrors(
             title=title,
-            ini_file=ini_file,
             dest_dir_files_missing=[],
             dest_dir_files_out_of_date=[],
             srce_and_dest_files_out_of_date=[],
@@ -648,8 +647,7 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    @staticmethod
-    def check_comic_structure(comic: ComicBook) -> int:
+    def check_comic_structure(self, comic: ComicBook) -> int:
         title = get_safe_title(comic.get_comic_title())
 
         num_pages = get_total_num_pages(comic)
@@ -657,14 +655,45 @@ class ComicsIntegrityChecker:
             print(f'\n{ERROR_MSG_PREFIX}For "{title}", the page count is too small.')
             return 1
 
+        errors = HashErrors()
+        if self.check_hashes(comic, errors) != 0:
+            self.print_hash_errors(errors)
+            return 1
+
         logger.info(f'There are no structural problems with "{title}".')
         return 0
+
+    @staticmethod
+    def check_hashes(comic: ComicBook, errors: HashErrors) -> int:
+        ini_hash = get_hash_str(comic.ini_file)
+        metadata_file = comic.get_metadata_filepath()
+        assert metadata_file.is_file()
+        metadata = json.loads(metadata_file.read_text())
+        if "ini_hash" not in metadata:
+            logger.warning(f'No metadata ini hash for "{comic.get_ini_title()}".')
+            return 0
+
+        metadata_hash = metadata["ini_hash"]
+        if ini_hash != metadata_hash:
+            errors.expected_hash = metadata_hash
+            errors.file_to_hash = comic.ini_file
+            errors.file_hash = ini_hash
+            return 1
+
+        return 0
+
+    @staticmethod
+    def print_hash_errors(errors: HashErrors) -> None:
+        print(
+            f'{ERROR_MSG_PREFIX} Hash mismatch for "{errors.file_to_hash}":'
+            f' expected hash = "{errors.expected_hash}", file hash = "{errors.file_hash}".',
+        )
 
     def check_out_of_date_files(self, comic: ComicBook) -> int:
         title = get_safe_title(comic.get_comic_title())
         logger.info(f'Checking title "{title}".')
 
-        out_of_date_errors = self.make_out_of_date_errors(title, comic.ini_file)
+        out_of_date_errors = self.make_out_of_date_errors(title)
 
         self.check_srce_and_dest_files(comic, out_of_date_errors)
         self.check_zip_files(comic, out_of_date_errors)
@@ -683,8 +712,6 @@ class ComicsIntegrityChecker:
             or out_of_date_errors.zip_errors.out_of_date_wrt_dest
             or out_of_date_errors.series_zip_symlink_errors.out_of_date_wrt_zip
             or out_of_date_errors.year_zip_symlink_errors.out_of_date_wrt_zip
-            or out_of_date_errors.series_zip_symlink_errors.out_of_date_wrt_ini
-            or out_of_date_errors.year_zip_symlink_errors.out_of_date_wrt_ini
         )
 
         self.print_check_errors(out_of_date_errors)
@@ -717,8 +744,8 @@ class ComicsIntegrityChecker:
         self.check_missing_or_out_of_date_dest_files(comic, srce_and_dest_pages, errors)
         self.check_unexpected_dest_image_files(comic, srce_and_dest_pages, errors)
 
+    @staticmethod
     def check_missing_or_out_of_date_dest_files(
-        self,
         comic: ComicBook,
         srce_and_dest_pages: SrceAndDestPages,
         errors: OutOfDateErrors,
@@ -739,8 +766,8 @@ class ComicsIntegrityChecker:
                 prev_timestamp = get_timestamp(Path(dest_page.page_filename))
                 prev_file = Path(dest_page.page_filename)
                 for dependency in srce_dependencies:
-                    if not self._check_ini_file_dates and (dependency.file.suffix == ".ini"):
-                        dependency.timestamp = 0.0
+                    dependency.timestamp = 0.0
+
                     if not dependency.independent and is_a_comic:
                         if (dependency.timestamp < 0) or (dependency.timestamp > prev_timestamp):
                             errors.srce_and_dest_files_out_of_date.append(
@@ -867,8 +894,7 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    # noinspection LongLine
-    def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:  # noqa: PLR0912, PLR0915
+    def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
         if not comic.get_dest_comic_zip().is_file():
             errors.zip_errors.missing = True
             errors.zip_errors.file = comic.get_dest_comic_zip()
@@ -884,15 +910,6 @@ class ComicsIntegrityChecker:
             errors.zip_errors.out_of_date_wrt_dest = True
             errors.zip_errors.timestamp = zip_timestamp
             errors.zip_errors.file = comic.get_dest_comic_zip()
-
-        ini_timestamp = (
-            0.0 if not self._check_ini_file_dates else get_timestamp(Path(errors.ini_file))
-        )
-        if zip_timestamp < ini_timestamp:
-            errors.zip_errors.out_of_date_wrt_ini = True
-            errors.zip_errors.timestamp = zip_timestamp
-            errors.zip_errors.file = comic.get_dest_comic_zip()
-            errors.ini_timestamp = ini_timestamp
 
         if not self._check_symlinks:
             logger.info("Check symlinks flag turned off. Not checking.")
@@ -911,12 +928,6 @@ class ComicsIntegrityChecker:
             errors.zip_errors.timestamp = zip_timestamp
             errors.zip_errors.file = comic.get_dest_comic_zip()
 
-        if series_zip_symlink_timestamp < ini_timestamp:
-            errors.series_zip_symlink_errors.out_of_date_wrt_ini = True
-            errors.series_zip_symlink_errors.timestamp = series_zip_symlink_timestamp
-            errors.series_zip_symlink_errors.symlink = comic.get_dest_series_comic_zip_symlink()
-            errors.ini_timestamp = ini_timestamp
-
         if series_zip_symlink_timestamp < errors.max_dest_timestamp:
             errors.series_zip_symlink_errors.out_of_date_wrt_dest = True
             errors.series_zip_symlink_errors.timestamp = series_zip_symlink_timestamp
@@ -934,12 +945,6 @@ class ComicsIntegrityChecker:
             errors.year_zip_symlink_errors.symlink = comic.get_dest_year_comic_zip_symlink()
             errors.zip_errors.timestamp = zip_timestamp
             errors.zip_errors.file = comic.get_dest_comic_zip()
-
-        if year_zip_symlink_timestamp < ini_timestamp:
-            errors.year_zip_symlink_errors.out_of_date_wrt_ini = True
-            errors.year_zip_symlink_errors.timestamp = year_zip_symlink_timestamp
-            errors.year_zip_symlink_errors.symlink = comic.get_dest_year_comic_zip_symlink()
-            errors.ini_timestamp = ini_timestamp
 
         if year_zip_symlink_timestamp < errors.max_dest_timestamp:
             errors.year_zip_symlink_errors.out_of_date_wrt_dest = True
@@ -962,7 +967,7 @@ class ComicsIntegrityChecker:
             if file_timestamp < errors.max_srce_timestamp:
                 errors.dest_dir_files_out_of_date.append(file_path)
 
-    def print_check_errors(self, errors: OutOfDateErrors) -> None:  # noqa: PLR0912
+    def print_check_errors(self, errors: OutOfDateErrors) -> None:
         if (
             len(errors.srce_and_dest_files_missing) > 0
             or len(errors.srce_and_dest_files_out_of_date) > 0
@@ -1026,26 +1031,6 @@ class ComicsIntegrityChecker:
                 f"{BLANK_ERR_MSG_PREFIX}'{zip_file_timestamp}' < '{max_dest_timestamp}'.",
             )
 
-        if errors.zip_errors.out_of_date_wrt_ini:
-            zip_file_timestamp = get_timestamp_as_str(
-                errors.zip_errors.timestamp,
-                DATE_SEP,
-                DATE_TIME_SEP,
-                HOUR_SEP,
-            )
-            ini_file_timestamp = get_timestamp_as_str(
-                errors.ini_timestamp,
-                DATE_SEP,
-                DATE_TIME_SEP,
-                HOUR_SEP,
-            )
-            print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the zip file\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the ini file timestamp:\n"
-                f"{BLANK_ERR_MSG_PREFIX}'{zip_file_timestamp}' < '{ini_file_timestamp}'.",
-            )
-
         if errors.series_zip_symlink_errors.out_of_date_wrt_zip:
             symlink_timestamp = get_timestamp_as_str(
                 errors.series_zip_symlink_errors.timestamp,
@@ -1065,26 +1050,6 @@ class ComicsIntegrityChecker:
                 f"{BLANK_ERR_MSG_PREFIX}is out of date with the zip file\n"
                 f'{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}":\n'
                 f"{BLANK_ERR_MSG_PREFIX}'{symlink_timestamp}' < '{zip_file_timestamp}'.",
-            )
-
-        if errors.series_zip_symlink_errors.out_of_date_wrt_ini:
-            symlink_timestamp = get_timestamp_as_str(
-                errors.series_zip_symlink_errors.timestamp,
-                DATE_SEP,
-                DATE_TIME_SEP,
-                HOUR_SEP,
-            )
-            ini_file_timestamp = get_timestamp_as_str(
-                errors.ini_timestamp,
-                DATE_SEP,
-                DATE_TIME_SEP,
-                HOUR_SEP,
-            )
-            print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the series symlink\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{errors.series_zip_symlink_errors.symlink}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the ini file timestamp:\n"
-                f"{BLANK_ERR_MSG_PREFIX}'{symlink_timestamp}' < '{ini_file_timestamp}'.",
             )
 
         if errors.series_zip_symlink_errors.out_of_date_wrt_dest:
@@ -1126,26 +1091,6 @@ class ComicsIntegrityChecker:
                 f"{BLANK_ERR_MSG_PREFIX}is out of date with the zip file\n"
                 f'{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}":\n'
                 f"{BLANK_ERR_MSG_PREFIX}'{symlink_timestamp}' < '{zip_file_timestamp}'.",
-            )
-
-        if errors.year_zip_symlink_errors.out_of_date_wrt_ini:
-            symlink_timestamp = get_timestamp_as_str(
-                errors.year_zip_symlink_errors.timestamp,
-                DATE_SEP,
-                DATE_TIME_SEP,
-                HOUR_SEP,
-            )
-            ini_file_timestamp = get_timestamp_as_str(
-                errors.ini_timestamp,
-                DATE_SEP,
-                DATE_TIME_SEP,
-                HOUR_SEP,
-            )
-            print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the year symlink\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{errors.year_zip_symlink_errors.symlink}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the ini file timestamp:\n"
-                f"{BLANK_ERR_MSG_PREFIX}'{symlink_timestamp}' < '{ini_file_timestamp}'.",
             )
 
         if errors.year_zip_symlink_errors.out_of_date_wrt_dest:

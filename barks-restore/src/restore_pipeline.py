@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import cv2 as cv
 from barks_fantagraphics.comics_utils import get_clean_path
@@ -14,9 +14,6 @@ from .remove_alias_artifacts import get_median_filter
 from .remove_colors import remove_colors_from_image
 from .smooth_image import smooth_image_file
 from .vtracer_to_svg import image_file_to_svg
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 USE_EXISTING_WORK_FILES = False  # Use with care
 
@@ -61,7 +58,7 @@ class RestorePipeline:
         self.smoothed_removed_colors_file = (
             work_dir / f"{self.srce_upscale_stem}-color-removed-smoothed.png"
         )
-        self.png_of_svg_file = self.dest_svg_restored_file.with_suffix(".png")
+        self.png_of_svg_file = Path(str(self.dest_svg_restored_file) + ".png")
         self.inpainted_file = work_dir / f"{self.srce_upscale_stem}-inpainted.png"
 
     def do_part1(self) -> None:
@@ -94,7 +91,7 @@ class RestorePipeline:
             )
 
             upscale_image = cv.imread(str(self.srce_upscale_file))
-            out_image = get_median_filter(upscale_image)
+            out_image = get_median_filter(upscale_image)  # ty:ignore[invalid-argument-type]
             write_cv_image_file(self.removed_artifacts_file, out_image)
 
             logger.info(

@@ -20,7 +20,7 @@ def zip_comic_book(comic: ComicBook) -> None:
     )
 
     comic.get_dest_zip_root_dir().mkdir(parents=True, exist_ok=True)
-    temp_zip_file = comic.get_dest_dir().with_suffix(".zip")
+    temp_zip_file = comic.get_dest_dir().with_name(f"{comic.get_dest_dir().name}.zip")
 
     shutil.make_archive(str(comic.get_dest_dir()), "zip", str(comic.get_dest_dir()))
     if not temp_zip_file.is_file():

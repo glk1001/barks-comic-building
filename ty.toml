@@ -10,7 +10,6 @@ root = [
 [src]
 exclude = [
     "barks-restore/experiments/*.py",
-    "build-comics/scraps/*.py",
     "barks-cmds/silent-night-panel-restore.py",
     "build-comics/scraps",
 ]

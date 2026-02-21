@@ -6,12 +6,6 @@ root = [
     "./build-comics",
     "./scripts",
 ]
-extra-paths = [
-    "../barks-compleat-reader/src/barks-reader/src",
-    "../barks-compleat-reader/src/barks-build-comic-images/src",
-    "../barks-compleat-reader/src/barks-fantagraphics/src",
-    "../barks-compleat-reader/src/comic-utils/src",
-]
 
 [src]
 exclude = [

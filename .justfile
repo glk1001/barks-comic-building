@@ -1,4 +1,4 @@
-uv_run := "uv run --env-file .env"
+uv_run := "uv run"
 
 barks_dir := "$HOME/Books/Carl Barks"
 

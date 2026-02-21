@@ -5,6 +5,9 @@ description = "Scripts to upscale, restore, build, and inquire Barks comics."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "barks-fantagraphics",
+    "barks-build-comic-images",
+    "comic-utils",
     "bs4>=0.0.2",
     "cairosvg>=2.8.2",
     "cpi>=2.0.7",
@@ -24,6 +27,11 @@ dependencies = [
     "typer>=0.21.1",
     "vtracer>=0.6.11",
 ]
+
+[tool.uv.sources]
+barks-fantagraphics = { path = "../barks-compleat-reader/src/barks-fantagraphics", editable = true }
+barks-build-comic-images = { path = "../barks-compleat-reader/src/barks-build-comic-images", editable = true }
+comic-utils = { path = "../barks-compleat-reader/src/comic-utils", editable = true }
 
 [dependency-groups]
 dev = [

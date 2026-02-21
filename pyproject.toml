@@ -37,4 +37,5 @@ comic-utils = { path = "../barks-compleat-reader/src/comic-utils", editable = tr
 dev = [
     "pytest>=8.4.1",
     "ruff>=0.12.7",
+    "ty>=0.0.17",
 ]

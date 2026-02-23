@@ -1,4 +1,4 @@
-uv_run := "uv run"
+uv_run := "uv run --project " + source_dir()
 
 barks_dir := "$HOME/Books/Carl Barks"
 

@@ -1,4 +1,4 @@
-extend = "../.ruff.toml"
+extend = "../barks-compleat-reader/.ruff-base.toml"
 
 exclude = [
     "barks-restore/experiments/*.py",

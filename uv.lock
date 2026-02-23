@@ -20,7 +20,7 @@ requires-dist = [
 [[package]]
 name = "barks-comic-building"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "barks-build-comic-images" },
     { name = "barks-fantagraphics" },

@@ -1,15 +1,12 @@
 [environment]
 python = "./.venv"
-root = [
-    "./barks-cmds",
-    "./barks-restore",
-    "./build-comics",
-    "./scripts",
-]
+root = ["./src"]
 
 [src]
 exclude = [
-    "barks-restore/experiments/*.py",
-    "barks-cmds/silent-night-panel-restore.py",
-    "build-comics/scraps",
+    "src/barks_comic_building/query/silent_night_panel_restore.py",
+    "barks-cmds",
+    "build-comics",
+    "barks-restore",
+    "scripts",
 ]

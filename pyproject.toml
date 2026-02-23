@@ -1,3 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/barks_comic_building"]
+
 [project]
 name = "barks-comic-building"
 version = "0.1.0"
@@ -27,6 +34,36 @@ dependencies = [
     "typer>=0.21.1",
     "vtracer>=0.6.11",
 ]
+
+[project.scripts]
+barks-yearly-page-count = "barks_comic_building.query.barks_yearly_page_count:app"
+barks-yearly-payments = "barks_comic_building.query.barks_yearly_payments:app"
+barks-edit-page = "barks_comic_building.query.edit_page:app"
+barks-fanta-info = "barks_comic_building.query.fantagraphics_info:app"
+barks-fanta-make-dirs = "barks_comic_building.query.fantagraphics_make_dirs:app"
+barks-fanta-story-page-count = "barks_comic_building.query.fantagraphics_stories_page_count:app"
+barks-fanta-story-dims = "barks_comic_building.query.fantagraphics_story_dimensions:app"
+barks-fanta-story-files = "barks_comic_building.query.fantagraphics_story_files:app"
+barks-fanta-story-mods = "barks_comic_building.query.fantagraphics_story_mods:app"
+barks-fanta-story-splashes = "barks_comic_building.query.fantagraphics_story_splashes:app"
+barks-find-title = "barks_comic_building.query.find_title:app"
+barks-find-title-from-volume = "barks_comic_building.query.find_title_from_volume:app"
+barks-make-empty-configs = "barks_comic_building.query.make_empty_configs:app"
+barks-show-fixes-diffs = "barks_comic_building.query.show_fixes_diffs:app"
+barks-show-panel-bounds = "barks_comic_building.query.show_panel_bounds:app"
+barks-show-title-page = "barks_comic_building.query.show_title_page:app"
+barks-show-volume-page = "barks_comic_building.query.show_volume_page:app"
+barks-silent-night-restore = "barks_comic_building.query.silent_night_panel_restore:app"
+barks-verify-title = "barks_comic_building.query.verify_title:app"
+barks-build = "barks_comic_building.build.batch_build_comics:app"
+barks-check-build = "barks_comic_building.build.check_build_comics_integrity:app"
+barks-batch-panel-bounds = "barks_comic_building.restore.batch_panel_bounds:app"
+barks-batch-restore = "barks_comic_building.restore.batch_restore_pipeline:app"
+barks-batch-svg-to-png = "barks_comic_building.restore.batch_svg_to_png:app"
+barks-batch-upscayl = "barks_comic_building.restore.batch_upscayl:app"
+barks-directory-upscayl = "barks_comic_building.restore.directory_upscayl:app"
+barks-single-restore = "barks_comic_building.restore.single_restore_pipeline:app"
+barks-single-upscayl = "barks_comic_building.restore.single_upscayl:app"
 
 [tool.uv.sources]
 barks-fantagraphics = { path = "../barks-compleat-reader/src/barks-fantagraphics", editable = true }

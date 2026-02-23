@@ -1,0 +1,17 @@
+extra:
+  sys_name: ext://barks_comic_building.log_setup.APP_LOGGING_NAME
+
+handlers:
+  - sink: ext://sys.stdout
+    level: ext://barks_comic_building.log_setup.log_level
+    format: ext://comic_utils.loguru_setup.log_to_console_formatter
+    enqueue: True
+    backtrace: True
+    diagnose: True
+  - sink: fmt://{env://HOME}/Prj/github/barks-compleat-digital/barks-comic-building/logs/{ext://barks_comic_building.log_setup.log_filename}
+    level: "DEBUG"
+    format: ext://comic_utils.loguru_setup.log_to_file_formatter
+    rotation: "10 MB"
+    enqueue: True
+    backtrace: True
+    diagnose: True

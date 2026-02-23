@@ -5,7 +5,7 @@ line-length = 100
 
     ignore = [
         "PGH004",
-        "D100", "D101", "D102", "D103", "D107", "D203", "D211", "D213",  # doc-strings
+        "D100", "D101", "D102", "D103", "D104", "D107", "D203", "D211", "D213",  # doc-strings
         "COM812",  # turn off trailing commas as recommended by the formatter
         "FBT001", "FBT002",  # boolean
         "FIX002", "TD003",
@@ -17,4 +17,9 @@ line-length = 100
     exclude = [
         "barks-restore/experiments/*.py",
         "build-comics/scraps/*.py",
+        "scripts/*.py",
+        "barks-cmds/*.py",
+        "build-comics/*.py",
+        "barks-restore/*.py",
+        "barks-restore/src/*.py",
     ]

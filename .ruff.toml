@@ -1,19 +1,9 @@
 extend = "../barks-compleat-reader/.ruff-base.toml"
 
 exclude = [
-    "barks-restore/experiments/*.py",
-    "build-comics/scraps/*.py",
-    "scripts/*.py",
-    "barks-cmds/*.py",
-    "build-comics/*.py",
-    "barks-restore/*.py",
-    "barks-restore/src/*.py",
 ]
 
 [lint]
 ignore = [
     "PGH004",
-    "D104", "D211",  # doc-strings
-    "INP001",
-    "LOG015",  # logging
 ]

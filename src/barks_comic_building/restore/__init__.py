@@ -1,0 +1,1 @@
+"""Comic image restore commands."""

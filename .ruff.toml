@@ -1,25 +1,19 @@
-line-length = 100
+extend = "../.ruff.toml"
+
+exclude = [
+    "barks-restore/experiments/*.py",
+    "build-comics/scraps/*.py",
+    "scripts/*.py",
+    "barks-cmds/*.py",
+    "build-comics/*.py",
+    "barks-restore/*.py",
+    "barks-restore/src/*.py",
+]
 
 [lint]
-    select = ["ALL"]
-
-    ignore = [
-        "PGH004",
-        "D100", "D101", "D102", "D103", "D104", "D107", "D203", "D211", "D213",  # doc-strings
-        "COM812",  # turn off trailing commas as recommended by the formatter
-        "FBT001", "FBT002",  # boolean
-        "FIX002", "TD003",
-        "INP001",
-        "LOG015", "G004",  # logging
-        "S101", "S311",  # assert
-    ]
-
-    exclude = [
-        "barks-restore/experiments/*.py",
-        "build-comics/scraps/*.py",
-        "scripts/*.py",
-        "barks-cmds/*.py",
-        "build-comics/*.py",
-        "barks-restore/*.py",
-        "barks-restore/src/*.py",
-    ]
+ignore = [
+    "PGH004",
+    "D104", "D211",  # doc-strings
+    "INP001",
+    "LOG015",  # logging
+]

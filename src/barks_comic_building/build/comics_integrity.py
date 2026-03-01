@@ -482,7 +482,7 @@ class ComicsIntegrityChecker:
                 ret_code = 1
 
             if not self._found_dir(
-                self.comics_database.get_fantagraphics_restored_raw_ocr_volume_dir(volume)
+                self.comics_database.get_fantagraphics_restored_ocr_raw_volume_dir(volume)
             ):
                 ret_code = 1
 
@@ -767,18 +767,18 @@ class ComicsIntegrityChecker:
                 prev_timestamp = get_timestamp(Path(dest_page.page_filename))
                 prev_file = Path(dest_page.page_filename)
                 for dependency in srce_dependencies:
-                    dependency.timestamp = 0.0
+                    dependency_timestamp = 0.0
 
                     if not dependency.independent and is_a_comic:
-                        if (dependency.timestamp < 0) or (dependency.timestamp > prev_timestamp):
+                        if (dependency_timestamp < 0) or (dependency_timestamp > prev_timestamp):
                             errors.srce_and_dest_files_out_of_date.append(
-                                (dependency.file, prev_file)
+                                (dependency.file, prev_file)  # ty:ignore[invalid-argument-type]
                             )
-                        prev_timestamp = dependency.timestamp
+                        prev_timestamp = dependency_timestamp
                         prev_file = dependency.file
-                    if errors.max_srce_timestamp < dependency.timestamp:
+                    if errors.max_srce_timestamp < dependency_timestamp:
                         errors.max_srce_file = dependency.file
-                        errors.max_srce_timestamp = dependency.timestamp
+                        errors.max_srce_timestamp = dependency_timestamp
 
                 dest_timestamp = get_timestamp(Path(dest_page.page_filename))
                 if errors.max_dest_timestamp < dest_timestamp:

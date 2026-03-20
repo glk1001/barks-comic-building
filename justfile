@@ -103,17 +103,17 @@ show-title title page="1":
 
 # Quickly edit a volume panel
 [group('utils')]
-edit-volume-panel volume type page-panel:
+edit-volume volume type page-panel:
     {{uv_run}} barks-edit-page --log-level WARNING --volume "{{volume}}" --type {{type}} --p-p {{page-panel}}
 
 # Quickly edit a title panel from a volume page number
 [group('utils')]
-edit-title-panel title type page-panel:
+edit-title title type page-panel:
     {{uv_run}} barks-edit-page --log-level WARNING --title "{{title}}" --type {{type}} --p-p {{page-panel}}
 
 # Quickly edit a tile panel from a comic page number
 [group('utils')]
-edit-comic-panel title type comic-page-panel:
+edit-comic title type comic-page-panel:
     {{uv_run}} barks-edit-page --log-level WARNING --title "{{title}}" --type {{type}} --cp-p {{comic-page-panel}}
 
 # Make empty config files for all restoreable pages in a volume or volumes

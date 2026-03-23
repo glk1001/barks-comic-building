@@ -72,6 +72,7 @@ comic-utils = { path = "../barks-compleat-reader/src/comic-utils", editable = tr
 
 [dependency-groups]
 dev = [
+    "prek>=0.3.8",
     "pytest>=8.4.1",
     "ruff>=0.12.7",
     "ty>=0.0.17",

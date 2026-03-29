@@ -7,7 +7,7 @@ from pathlib import Path
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
-from barks_fantagraphics.barks_titles import NON_COMIC_TITLES, get_safe_title
+from barks_fantagraphics.barks_titles import NON_COMIC_TITLES, Titles, get_safe_title
 from barks_fantagraphics.comic_book import (
     ComicBook,
     get_page_num_str,
@@ -27,6 +27,7 @@ from barks_fantagraphics.comics_utils import get_relpath, get_timestamp, get_tim
 from barks_fantagraphics.fanta_comics_info import (
     FIRST_VOLUME_NUMBER,
     LAST_VOLUME_NUMBER,
+    SERIES_MISC,
 )
 from barks_fantagraphics.page_classes import SrceAndDestPages
 from barks_fantagraphics.pages import (
@@ -49,6 +50,11 @@ ERROR_MSG_PREFIX = "ERROR: "
 BLANK_ERR_MSG_PREFIX = f"{' ':<{len(ERROR_MSG_PREFIX)}}"
 
 MAX_FIXES_PAGE_NUM = 300
+
+STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK = {
+    Titles.VICTORY_GARDEN_THE,
+    Titles.TOYLAND,
+}
 
 
 @dataclass
@@ -627,8 +633,13 @@ class ComicsIntegrityChecker:
         ret_code = 0
 
         comic = self.comics_database.get_comic_book(title)
+        title_str = get_safe_title(comic.get_comic_title())
 
-        if self.check_comic_structure(comic) != 0 or self.check_out_of_date_files(comic) != 0:
+        if (
+            self.check_comic_structure(comic, title_str) != 0
+            or self.check_story_attributes(comic, title_str) != 0
+            or self.check_out_of_date_files(comic) != 0
+        ):
             ret_code = 1
 
         return ret_code
@@ -638,8 +649,13 @@ class ComicsIntegrityChecker:
 
         for title in self.comics_database.get_all_story_titles():
             comic = self.comics_database.get_comic_book(title)
+            title_str = get_safe_title(comic.get_comic_title())
 
-            if self.check_comic_structure(comic) != 0:
+            if self.check_comic_structure(comic, title_str) != 0:
+                ret_code = 1
+                continue
+
+            if self.check_story_attributes(comic, title_str) != 0:
                 ret_code = 1
                 continue
 
@@ -648,12 +664,10 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    def check_comic_structure(self, comic: ComicBook) -> int:
-        title = get_safe_title(comic.get_comic_title())
-
+    def check_comic_structure(self, comic: ComicBook, title_str: str) -> int:
         num_pages = get_total_num_pages(comic)
         if (num_pages <= 1) and (comic.get_title_enum() not in NON_COMIC_TITLES):
-            print(f'\n{ERROR_MSG_PREFIX}For "{title}", the page count is too small.')
+            print(f'\n{ERROR_MSG_PREFIX}For "{title_str}", the page count is too small.')
             return 1
 
         errors = HashErrors()
@@ -661,7 +675,20 @@ class ComicsIntegrityChecker:
             self.print_hash_errors(errors)
             return 1
 
-        logger.info(f'There are no structural problems with "{title}".')
+        logger.info(f'There are no structural problems with "{title_str}".')
+        return 0
+
+    @staticmethod
+    def check_story_attributes(comic: ComicBook, title_str: str) -> int:
+        if (
+            ("script" in comic.extra_pub_info.lower())
+            and (comic.fanta_info.series_name != SERIES_MISC)
+            and (comic.get_title_enum() not in STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK)
+        ):
+            print(f'\n{ERROR_MSG_PREFIX}For "{title_str}", script not by Barks should be in MISC.')
+            return 1
+
+        logger.info(f'There are no story attribute problems with "{title_str}".')
         return 0
 
     @staticmethod

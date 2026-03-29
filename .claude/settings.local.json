@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run:*)",
+      "Bash(grep -l \"^cover\" /home/greg/Prj/github/barks-compleat-digital/barks-compleat-reader/src/barks-fantagraphics/data/story-titles/*.ini)"
+    ]
+  }
+}

@@ -71,12 +71,13 @@ def main(
 
     toc_file = TOC_DIR / f"vol-{volume}-toc-gemini.json"
     toc_info = [] if not toc_file.is_file() else json.loads(toc_file.read_bytes())
+    toc_entries = [t for t in toc_info if "title" in t]
     toc_dict = (
         {}
-        if not toc_info
+        if not toc_entries
         else {
             t["title"]: (t["page"] + TOC_PAGE_OFFSET, t_next["page"] + TOC_PAGE_OFFSET - 1)
-            for t, t_next in itertools.pairwise(toc_info)
+            for t, t_next in itertools.pairwise(toc_entries)
         }
     )
 

@@ -5,7 +5,10 @@
       "Bash(grep -l \"^cover\" /home/greg/Prj/github/barks-compleat-digital/barks-compleat-reader/src/barks-fantagraphics/data/story-titles/*.ini)",
       "Bash(find /home/greg/Prj/github/barks-compleat-digital/barks-comic-building -path *test* -name *.py)",
       "Bash(python3 -c \"import concurrent.futures; help\\(concurrent.futures.ProcessPoolExecutor.__exit__\\)\")",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(grep:*)",
+      "Bash(wc:*)"
     ]
   }
 }

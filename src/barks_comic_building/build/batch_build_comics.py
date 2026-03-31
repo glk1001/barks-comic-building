@@ -1,5 +1,4 @@
 import sys
-import traceback
 from pathlib import Path
 
 import typer
@@ -30,7 +29,7 @@ def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]
         comic = comics_database.get_comic_book(title)
         ret = process_comic_book(comic)
         if ret != 0:
-            ret_code = ret
+            ret_code = ret_code or ret
 
     return ret_code
 
@@ -38,13 +37,14 @@ def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]
 def process_comic_book(comic: ComicBook) -> int:
     process_timing = Timing()
 
-    # noinspection PyBroadException
     try:
         comic_book_builder = ComicBookBuilder(comic)
 
         comic_book_builder.build()
 
-        mark_process_end(process_timing)
+        logger.info(
+            f"Time taken to complete comic: {process_timing.get_elapsed_time_in_seconds()} seconds",
+        )
 
         write_summary_file(
             comic,
@@ -54,24 +54,11 @@ def process_comic_book(comic: ComicBook) -> int:
             comic_book_builder.get_max_dest_page_timestamp(),
             process_timing,
         )
-    except AssertionError:
-        _, _, tb = sys.exc_info()
-        tb_info = traceback.extract_tb(tb)
-        filename, line, _func, text = tb_info[-1]
-        msg = f'Assert failed at "{filename}:{line}" for statement "{text}".'
-        logger.exception(msg)
-        return 1
     except Exception:  # noqa: BLE001
-        logger.exception("Build error: ")
+        logger.exception("Build error:")
         return 1
 
     return 0
-
-
-def mark_process_end(process_timing: Timing) -> None:
-    logger.info(
-        f"Time taken to complete comic: {process_timing.get_elapsed_time_in_seconds()} seconds",
-    )
 
 
 app = typer.Typer()

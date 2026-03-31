@@ -22,9 +22,11 @@ def inpaint_image_file(
         raise FileNotFoundError(msg)
 
     input_image = cv.imread(str(in_file))
-    assert input_image.shape[2] == 3  # noqa: PLR2004  # ty: ignore[possibly-missing-attribute]
+    assert input_image is not None
+    assert input_image.shape[2] == 3  # noqa: PLR2004
     black_ink_mask = cv.imread(str(black_ink_mask_file), cv.COLOR_BGR2GRAY)
-    assert black_ink_mask.shape[2] == 3  # noqa: PLR2004  # ty: ignore[possibly-missing-attribute]
+    assert black_ink_mask is not None
+    assert black_ink_mask.shape[2] == 3  # noqa: PLR2004
 
     _, remove_mask = cv.threshold(black_ink_mask, 100, 255, cv.THRESH_BINARY_INV)
     assert remove_mask.shape[2] == 3  # noqa: PLR2004
@@ -33,7 +35,7 @@ def inpaint_image_file(
 
     remove_mask = np.uint8(r_remove_mask)
     remove_mask_file = work_dir / f"{work_file_stem}-remove-mask.png"
-    write_cv_image_file(remove_mask_file, remove_mask)
+    write_cv_image_file(remove_mask_file, remove_mask)  # ty: ignore[invalid-argument-type]
 
     # gmic blend/remove - pipeline??
     b, g, r = cv.split(input_image)

@@ -70,6 +70,7 @@ def remove_colors_from_image(
     work_dir: Path, work_file_stem: str, in_file: Path, out_file: Path
 ) -> None:
     out_image = cv.imread(str(in_file))
+    assert out_image is not None
 
     posterize_image(out_image)
     posterized_image_file = work_dir / (work_file_stem + "-posterized-pre-remove-colors.png")

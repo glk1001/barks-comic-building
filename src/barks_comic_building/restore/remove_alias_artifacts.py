@@ -101,7 +101,7 @@ def get_median_filter(input_image: cv.typing.MatLike) -> cv.typing.MatLike:
 
     black_ink_mask_blurred_image = cv.GaussianBlur(255 - black_ink_mask, (3, 3), 0)
 
-    ret, enlarged_black_ink_mask = cv.threshold(
+    _ret, enlarged_black_ink_mask = cv.threshold(
         black_ink_mask_blurred_image, 200.0, 255, cv.THRESH_BINARY_INV
     )
     if DEBUG:

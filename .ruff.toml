@@ -1,6 +1,7 @@
 extend = "../barks-compleat-reader/.ruff-base.toml"
 
 exclude = [
+    "scripts/",
 ]
 
 [lint]

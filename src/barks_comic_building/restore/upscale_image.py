@@ -37,7 +37,7 @@ def upscale_image_file(in_file: Path, out_file: Path, scale: int = 2) -> None:
     process = subprocess.Popen(run_args, stdout=subprocess.PIPE, text=True)  # noqa: S603
 
     while True:
-        output = process.stdout.readline()  # ty: ignore[possibly-missing-attribute]
+        output = process.stdout.readline()  # ty: ignore[unresolved-attribute]
         if output == "" and process.poll() is not None:
             break
         if output:

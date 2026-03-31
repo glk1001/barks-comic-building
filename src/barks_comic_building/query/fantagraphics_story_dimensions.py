@@ -41,16 +41,17 @@ def get_story_dimensions(comic: ComicBook) -> Dimensions:
         front_width = image.width
         front_height = image.height
 
-    srce_dims = ComicDimensions()
     metadata_file = comic.get_dest_dir() / "comic-metadata.json"
     with metadata_file.open() as f:
         comic_metadata = json.load(f)
-        srce_dims.min_panels_bbox_width = comic_metadata["srce_min_panels_bbox_width"]
-        srce_dims.max_panels_bbox_width = comic_metadata["srce_max_panels_bbox_width"]
-        srce_dims.min_panels_bbox_height = comic_metadata["srce_min_panels_bbox_height"]
-        srce_dims.max_panels_bbox_height = comic_metadata["srce_max_panels_bbox_height"]
-        srce_dims.av_panels_bbox_width = comic_metadata["srce_av_panels_bbox_width"]
-        srce_dims.av_panels_bbox_height = comic_metadata["srce_av_panels_bbox_height"]
+        srce_dims = ComicDimensions(
+            min_panels_bbox_width=comic_metadata["srce_min_panels_bbox_width"],
+            max_panels_bbox_width=comic_metadata["srce_max_panels_bbox_width"],
+            min_panels_bbox_height=comic_metadata["srce_min_panels_bbox_height"],
+            max_panels_bbox_height=comic_metadata["srce_max_panels_bbox_height"],
+            av_panels_bbox_width=comic_metadata["srce_av_panels_bbox_width"],
+            av_panels_bbox_height=comic_metadata["srce_av_panels_bbox_height"],
+        )
 
     return Dimensions(srce_dims, front_width, front_height)
 

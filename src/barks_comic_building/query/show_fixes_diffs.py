@@ -60,7 +60,7 @@ def get_image_diffs(
     contours = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     contours = contours[0] if len(contours) == 2 else contours[1]  # noqa: PLR2004
 
-    image_width = image1.shape[1]  # ty: ignore[possibly-missing-attribute]
+    image_width = image1.shape[1]  # ty: ignore[unresolved-attribute]
     rect_line_thickness = int(3 * image_width / 2000)
     srce_rect_color = (0, 0, 255)
     fixed_rect_color = (0, 255, 0)

@@ -67,6 +67,7 @@ def _resize_jpeg_file(
     in_file: Path, srce_scale: int, resized_file: Path, metadata: dict[str, str]
 ) -> None:
     image = cv.imread(str(in_file))
+    assert image is not None
     scale = 1.0 / srce_scale
     image = cv.resize(image, (0, 0), fx=scale, fy=scale, interpolation=cv.INTER_AREA)
     write_cv_image_file(resized_file, image, metadata)

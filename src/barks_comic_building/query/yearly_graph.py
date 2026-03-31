@@ -40,7 +40,7 @@ def create_yearly_plot(  # noqa: D417, PLR0913
     plt.style.use("seaborn-v0_8-whitegrid")
 
     # Create a figure with the calculated size
-    fig, ax = plt.subplots(figsize=(fig_width_in, fig_height_in), dpi=dpi)
+    _fig, ax = plt.subplots(figsize=(fig_width_in, fig_height_in), dpi=dpi)
 
     # --- Plot the data ---
     ax.plot(

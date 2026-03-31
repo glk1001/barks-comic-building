@@ -152,6 +152,7 @@ class RestorePipeline:
                 f" {int(time.time() - start)}s."
             )
         except Exception:  # noqa: BLE001
+            self.errors_occurred = True
             logger.exception("Error smoothing removed colors: ")
 
     def do_generate_svg(self) -> None:

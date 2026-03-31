@@ -144,53 +144,80 @@ def restore_title(comics_database: ComicsDatabase, title: str, work_dir: Path) -
 part1_max_workers = None
 
 
-def run_restore_part1(proc: RestorePipeline) -> None:
+def run_restore_part1(proc: RestorePipeline) -> bool:
     logger.info(f'Starting restore part 1 for "{proc.srce_upscale_file.name}".')
     proc.do_part1()
+    return proc.errors_occurred
 
 
 part2_max_workers = 1 if psutil.virtual_memory().total < SMALL_RAM else 6
 
 
-def run_restore_part2(proc: RestorePipeline) -> None:
+def run_restore_part2(proc: RestorePipeline) -> bool:
     logger.info(f'Starting restore part 2 for "{proc.srce_upscale_file.name}".')
     proc.do_part2_memory_hungry()
+    return proc.errors_occurred
 
 
 part3_max_workers = None
 
 
-def run_restore_part3(proc: RestorePipeline) -> None:
+def run_restore_part3(proc: RestorePipeline) -> bool:
     logger.info(f'Starting restore part 3 for "{proc.srce_upscale_file.name}".')
     proc.do_part3()
+    return proc.errors_occurred
 
 
 part4_max_workers = 1 if psutil.virtual_memory().total < SMALL_RAM else 5
 
 
-def run_restore_part4(proc: RestorePipeline) -> None:
+def run_restore_part4(proc: RestorePipeline) -> bool:
     logger.info(f'Starting restore part 4 for "{proc.srce_upscale_file.name}".')
     proc.do_part4_memory_hungry()
+    return proc.errors_occurred
 
 
 def run_restore(restore_processes: list[RestorePipeline]) -> None:
     logger.info(f"Starting restore for {len(restore_processes)} processes.")
 
-    with concurrent.futures.ProcessPoolExecutor(part1_max_workers) as executor:
-        for process in restore_processes:
-            executor.submit(run_restore_part1, process)
+    failed: set[int] = set()
 
-    with concurrent.futures.ProcessPoolExecutor(part2_max_workers) as executor:
-        for process in restore_processes:
-            executor.submit(run_restore_part2, process)
+    phases = [
+        (part1_max_workers, run_restore_part1),
+        (part2_max_workers, run_restore_part2),
+        (part3_max_workers, run_restore_part3),
+        (part4_max_workers, run_restore_part4),
+    ]
 
-    with concurrent.futures.ProcessPoolExecutor(part3_max_workers) as executor:
-        for process in restore_processes:
-            executor.submit(run_restore_part3, process)
+    for part_num, (max_workers, run_func) in enumerate(phases, start=1):
+        futures: dict[concurrent.futures.Future[bool], int] = {}
+        with concurrent.futures.ProcessPoolExecutor(max_workers) as executor:
+            for i, process in enumerate(restore_processes):
+                if i in failed:
+                    logger.warning(
+                        f'Skipping part {part_num} for "{process.srce_upscale_file.name}"'
+                        f" due to earlier failure.",
+                    )
+                    continue
+                futures[executor.submit(run_func, process)] = i
 
-    with concurrent.futures.ProcessPoolExecutor(part4_max_workers) as executor:
-        for process in restore_processes:
-            executor.submit(run_restore_part4, process)
+        for future, i in futures.items():
+            try:
+                had_error = future.result()
+            except Exception:  # noqa: BLE001
+                had_error = True
+                logger.exception(
+                    f"Unexpected exception in part {part_num} for"
+                    f' "{restore_processes[i].srce_upscale_file.name}".',
+                )
+            if had_error:
+                failed.add(i)
+                logger.error(
+                    f'Part {part_num} failed for "{restore_processes[i].srce_upscale_file.name}".',
+                )
+
+    if failed:
+        logger.error(f"{len(failed)} of {len(restore_processes)} processes had errors.")
 
 
 app = typer.Typer()

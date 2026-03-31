@@ -6,14 +6,11 @@ from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
 from intspan import intspan
 from loguru import logger
-from loguru_config import LoguruConfig
 from PIL import Image
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "vimg"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 Image.MAX_IMAGE_PIXELS = None  # disables the DOS warning
 
 
@@ -111,10 +108,7 @@ def main(
     do_restored: bool = False,
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "verify-volume-image-files.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "verify-volume-image-files.log", log_level_str)
 
     volumes = list(intspan(volumes_str))
     comics_database = ComicsDatabase()

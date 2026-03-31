@@ -7,14 +7,11 @@ from pathlib import Path
 import typer
 from comic_utils.common_typer_options import LogLevelArg
 from loguru import logger
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.restore.restore_pipeline import RestorePipeline, check_for_errors
 
 APP_LOGGING_NAME = "srst"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 SCALE = 4
 
@@ -30,10 +27,7 @@ def main(  # noqa: PLR0913
     dest_svg_restored_file: Path,
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "single-restore-pipeline.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "single-restore-pipeline.log", log_level_str)
 
     out_dir = dest_restored_file.parent
     if not out_dir.is_dir():

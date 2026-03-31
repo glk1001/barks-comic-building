@@ -9,13 +9,10 @@ from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, PagesArg, VolumesArg
 from intspan import intspan
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "svpg"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 VIEWER_EXE = ["/usr/bin/loupe"]
 
@@ -37,10 +34,7 @@ def main(
     page_num_str: PagesArg = "",
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     volumes = list(intspan(volumes_str))
     assert volumes

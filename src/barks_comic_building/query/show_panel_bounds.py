@@ -10,14 +10,11 @@ from barks_fantagraphics.panel_boxes import TitlePanelBoxes, check_page_panel_bo
 from comic_utils.common_typer_options import LogLevelArg, TitleArg
 from comic_utils.cv_image_utils import get_bw_image_from_alpha
 from loguru import logger
-from loguru_config import LoguruConfig
 from PIL import Image
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "span"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 
 def show_panel_bounds(comics_database: ComicsDatabase, title: str, out_dir: Path) -> None:
@@ -58,10 +55,7 @@ def main(
     output_dir: Path,
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     comics_database = ComicsDatabase()
 

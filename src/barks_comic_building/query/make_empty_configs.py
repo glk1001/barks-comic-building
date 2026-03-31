@@ -1,6 +1,5 @@
 import itertools
 import json
-from pathlib import Path
 
 import typer
 from barks_fantagraphics.comics_consts import INTERNAL_DATA_DIR
@@ -11,13 +10,10 @@ from barks_fantagraphics.fanta_comics_info import get_fanta_volume_str
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
 from intspan import intspan
 from loguru import logger
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "mcfg"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 TOC_PAGE_OFFSET = 7
 TOC_DIR = INTERNAL_DATA_DIR
@@ -58,10 +54,7 @@ def main(
     volumes_str: VolumesArg = "",
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     volumes = list(intspan(volumes_str))
     assert volumes

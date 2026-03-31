@@ -13,13 +13,10 @@ from barks_fantagraphics.comics_helpers import get_title_from_volume_page
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.pil_image_utils import load_pil_image_for_reading
 from intspan import intspan
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "ettl"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 GIMP_EXE = ["/usr/bin/flatpak", "run", "org.gimp.GIMP"]
 
@@ -110,10 +107,7 @@ def main(  # noqa: C901, PLR0913, PLR0915
     page_panel: Annotated[str, typer.Option("--p-p", help="Page and panel")] = "",
     comic_page_panel: Annotated[str, typer.Option("--cp-p", help="Comic page and panel")] = "",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     if volumes_str and title:
         msg = "Options --volume and --title are mutually exclusive."

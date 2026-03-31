@@ -5,19 +5,14 @@ import typer
 from barks_fantagraphics.barks_titles import is_non_comic_title
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import get_abbrev_path
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
-from intspan import intspan
 from loguru import logger
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import get_comic_titles, init_logging
 from barks_comic_building.restore.upscale_image import upscale_image_file
 
 APP_LOGGING_NAME = "bups"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 SCALE = 4
 
@@ -76,19 +71,11 @@ def main(
     title_str: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "batch-upscayl.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "batch-upscayl.log", log_level_str)
 
-    if volumes_str and title_str:
-        msg = "Options --volume and --title are mutually exclusive."
-        raise typer.BadParameter(msg)
+    comics_database, titles = get_comic_titles(volumes_str, title_str)
 
-    volumes = list(intspan(volumes_str))
-    comics_database = ComicsDatabase()
-
-    upscayl(comics_database, get_titles(comics_database, volumes, title_str))
+    upscayl(comics_database, titles)
 
 
 if __name__ == "__main__":

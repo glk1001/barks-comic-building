@@ -6,8 +6,6 @@ import typer
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import NON_COMIC_TITLES
 from barks_fantagraphics.comic_book import ModifiedType
-from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import (
     get_abbrev_path,
     get_timestamp,
@@ -15,14 +13,10 @@ from barks_fantagraphics.comics_utils import (
 )
 from barks_fantagraphics.pages import get_restored_srce_dependencies, get_sorted_srce_and_dest_pages
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
-from intspan import intspan
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import get_comic_titles, init_logging
 
 APP_LOGGING_NAME = "sfil"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 
 def print_sources(indent: int, source_list: list[str]) -> None:
@@ -63,19 +57,10 @@ def main(
     mods: bool = False,
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    if volumes_str and title_str:
-        msg = "Options --volume and --title are mutually exclusive."
-        raise typer.BadParameter(msg)
-
-    volumes = list(intspan(volumes_str))
-    comics_database = ComicsDatabase()
+    comics_database, titles = get_comic_titles(volumes_str, title_str)
     panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-    titles = get_titles(comics_database, volumes, title_str)
 
     for title in titles:
         comic_book = comics_database.get_comic_book(title)

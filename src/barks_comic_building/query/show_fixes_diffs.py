@@ -1,27 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2 as cv
 import numpy as np
 import typer
 from barks_fantagraphics.comic_book import ModifiedType
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
-from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.comics_helpers import get_titles
 from barks_fantagraphics.comics_utils import get_abbrev_path
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg  # noqa: TC002
 from comic_utils.pil_image_utils import downscale_jpg, load_pil_image_for_reading
-from intspan import intspan
 from loguru import logger
-from loguru_config import LoguruConfig
 from skimage.metrics import structural_similarity
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import get_comic_titles, init_logging
+
+if TYPE_CHECKING:
+    from barks_fantagraphics.comics_database import ComicsDatabase
 
 APP_LOGGING_NAME = "sdif"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 # TODO(glk): Put these somewhere else
 SRCE_STANDARD_WIDTH = 2175
@@ -212,22 +210,13 @@ def main(
     title_str: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    if volumes_str and title_str:
-        msg = "Options --volume and --title are mutually exclusive."
-        raise typer.BadParameter(msg)
-
-    volumes = list(intspan(volumes_str))
-
-    comics_database = ComicsDatabase()
+    comics_database, titles = get_comic_titles(volumes_str, title_str)
 
     output_dir = Path("/tmp/fixes-diffs")  # noqa: S108
 
-    for title in get_titles(comics_database, volumes, title_str):
+    for title in titles:
         title_out_dir, n_diffs = show_diffs_for_title(comics_database, title, output_dir)
 
         if n_diffs > 0:

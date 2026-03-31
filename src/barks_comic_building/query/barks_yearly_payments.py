@@ -2,31 +2,24 @@
 
 from collections import defaultdict
 from datetime import datetime
-from pathlib import Path
 
 import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
 from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, ONE_PAGERS
 from comic_utils.common_typer_options import LogLevelArg
 from cpi import inflate
-from loguru_config import LoguruConfig
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.query.yearly_graph import create_yearly_plot
 
 APP_LOGGING_NAME = "ypay"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 app = typer.Typer()
 
 
 @app.command(help="Barks yearly payments")
 def main(log_level_str: LogLevelArg = "DEBUG") -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     payments_by_year = defaultdict(int)
     for title in BARKS_PAYMENTS:

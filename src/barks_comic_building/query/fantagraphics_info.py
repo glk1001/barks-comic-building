@@ -23,15 +23,12 @@ from barks_fantagraphics.fanta_comics_info import HAND_RESTORED_TITLES, FantaCom
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from intspan import intspan
 from loguru import logger
-from loguru_config import LoguruConfig
 from rich.console import Console
 from rich.table import Table
 
-import barks_comic_building.log_setup as _log_setup
+from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "ifan"
-
-_RESOURCES = Path(__file__).parent.parent / "resources"
 
 EMPTY_FLAG = " "
 FIXES_FLAG = "F"
@@ -286,10 +283,7 @@ def main(
     fixes: str = "",
     built: str = "",
 ) -> None:
-    _log_setup.log_level = log_level_str
-    _log_setup.log_filename = "barks-cmds.log"
-    _log_setup.APP_LOGGING_NAME = APP_LOGGING_NAME
-    LoguruConfig.load(_RESOURCES / "log-config.yaml")
+    init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     if volumes_str and title_str:
         msg = "Options --volume and --title are mutually exclusive."

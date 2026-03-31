@@ -5,8 +5,5 @@ root = ["./src"]
 [src]
 exclude = [
     "src/barks_comic_building/query/silent_night_panel_restore.py",
-    "barks-cmds",
-    "build-comics",
-    "barks-restore",
     "scripts",
 ]

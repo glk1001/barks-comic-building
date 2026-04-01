@@ -47,11 +47,11 @@ uv run ruff format .
 
 All live code is in `src/barks_comic_building/` as a proper installable hatchling package. Entry points are registered in `[project.scripts]` in `pyproject.toml`. The old flat directories (`barks-cmds/`, `build-comics/`, `barks-restore/`, `barks-restore/src/`) are kept as dead code and excluded from linting and type checking.
 
-| Subpackage | Entry points | Role |
-|---|---|---|
-| `query/` | 19 (`barks-fanta-info`, `barks-build`, etc.) | CLI scripts for querying and browsing comic metadata |
-| `build/` | 2 (`barks-build`, `barks-check-build`) | Comic assembly — builds CBZ archives from restored/upscaled pages |
-| `restore/` | 7 (`barks-batch-restore`, `barks-batch-upscayl`, etc.) | Image restoration and upscaling pipeline |
+| Subpackage | Entry points                                           | Role                                                              |
+|------------|--------------------------------------------------------|-------------------------------------------------------------------|
+| `query/`   | 19 (`barks-fanta-info`, `barks-build`, etc.)           | CLI scripts for querying and browsing comic metadata              |
+| `build/`   | 2 (`barks-build`, `barks-check-build`)                 | Comic assembly — builds CBZ archives from restored/upscaled pages |
+| `restore/` | 7 (`barks-batch-restore`, `barks-batch-upscayl`, etc.) | Image restoration and upscaling pipeline                          |
 
 ### Shared Modules
 
@@ -76,5 +76,3 @@ Path dependencies are declared in `pyproject.toml` under `[tool.uv.sources]` poi
 - Type hints required on all function signatures; use `str | None` not `Optional[str]`.
 - Formatter: `ruff` (line length 100, config in `.ruff.toml`).
 - Type checker: `ty` (config in `ty.toml`).
-- Old flat directories (`barks-cmds/`, `build-comics/`, `barks-restore/`, `barks-restore/src/`, `scripts/`) are excluded from linting and type checking.
-- `src/barks_comic_building/query/silent_night_panel_restore.py` is excluded from type checking.

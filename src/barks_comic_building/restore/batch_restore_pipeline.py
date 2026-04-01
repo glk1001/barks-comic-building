@@ -172,6 +172,7 @@ def run_restore(restore_processes: list[RestorePipeline]) -> None:
                 futures[executor.submit(_run_restore_phase, process, method_name)] = i
 
         for future, i in futures.items():
+            # noinspection PyBroadException
             try:
                 had_error = future.result()
             except Exception:  # noqa: BLE001

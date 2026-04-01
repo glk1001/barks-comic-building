@@ -251,7 +251,6 @@ def write_json_metadata(
         "page_counts": get_page_counts(comic, dest_pages),
     }
     with metadata_file.open("w") as f:
-        # noinspection PyTypeChecker
         json.dump(metadata, f, indent=4)
 
 
@@ -326,7 +325,6 @@ def write_srce_dest_map(
     src_dst_map_file = comic.get_dest_dir() / DEST_SRCE_MAP_FILENAME
     srce_dest_map = get_srce_dest_map(comic, srce_dim, required_dim, pages)
     with src_dst_map_file.open("w") as f:
-        # noinspection PyTypeChecker
         json.dump(srce_dest_map, f, indent=4)
 
 
@@ -341,5 +339,4 @@ def write_dest_panels_bboxes(
         bboxes_dict[bbox_key] = dest_page.panels_bbox.get_box()
 
     with dst_bboxes_file.open("w") as f:
-        # noinspection PyTypeChecker
         json.dump(bboxes_dict, f, indent=4)

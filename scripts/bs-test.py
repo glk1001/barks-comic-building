@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_DICT
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 # html_file = "/home/greg/Downloads/the-beagle-boys_I.N.D.U.C.K.S.html"
 # html_file = "/home/greg/Downloads/gladstone_I.N.D.U.C.K.S.html"
@@ -37,13 +37,15 @@ bs = BeautifulSoup(html, "html.parser")
 
 table = bs.find("table", class_="boldtable itemTable storyTable")
 
+assert isinstance(table, Tag)
 data = []
 for row in table.find_all("tr"):
+    assert isinstance(row, Tag)
     # print(row)
-    cols = row.find_all(["td", "th"])
-    cols_code = [col.find("div", class_="storycode") for col in cols]
+    cells: list[Tag] = [c for c in row.find_all(["td", "th"]) if isinstance(c, Tag)]
+    cols_code = [col.find("div", class_="storycode") for col in cells]
     cols_code = [col.text.strip() for col in cols_code if col is not None]
-    cols_title = [col.find("div", class_="title") for col in cols]
+    cols_title = [col.find("div", class_="title") for col in cells]
     cols_title = [col.text.strip() for col in cols_title if col is not None]
     cols = cols_code + cols_title
     if cols:

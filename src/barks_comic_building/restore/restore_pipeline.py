@@ -31,6 +31,7 @@ USE_EXISTING_WORK_FILES = False  # Use with care
 def _timed_step(pipeline: RestorePipeline, step_name: str) -> Generator[None]:
     """Run a pipeline step with timing, logging, and error handling."""
     start = time.time()
+    # noinspection PyBroadException
     try:
         yield
     except Exception:  # noqa: BLE001

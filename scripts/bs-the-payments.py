@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from barks_fantagraphics.barks_titles import BARKS_TITLE_DICT, BARKS_TITLES, Titles
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from comic_utils.comic_consts import MONTH_AS_LONG_STR
 
 KYLING_TITLE_MAP = {
@@ -374,8 +374,10 @@ for year in range(1958, 1960):
 
     table = bs.find("table", border="3")
 
+    assert isinstance(table, Tag)
     year_data = []
     for rw in table.find_all("tr"):
+        assert isinstance(rw, Tag)
         print("Next row: ", rw)
         cols = rw.find_all(["td"])
         cols = [col.text.strip() for col in cols if col is not None]

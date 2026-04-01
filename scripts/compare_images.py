@@ -37,7 +37,7 @@ def compare_images_in_dir(
             continue
 
         logger.info(f'Comparing "{image_file1.name}"...')
-        result_code, metric = compare_images(image_file1, image_file2, fuzz, ae_cutoff, diff_dir)
+        result_code, _metric = compare_images(image_file1, image_file2, fuzz, ae_cutoff, diff_dir)
 
         if result_code != 0:
             errors += 1

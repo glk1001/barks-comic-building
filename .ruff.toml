@@ -1,10 +1,13 @@
 extend = "../barks-compleat-reader/.ruff-base.toml"
 
 exclude = [
-    "scripts/",
+    "scraps/",
 ]
 
 [lint]
 ignore = [
     "PGH004",
 ]
+
+[lint.per-file-ignores]
+"scripts/*.py" = ["INP001"]

@@ -1,9 +1,8 @@
 [environment]
 python = "./.venv"
-root = ["./src"]
+root = ["./src", "./scripts"]
 
 [src]
 exclude = [
-    "src/barks_comic_building/query/silent_night_panel_restore.py",
-    "scripts",
+    "scraps",
 ]

@@ -31,6 +31,7 @@ def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]
 def process_comic_book(comic: ComicBook) -> int:
     process_timing = Timing()
 
+    # noinspection PyBroadException
     try:
         comic_book_builder = ComicBookBuilder(comic)
 

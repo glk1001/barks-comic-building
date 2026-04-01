@@ -288,7 +288,6 @@ class ComicBookBuilder:
         zip_comic_book(self._comic)
         create_symlinks_to_comic_zip(self._comic)
 
-    # noinspection LongLine
     def _log_comic_book_params(self) -> None:
         logger.info("")
 

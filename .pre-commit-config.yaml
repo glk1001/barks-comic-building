@@ -3,8 +3,10 @@ repos:
         rev: v0.12.10 # Use the latest stable Ruff version
         hooks:
           - id: ruff-check # Runs the linter
+            stages: [pre-commit]
 #            args: [--fix] # Automatically fixes fixable issues
           - id: ruff-format # Applies formatting
+            stages: [pre-commit]
       - repo: local
         hooks:
           - id: ty-check
@@ -13,11 +15,13 @@ repos:
             language: system
             types: [python]
             pass_filenames: false
+            stages: [pre-commit]
           - id: cspell
             name: cspell
             entry: bunx cspell --no-must-find-files
             language: system
             types: [python]
+            stages: [pre-commit]
           - id: cspell-commit-msg
             name: cspell commit message
             entry: bunx cspell --no-must-find-files

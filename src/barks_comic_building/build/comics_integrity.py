@@ -53,7 +53,7 @@ MAX_FIXES_PAGE_NUM = 300
 
 STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK = {
     Titles.VICTORY_GARDEN_THE,
-    Titles.TOYLAND,
+    Titles.TOYLAND,  # cspell:disable-line
 }
 
 

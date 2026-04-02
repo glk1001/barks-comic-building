@@ -1,0 +1,23 @@
+version: "0.2"
+language: "en"
+
+# Python source files only — same scope as ruff and ty
+files:
+  - "**/*.py"
+
+# Respect .gitignore, then add ruff/ty-specific excludes
+useGitignore: true
+ignorePaths:
+  - "**/scraps/**"
+  - scripts/bs-the-payments.py
+  - scripts/bs-test.py
+
+# Enable Python built-in dictionary plus word lists
+dictionaryDefinitions:
+  - name: project
+    path: "./cspell-words.txt"
+    addWords: true
+
+dictionaries:
+  - python
+  - project

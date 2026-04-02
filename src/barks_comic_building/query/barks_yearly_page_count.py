@@ -19,6 +19,7 @@ from barks_comic_building.query.yearly_graph import create_yearly_plot
 
 APP_LOGGING_NAME = "ycnt"
 
+# cspell:disable  # noqa: ERA001
 TEMP_PAGE_COUNTS = {
     Titles.DONALD_DUCK_FINDS_PIRATE_GOLD: 32,
     Titles.VICTORY_GARDEN_THE: 10,
@@ -182,6 +183,7 @@ TEMP_PAGE_COUNTS = {
     Titles.CATTLE_KING_THE: 24,
     Titles.KING_SCROOGE_THE_FIRST: 21,
 }
+# cspell:enable  # noqa: ERA001
 
 app = typer.Typer()
 

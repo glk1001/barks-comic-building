@@ -5,4 +5,17 @@ repos:
           - id: ruff-check # Runs the linter
 #            args: [--fix] # Automatically fixes fixable issues
           - id: ruff-format # Applies formatting
+      - repo: local
+        hooks:
+          - id: ty-check
+            name: ty check
+            entry: uv run ty check .
+            language: system
+            types: [python]
+            pass_filenames: false
+          - id: cspell
+            name: cspell
+            entry: bunx cspell --no-must-find-files
+            language: system
+            types: [python]
 

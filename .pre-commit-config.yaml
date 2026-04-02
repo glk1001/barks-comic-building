@@ -18,4 +18,8 @@ repos:
             entry: bunx cspell --no-must-find-files
             language: system
             types: [python]
-
+          - id: cspell-commit-msg
+            name: cspell commit message
+            entry: bunx cspell --no-must-find-files
+            language: system
+            stages: [commit-msg]

@@ -123,6 +123,7 @@ def is_built(comic: ComicBook) -> bool:  # noqa: PLR0911
     max_panel_segments_timestamp = get_max_timestamp(panel_segments_files)
     zip_file = comic.get_dest_comic_zip()
     if not zip_file.is_file():
+        logger.debug(f'No zip file: "{zip_file}".')
         return False
     zip_file_timestamp = get_timestamp(zip_file)
 
@@ -132,6 +133,7 @@ def is_built(comic: ComicBook) -> bool:  # noqa: PLR0911
 
     series_comic_zip_symlink = comic.get_dest_series_comic_zip_symlink()
     if not series_comic_zip_symlink.is_symlink():
+        logger.debug(f'No series symlink is zip file: "{series_comic_zip_symlink}".')
         return False
     series_comic_zip_symlink_timestamp = get_timestamp(series_comic_zip_symlink)
 
@@ -141,12 +143,15 @@ def is_built(comic: ComicBook) -> bool:  # noqa: PLR0911
 
     year_comic_zip_symlink = comic.get_dest_year_comic_zip_symlink()
     if not year_comic_zip_symlink.is_symlink():
+        logger.debug(f'No year symlink is zip file: "{year_comic_zip_symlink}".')
         return False
     year_comic_zip_symlink_timestamp = get_timestamp(series_comic_zip_symlink)
 
     if year_comic_zip_symlink_timestamp < zip_file_timestamp:
         logger.debug(f'Year symlink is out of date WRT zip file: "{year_comic_zip_symlink}".')
         return False
+
+    logger.debug(f'"{comic.ini_file}" has been built.')
 
     return True
 

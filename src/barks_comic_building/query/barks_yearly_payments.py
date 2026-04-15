@@ -5,7 +5,7 @@ from datetime import datetime
 
 import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
-from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO, ONE_PAGERS
+from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, ONE_PAGERS
 from comic_utils.common_typer_options import LogLevelArg
 from cpi import inflate
 

@@ -5,7 +5,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
-from barks_fantagraphics.barks_titles import BARKS_TITLE_DICT, BARKS_TITLES, Titles
+from barks_fantagraphics.barks_titles import BARKS_TITLES, Titles
+from barks_fantagraphics.comic_book_info import BARKS_TITLE_DICT
 from bs4 import BeautifulSoup, Tag
 from comic_utils.comic_consts import MONTH_AS_LONG_STR
 

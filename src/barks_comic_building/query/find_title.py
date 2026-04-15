@@ -2,7 +2,7 @@
 
 
 import typer
-from barks_fantagraphics.barks_titles import BARKS_TITLE_INFO
+from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO
 from barks_fantagraphics.title_search import BarksTitleSearch
 from comic_utils.common_typer_options import LogLevelArg
 

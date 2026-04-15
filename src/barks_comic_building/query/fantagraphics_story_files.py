@@ -4,8 +4,8 @@ from pathlib import Path
 
 import typer
 from barks_fantagraphics import panel_bounding
-from barks_fantagraphics.barks_titles import NON_COMIC_TITLES
 from barks_fantagraphics.comic_book import ModifiedType
+from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES
 from barks_fantagraphics.comics_utils import (
     get_abbrev_path,
     get_timestamp,

@@ -7,12 +7,9 @@ from pathlib import Path
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
-from barks_fantagraphics.barks_titles import NON_COMIC_TITLES, Titles, get_safe_title
-from barks_fantagraphics.comic_book import (
-    ComicBook,
-    get_page_num_str,
-    get_total_num_pages,
-)
+from barks_fantagraphics.barks_titles import Titles
+from barks_fantagraphics.comic_book import ComicBook, get_page_num_str, get_total_num_pages
+from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES
 from barks_fantagraphics.comics_consts import (
     BARKS_ROOT_DIR,
     IMAGES_SUBDIR,
@@ -23,7 +20,12 @@ from barks_fantagraphics.comics_consts import (
     THE_YEARS_COMICS_DIR,
 )
 from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.comics_utils import get_relpath, get_timestamp, get_timestamp_as_str
+from barks_fantagraphics.comics_utils import (
+    get_relpath,
+    get_safe_title,
+    get_timestamp,
+    get_timestamp_as_str,
+)
 from barks_fantagraphics.fanta_comics_info import (
     FIRST_VOLUME_NUMBER,
     LAST_VOLUME_NUMBER,

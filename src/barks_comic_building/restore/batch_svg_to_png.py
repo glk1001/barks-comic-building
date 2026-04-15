@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 import typer
-from barks_fantagraphics.barks_titles import is_non_comic_title
+from barks_fantagraphics.comic_book_info import is_non_comic_title
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_abbrev_path

@@ -3,14 +3,9 @@
 from collections import defaultdict
 
 import typer
-from barks_fantagraphics.barks_titles import (
-    BARKS_TITLE_INFO,
-    BARKS_TITLES,
-    NON_COMIC_TITLES,
-    ONE_PAGERS,
-    Titles,
-)
+from barks_fantagraphics.barks_titles import BARKS_TITLES, Titles
 from barks_fantagraphics.comic_book import get_total_num_pages
+from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, NON_COMIC_TITLES, ONE_PAGERS
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg
 

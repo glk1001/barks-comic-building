@@ -14,11 +14,11 @@ from barks_build_comic_images.consts import (
     README_FILENAME,
     SUMMARY_FILENAME,
 )
-from barks_fantagraphics.barks_titles import NON_COMIC_TITLES, get_safe_title
 from barks_fantagraphics.comic_book import (
     ComicBook,
     ModifiedType,
 )
+from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES
 from barks_fantagraphics.comics_consts import (
     DEST_TARGET_ASPECT_RATIO,
     DEST_TARGET_HEIGHT,
@@ -28,7 +28,12 @@ from barks_fantagraphics.comics_consts import (
     PAINTING_PAGES,
     PageType,
 )
-from barks_fantagraphics.comics_utils import get_clean_path, get_timestamp_as_str, get_timestamp_str
+from barks_fantagraphics.comics_utils import (
+    get_clean_path,
+    get_safe_title,
+    get_timestamp_as_str,
+    get_timestamp_str,
+)
 from barks_fantagraphics.page_classes import (
     CleanPage,
     ComicDimensions,

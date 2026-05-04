@@ -3,21 +3,21 @@ uv_run := "uv run --project " + source_dir()
 barks_dir := "$HOME/Books/Carl Barks"
 
 barks_2tb_internal_backup_dir := "/mnt/2tb_drive/barks-backup/Carl Barks"
-barks_2tb_external_backup_dir := "/media/greg/2tb_drive_backup/barks-backup/Carl Barks"
+barks_2tb_external_backup_dir := "/run/media/greg/2tb_drive_backup/barks-backup/Carl Barks"
 barks_2tb_internal_books_dir := "/mnt/2tb_drive/Books"
-barks_2tb_external_books_dir := "/media/greg/2tb_drive_backup/Books"
-barks_1tb_external_backup_dir := "/media/greg/1TB_Backup/barks-backup/Carl Barks"
-barks_1tb_external_backup_big_dirs := "/media/greg/1TB_Backup/barks-backup/Carl Barks-big-dirs"
-barks_1tb_external_backup_2_dir := "/media/greg/1TB_Backup_2/barks-backup/Carl Barks"
-barks_1tb_external_backup_2_big_dirs := "/media/greg/1TB_Backup_2/barks-backup/Carl Barks-big-dirs"
-barks_music_external_backup_dir := "/media/greg/MusicBarksBackup/Books/Carl Barks"
-barks_restic_external_backup_dir := "/media/greg/restic_backup/Books/Carl Barks"
-barks_750_external_backup_dir := "/media/greg/750_Backup/barks-backup/Books/Carl Barks"
-barks_750_external_backup_big_dirs := "/media/greg/750_Backup/barks-backup/Carl Barks-big-dirs"
+barks_2tb_external_books_dir := "/run/media/greg/2tb_drive_backup/Books"
+barks_1tb_external_backup_dir := "/run/media/greg/1TB_Backup/barks-backup/Carl Barks"
+barks_1tb_external_backup_big_dirs := "/run/media/greg/1TB_Backup/barks-backup/Carl Barks-big-dirs"
+barks_1tb_external_backup_2_dir := "/run/media/greg/1TB_Backup_2/barks-backup/Carl Barks"
+barks_1tb_external_backup_2_big_dirs := "/run/media/greg/1TB_Backup_2/barks-backup/Carl Barks-big-dirs"
+barks_music_external_backup_dir := "/run/media/greg/MusicBarksBackup/Books/Carl Barks"
+barks_restic_external_backup_dir := "/run/media/greg/restic_backup/Books/Carl Barks"
+barks_750_external_backup_dir := "/run/media/greg/750_Backup/barks-backup/Books/Carl Barks"
+barks_750_external_backup_big_dirs := "/run/media/greg/750_Backup/barks-backup/Carl Barks-big-dirs"
 
 barks_reader_config_dir := "$HOME/opt/barks-reader/config"
 barks_2tb_internal_barks_reader_config_backup_dir := "/mnt/2tb_drive/barks-reader-config"
-barks_2tb_external_barks_reader_config_backup_dir := "/media/greg/2tb_drive_backup/barks-reader-config"
+barks_2tb_external_barks_reader_config_backup_dir := "/run/media/greg/2tb_drive_backup/barks-reader-config"
 
 _default:
     just --list --unsorted | tee /tmp/junk.log

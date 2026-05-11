@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import cv2 as cv
 from barks_fantagraphics.comics_utils import get_clean_path
+from comic_utils.pil_image_utils import get_image_size
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -165,8 +166,14 @@ class RestorePipeline:
         with _timed_step(self, f'generate svg "{self.dest_svg_restored_file.name}"'):
             image_file_to_svg(self.smoothed_removed_colors_file, self.dest_svg_restored_file)
 
-            logger.info(f'\nSaving svg file to png file "{self.png_of_svg_file}"...')
-            svg_file_to_png(self.dest_svg_restored_file, self.png_of_svg_file)
+            output_width, output_height = get_image_size(self.srce_file)
+            logger.info(
+                f"\nSaving svg file to {output_width} x {output_height}"
+                f' png file "{self.png_of_svg_file}"...'
+            )
+            svg_file_to_png(
+                self.dest_svg_restored_file, output_width, output_height, self.png_of_svg_file
+            )
 
     def _do_inpaint(self) -> None:
         if USE_EXISTING_WORK_FILES and self.inpainted_file.is_file():

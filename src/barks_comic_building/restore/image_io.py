@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 from typing import TYPE_CHECKING
 
 import cairosvg
@@ -14,6 +13,7 @@ from comic_utils.pil_image_utils import (
     SAVE_JPG_QUALITY,
     SAVE_PNG_COMPRESSION,
     add_png_metadata,
+    load_pil_image_from_bytes,
 )
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -26,12 +26,18 @@ if TYPE_CHECKING:
 Image.MAX_IMAGE_PIXELS = None
 
 
-def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
+def svg_file_to_png(svg_file: Path, output_width: int, output_height: int, png_file: Path) -> None:
     # background_color = "white"
     background_color = None
-    png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=background_color)
+    png_image = cairosvg.svg2png(
+        url=str(svg_file),
+        scale=1,
+        background_color=background_color,
+        output_width=output_width,
+        output_height=output_height,
+    )
 
-    pil_image = Image.open(BytesIO(png_image))
+    pil_image = load_pil_image_from_bytes(png_image, ext=PNG_FILE_EXT)
     pil_image.save(str(png_file), optimize=True, compress_level=SAVE_PNG_COMPRESSION)
 
 

@@ -3,10 +3,9 @@
 import sys
 
 import typer
-from barks_build_comic_images.build_comic_images import AdaptivePageImageSource, RgbPageImageSource
+from barks_build_comic_images.build_comic_images import RGB_PROFILE, SVG_ADAPTIVE_PROFILE
 from barks_fantagraphics.comic_book import ComicBook
 from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.pages import FinalStoryFileResolver, SvgPngStoryFileResolver
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.timing import Timing
 from loguru import logger
@@ -39,10 +38,8 @@ def process_comic_book(comic: ComicBook) -> int:
     try:
         comic_book_builder = ComicBookBuilder(
             comic,
-            page_image_source=RgbPageImageSource(),
-            srce_story_file_resolver=FinalStoryFileResolver(),
-            # page_image_source=AdaptivePageImageSource(),
-            # srce_story_file_resolver=SvgPngStoryFileResolver(fallback=FinalStoryFileResolver()),
+            build_source=RGB_PROFILE,
+            # build_source=SVG_ADAPTIVE_PROFILE,
         )
 
         comic_book_builder.build()

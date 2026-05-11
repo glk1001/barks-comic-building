@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from barks_build_comic_images.build_comic_images import ComicBookImageBuilder
+from barks_build_comic_images.build_comic_images import RGB_PROFILE, ComicBookImageBuilder
 from barks_build_comic_images.consts import (
     DEST_JPG_COMPRESS_LEVEL,
     DEST_JPG_QUALITY,
@@ -49,7 +49,7 @@ from barks_comic_building.build.additional_file_writing import (
 from barks_comic_building.build.zipping import create_symlinks_to_comic_zip, zip_comic_book
 
 if TYPE_CHECKING:
-    from barks_build_comic_images.build_comic_images import PageImageSource
+    from barks_build_comic_images.build_comic_images import BuildSourceProfile
     from barks_fantagraphics.comic_book import (
         ComicBook,
     )
@@ -70,16 +70,16 @@ class ComicBookBuilder:
     def __init__(
         self,
         comic: ComicBook,
-        page_image_source: PageImageSource | None = None,
-        srce_story_file_resolver: SrceStoryFileResolver | None = None,
+        build_source: BuildSourceProfile | None = None,
     ) -> None:
         self._comic = comic
+        source = build_source or RGB_PROFILE
         self._image_builder = ComicBookImageBuilder(
             comic,
             EMPTY_IMAGE_FILEPATH,
-            page_image_source=page_image_source,
+            page_image_source=source.page_image_source,
         )
-        self._srce_story_file_resolver = srce_story_file_resolver
+        self._srce_story_file_resolver = source.srce_story_file_resolver
 
         self._srce_dim: ComicDimensions | None = None
         self._required_dim: RequiredDimensions | None = None

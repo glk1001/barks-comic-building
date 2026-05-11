@@ -49,6 +49,7 @@ from barks_comic_building.build.additional_file_writing import (
 from barks_comic_building.build.zipping import create_symlinks_to_comic_zip, zip_comic_book
 
 if TYPE_CHECKING:
+    from barks_build_comic_images.build_comic_images import PageImageSource
     from barks_fantagraphics.comic_book import (
         ComicBook,
     )
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
         RequiredDimensions,
         SrceAndDestPages,
     )
+    from barks_fantagraphics.pages import SrceStoryFileResolver
     from PIL.Image import Image as PilImage
 
 USE_CONCURRENT_PROCESSES = True
@@ -65,9 +67,19 @@ _process_page_error = False
 
 
 class ComicBookBuilder:
-    def __init__(self, comic: ComicBook) -> None:
+    def __init__(
+        self,
+        comic: ComicBook,
+        page_image_source: PageImageSource | None = None,
+        srce_story_file_resolver: SrceStoryFileResolver | None = None,
+    ) -> None:
         self._comic = comic
-        self._image_builder = ComicBookImageBuilder(comic, EMPTY_IMAGE_FILEPATH)
+        self._image_builder = ComicBookImageBuilder(
+            comic,
+            EMPTY_IMAGE_FILEPATH,
+            page_image_source=page_image_source,
+        )
+        self._srce_story_file_resolver = srce_story_file_resolver
 
         self._srce_dim: ComicDimensions | None = None
         self._required_dim: RequiredDimensions | None = None
@@ -102,16 +114,25 @@ class ComicBookBuilder:
     def _init_pages(self) -> None:
         logger.debug("Initializing pages...")
         self._srce_and_dest_pages, self._srce_dim, self._required_dim = (
-            self._get_srce_and_dest_pages_and_dimensions(self._comic)
+            self._get_srce_and_dest_pages_and_dimensions(
+                self._comic,
+                self._srce_story_file_resolver,
+            )
         )
+        assert self._required_dim
         self._image_builder.set_required_dim(self._required_dim)
 
     @staticmethod
     def _get_srce_and_dest_pages_and_dimensions(
         comic: ComicBook,
+        srce_story_file_resolver: SrceStoryFileResolver | None = None,
     ) -> tuple[SrceAndDestPages, ComicDimensions, RequiredDimensions]:
         srce_and_dest_pages, srce_dim, required_dim = (
-            get_sorted_srce_and_dest_pages_with_dimensions(comic, get_full_paths=True)
+            get_sorted_srce_and_dest_pages_with_dimensions(
+                comic,
+                get_full_paths=True,
+                srce_story_file_resolver=srce_story_file_resolver,
+            )
         )
 
         assert srce_dim.max_panels_bbox_width >= srce_dim.min_panels_bbox_width > 0

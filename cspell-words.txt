@@ -4,12 +4,17 @@
 asctime
 bbld
 bboxes
+blit
 boldtable
+boxlayout
 bpan
 bres
 bsvg
+bufferfmt
 bups
 cbld
+codepoint
+colorfmt
 dcmp
 dups
 ettl
@@ -32,6 +37,7 @@ inpainted
 inpainting
 intspan
 jpgs
+kivy
 kumiko
 labelpad
 levelname
@@ -42,6 +48,7 @@ markersize
 matchpatch
 mcfg
 mdir
+motionevent
 nbrs
 nopython
 normalised
@@ -54,6 +61,7 @@ posterize
 posterized
 procs
 rdonly
+scancode
 scnt
 sdif
 sdim
@@ -72,6 +80,7 @@ svgs
 svpg
 symlinking
 thepayments
+tobytes
 ultramix
 upscayl
 upscayled

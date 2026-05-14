@@ -9,7 +9,9 @@
       "Bash(grep -E \"\\\\.py$\")",
       "Bash(grep:*)",
       "Bash(wc:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(uv sync *)",
+      "Bash(git *)"
     ]
   }
 }

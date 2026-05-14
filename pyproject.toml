@@ -21,6 +21,7 @@ dependencies = [
     "cryptography>=46.0.3",
     "distro>=1.9.0",
     "intspan>=1.6.1",
+    "kivy==2.3.1",
     "loguru>=0.7.3",
     "loguru-config>=0.1.0",
     "matplotlib>=3.10.5",

@@ -22,6 +22,7 @@ fontsize
 fontweight
 fromarray
 fttl
+getchannel
 gmic
 ifan
 imread
@@ -45,6 +46,7 @@ nbrs
 nopython
 normalised
 otsu
+oxipng
 panl
 pnginfo
 pngs

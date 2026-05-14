@@ -1,11 +1,10 @@
-# ruff: noqa: ERA001
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import cairosvg
 import cv2 as cv
+import oxipng
 from comic_utils.comic_consts import JPG_FILE_EXT, PNG_FILE_EXT
 from comic_utils.pil_image_utils import (
     METADATA_PROPERTY_GROUP,
@@ -15,7 +14,7 @@ from comic_utils.pil_image_utils import (
     add_png_metadata,
     load_pil_image_from_bytes,
 )
-from PIL import Image
+from PIL import Image, ImageOps
 from PIL.PngImagePlugin import PngInfo
 
 from barks_comic_building.restore.gmic_exe import run_gmic
@@ -27,18 +26,18 @@ Image.MAX_IMAGE_PIXELS = None
 
 
 def svg_file_to_png(svg_file: Path, output_width: int, output_height: int, png_file: Path) -> None:
-    # background_color = "white"
-    background_color = None
     png_image = cairosvg.svg2png(
         url=str(svg_file),
         scale=1,
-        background_color=background_color,
+        background_color=None,
         output_width=output_width,
         output_height=output_height,
     )
 
     pil_image = load_pil_image_from_bytes(png_image, ext=PNG_FILE_EXT)
-    pil_image.save(str(png_file), optimize=True, compress_level=SAVE_PNG_COMPRESSION)
+    mask = ImageOps.invert(pil_image.getchannel("A"))
+    mask.save(str(png_file), optimize=True, compress_level=SAVE_PNG_COMPRESSION)
+    oxipng.optimize(str(png_file), level=6)
 
 
 def write_cv_image_file(

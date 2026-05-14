@@ -33,6 +33,7 @@ dependencies = [
     "scikit-image>=0.25.2",
     "typer>=0.21.1",
     "vtracer>=0.6.11",
+    "pyoxipng>=9.1.1",
 ]
 
 [project.scripts]

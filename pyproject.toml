@@ -14,6 +14,7 @@ requires-python = ">=3.13"
 dependencies = [
     "barks-fantagraphics",
     "barks-build-comic-images",
+    "barks-kivy-ui",
     "comic-utils",
     "bs4>=0.0.2",
     "cairosvg>=2.8.2",
@@ -21,7 +22,6 @@ dependencies = [
     "cryptography>=46.0.3",
     "distro>=1.9.0",
     "intspan>=1.6.1",
-    "kivy==2.3.1",
     "loguru>=0.7.3",
     "loguru-config>=0.1.0",
     "matplotlib>=3.10.5",
@@ -70,6 +70,7 @@ barks-single-upscayl = "barks_comic_building.restore.single_upscayl:app"
 [tool.uv.sources]
 barks-fantagraphics = { path = "../barks-compleat-reader/src/barks-fantagraphics", editable = true }
 barks-build-comic-images = { path = "../barks-compleat-reader/src/barks-build-comic-images", editable = true }
+barks-kivy-ui = { path = "../barks-compleat-reader/src/barks-kivy-ui", editable = true }
 comic-utils = { path = "../barks-compleat-reader/src/comic-utils", editable = true }
 
 [dependency-groups]

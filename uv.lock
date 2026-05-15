@@ -41,6 +41,7 @@ source = { editable = "." }
 dependencies = [
     { name = "barks-build-comic-images" },
     { name = "barks-fantagraphics" },
+    { name = "barks-kivy-ui" },
     { name = "bs4" },
     { name = "cairosvg" },
     { name = "comic-utils" },
@@ -48,7 +49,6 @@ dependencies = [
     { name = "cryptography" },
     { name = "distro" },
     { name = "intspan" },
-    { name = "kivy" },
     { name = "loguru" },
     { name = "loguru-config" },
     { name = "matplotlib" },
@@ -76,6 +76,7 @@ dev = [
 requires-dist = [
     { name = "barks-build-comic-images", editable = "../barks-compleat-reader/src/barks-build-comic-images" },
     { name = "barks-fantagraphics", editable = "../barks-compleat-reader/src/barks-fantagraphics" },
+    { name = "barks-kivy-ui", editable = "../barks-compleat-reader/src/barks-kivy-ui" },
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "cairosvg", specifier = ">=2.8.2" },
     { name = "comic-utils", editable = "../barks-compleat-reader/src/comic-utils" },
@@ -83,7 +84,6 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46.0.3" },
     { name = "distro", specifier = ">=1.9.0" },
     { name = "intspan", specifier = ">=1.6.1" },
-    { name = "kivy", specifier = "==2.3.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "loguru-config", specifier = ">=0.1.0" },
     { name = "matplotlib", specifier = ">=3.10.5" },
@@ -117,6 +117,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "comic-utils", editable = "../barks-compleat-reader/src/comic-utils" }]
+
+[[package]]
+name = "barks-kivy-ui"
+version = "0.1.0"
+source = { editable = "../barks-compleat-reader/src/barks-kivy-ui" }
+dependencies = [
+    { name = "kivy" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "kivy", specifier = "==2.3.1" },
+    { name = "pillow" },
+]
 
 [[package]]
 name = "beautifulsoup4"

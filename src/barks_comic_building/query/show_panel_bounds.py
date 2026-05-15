@@ -7,9 +7,9 @@ from barks_fantagraphics.comics_consts import PNG_FILE_EXT, RESTORABLE_PAGE_TYPE
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_helpers import draw_panel_bounds_on_image
 from barks_fantagraphics.panel_boxes import TitlePanelBoxes, check_page_panel_boxes
+from barks_kivy_ui.page_viewer import KivyPageViewer
 from comic_utils.common_typer_options import LogLevelArg, TitleArg
 from comic_utils.cv_image_utils import get_bw_image_from_alpha
-from comic_utils.kivy_page_viewer import KivyPageViewer
 from loguru import logger
 from PIL import Image
 

@@ -56,9 +56,6 @@ def convert_svg_to_png(srce_file: Path, srce_svg: Path) -> None:
 
         png_file = Path(str(srce_svg) + ".png")
         if png_file.is_file():
-            png_file.unlink()
-            logger.warning(f'Deleted dest png file: "{get_abbrev_path(png_file)}".')
-        if png_file.is_file():
             logger.warning(f'Dest png file exists - skipping: "{get_abbrev_path(png_file)}".')
             return
 

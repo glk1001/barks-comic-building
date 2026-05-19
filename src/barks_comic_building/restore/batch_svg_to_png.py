@@ -16,6 +16,7 @@ from barks_comic_building.restore.image_io import svg_file_to_png
 
 APP_LOGGING_NAME = "bsvg"
 
+MAX_WORKERS = 4
 SCALE = 4
 
 
@@ -35,7 +36,7 @@ def svgs_to_pngs(comics_database: ComicsDatabase, title_list: list[str]) -> None
         srce_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
         srce_svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
 
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
             for srce_file, srce_svg_file in zip(srce_files, srce_svg_files, strict=True):
                 executor.submit(convert_svg_to_png, srce_file, srce_svg_file)
 

@@ -2,14 +2,18 @@ from pathlib import Path
 
 import cv2 as cv
 import typer
+from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comic_book_info import BARKS_TITLE_DICT
 from barks_fantagraphics.comics_consts import PNG_FILE_EXT, RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.comics_helpers import draw_panel_bounds_on_image
+from barks_fantagraphics.comics_helpers import (
+    draw_panel_bounds_on_image,
+    get_title_from_volume_page,
+)
 from barks_fantagraphics.panel_boxes import TitlePanelBoxes, check_page_panel_boxes
 from barks_kivy_ui.page_viewer import KivyPageViewer
 from comic_utils.common_typer_options import LogLevelArg, TitleArg
-from comic_utils.cv_image_utils import get_bw_image_from_alpha
+from comic_utils.cv_image_utils import get_bw_image_from_alpha, validate_page_bw_image
 from loguru import logger
 from PIL import Image
 
@@ -36,6 +40,7 @@ def _build_page_images(
             msg = f'Page PNG not found: "{png_file}".'
             raise FileNotFoundError(msg)
         bw_image = get_bw_image_from_alpha(png_file)
+        validate_page_bw_image(bw_image, png_file)
         pil_image = Image.fromarray(cv.merge([bw_image, bw_image, bw_image])).convert("RGBA")
 
         page_panel_boxes = title_pages_panel_boxes.pages[fanta_page]
@@ -51,8 +56,6 @@ def show_panel_bounds(
     comics_database: ComicsDatabase,
     title: str,
     start_page: int,
-    win_left: int,
-    win_top: int,
 ) -> None:
     """Display panel-bounds overlays for ``title`` in a Kivy viewer window.
 
@@ -60,8 +63,6 @@ def show_panel_bounds(
         comics_database: The comics database used to resolve the title.
         title: The Barks title to display.
         start_page: 1-based page index to show first. Clamped to the available range.
-        win_left: Window left position in pixels.
-        win_top: Window top position in pixels.
 
     """
     logger.info(f'Showing panel bounds for "{title}"...')
@@ -75,8 +76,6 @@ def show_panel_bounds(
         window_title=f"Panel bounds — {title}",
         pages=pages,
         start_page=start_page,
-        win_left=win_left,
-        win_top=win_top,
     ).run()
 
 
@@ -85,17 +84,39 @@ app = typer.Typer()
 
 @app.command(help="Show panel bounds for title")
 def main(
-    title_str: TitleArg,
+    title_str: TitleArg = "",
+    volume: int | None = typer.Option(
+        None,
+        "--volume",
+        "-v",
+        help="Fanta volume; use with --page to look up the title. Mutually exclusive with --title.",
+    ),
     page: int = typer.Option(1, "--page", "-p", help="Page number to start on (1-based)."),
-    win_left: int = typer.Option(100, "--win-left", help="Window left position in pixels."),
-    win_top: int = typer.Option(100, "--win-top", help="Window top position in pixels."),
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
+    if title_str and volume is not None:
+        msg = "Options --title and --volume are mutually exclusive."
+        raise typer.BadParameter(msg)
+
     comics_database = ComicsDatabase()
 
-    show_panel_bounds(comics_database, title_str, page, win_left, win_top)
+    if volume is not None:
+        page_str = get_page_str(page)
+        title_str, page = get_title_from_volume_page(comics_database, volume, page_str)
+        if not title_str:
+            msg = f'No title found for volume {volume}, page "{page_str}".'
+            raise typer.BadParameter(msg)
+        logger.info(
+            f'Resolved volume {volume}, page "{page_str}" -> title="{title_str}", page={page}.'
+        )
+
+    if not title_str:
+        msg = "Must pass --title, or --volume with --page."
+        raise typer.BadParameter(msg)
+
+    show_panel_bounds(comics_database, title_str, page)
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "rich>=14.2.0",
     "scikit-image>=0.25.2",
+    "screeninfo>=0.8.1",
     "typer>=0.21.1",
     "vtracer>=0.6.11",
     "pyoxipng>=9.1.1",

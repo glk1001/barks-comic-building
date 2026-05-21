@@ -33,7 +33,7 @@ def svgs_to_pngs(comics_database: ComicsDatabase, title_list: list[str]) -> None
 
         comic = comics_database.get_comic_book(title)
 
-        srce_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
+        srce_files = [f[0] for f in comic.get_final_srce_story_files(RESTORABLE_PAGE_TYPES)]
         srce_svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:

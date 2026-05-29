@@ -18,7 +18,7 @@ from barks_fantagraphics.comic_book import (
     ComicBook,
     ModifiedType,
 )
-from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES
+from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES, SYNTHETIC_TITLES
 from barks_fantagraphics.comics_consts import (
     DEST_TARGET_ASPECT_RATIO,
     DEST_TARGET_HEIGHT,
@@ -266,7 +266,7 @@ def get_page_counts(comic: ComicBook, dest_pages: list[CleanPage]) -> dict[str, 
     assert front_page_count <= 1
 
     title_page_count = len([p for p in dest_pages if p.page_type == PageType.TITLE])
-    assert title_page_count == 1 or comic.get_title_enum() in NON_COMIC_TITLES
+    assert title_page_count == 1 or comic.get_title_enum() in (NON_COMIC_TITLES + SYNTHETIC_TITLES)
 
     cover_page_count = len([p for p in dest_pages if p.page_type == PageType.COVER])
     assert cover_page_count <= 1

@@ -60,6 +60,7 @@ barks-silent-night-restore = "barks_comic_building.query.silent_night_panel_rest
 barks-verify-title = "barks_comic_building.query.verify_title:app"
 barks-build = "barks_comic_building.build.batch_build_comics:app"
 barks-check-build = "barks_comic_building.build.check_build_comics_integrity:app"
+barks-stage-one-pagers = "barks_comic_building.build.stage_one_pagers:app"
 barks-batch-panel-bounds = "barks_comic_building.restore.batch_panel_bounds:app"
 barks-batch-restore = "barks_comic_building.restore.batch_restore_pipeline:app"
 barks-batch-svg-to-png = "barks_comic_building.restore.batch_svg_to_png:app"

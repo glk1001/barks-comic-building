@@ -51,7 +51,7 @@ from barks_comic_building.build.utils import (
 ERROR_MSG_PREFIX = "ERROR: "
 BLANK_ERR_MSG_PREFIX = f"{' ':<{len(ERROR_MSG_PREFIX)}}"
 
-MAX_FIXES_PAGE_NUM = 300
+MAX_FIXES_PAGE_NUM = 600
 
 STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK = {
     Titles.VICTORY_GARDEN_THE,

@@ -13,8 +13,10 @@ bsvg
 bufferfmt
 bups
 cbld
+chrn
 codepoint
 colorfmt
+dateutil
 dcmp
 dups
 ettl
@@ -60,6 +62,7 @@ pngs
 posterize
 posterized
 procs
+relativedelta
 rdonly
 scancode
 scnt

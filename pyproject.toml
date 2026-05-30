@@ -39,6 +39,7 @@ dependencies = [
 ]
 
 [project.scripts]
+barks-chronological-titles = "barks_comic_building.query.barks_chronological_titles:app"
 barks-yearly-page-count = "barks_comic_building.query.barks_yearly_page_count:app"
 barks-yearly-payments = "barks_comic_building.query.barks_yearly_payments:app"
 barks-edit-page = "barks_comic_building.query.edit_page:app"

@@ -7,9 +7,8 @@ from typing import Annotated
 
 import typer
 from barks_fantagraphics.comic_book import get_page_str
-from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_database import ComicsDatabase
-from barks_fantagraphics.comics_helpers import get_title_from_volume_page
+from barks_fantagraphics.comics_helpers import get_title_from_volume_page, get_volume_and_page
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.pil_image_utils import load_pil_image_for_reading
 from intspan import intspan
@@ -95,11 +94,21 @@ def open_gimp(image_file: Path) -> None:
     print(f'Gimp should now be running with image "{image_file}".')
 
 
+def _get_title_and_page(
+    comics_database: ComicsDatabase, volume: int, page_num_str: str
+) -> tuple[str, str]:
+    page = get_page_str(int(page_num_str))
+    title, comic_page = get_title_from_volume_page(comics_database, volume, page)
+    assert title
+    assert comic_page != -1
+    return title, page
+
+
 app = typer.Typer()
 
 
 @app.command(help="Edit comic title page")
-def main(  # noqa: C901, PLR0913, PLR0915
+def main(  # noqa: PLR0913
     volumes_str: VolumesArg = "",
     title: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
@@ -124,34 +133,15 @@ def main(  # noqa: C901, PLR0913, PLR0915
         sys.exit(1)
 
     comics_database = ComicsDatabase()
+    page_num_str, panel = page_panel.split("-")
 
-    if volumes_str:
+    if not volumes_str:
+        volume, page = get_volume_and_page(comics_database, title, page_num_str)
+    else:
         volumes = list(intspan(volumes_str))
         assert len(volumes) == 1
         volume = volumes[0]
-        (page, panel) = page_panel.split("-")
-        page = get_page_str(int(page))
-        title, comic_page = get_title_from_volume_page(comics_database, volume, page)
-        assert title
-        assert comic_page != -1
-    else:
-        comic = comics_database.get_comic_book(title)
-        volume = comic.get_fanta_volume()
-
-        valid_page_list = [
-            p.page_filenames for p in comic.page_images_in_order if p.page_type == PageType.BODY
-        ]
-        if page_panel:
-            (page, panel) = page_panel.split("-")
-        else:
-            (comic_page, panel) = comic_page_panel.split("-")
-            first_page = int(valid_page_list[0])
-            page = first_page + int(comic_page) - 1
-
-        page = get_page_str(int(page))
-        if page not in valid_page_list:
-            print(f'ERROR: Page "{page}" is not in {valid_page_list}.')
-            sys.exit(1)
+        title, page = _get_title_and_page(comics_database, volume, page_num_str)
 
     srce_file = get_source_file(comics_database, volume, panel_type, page)
     if not srce_file.is_file():

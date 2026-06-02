@@ -5,8 +5,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
-from barks_fantagraphics.barks_titles import BARKS_TITLES, Titles
-from barks_fantagraphics.comic_book_info import BARKS_TITLE_DICT
+from barks_fantagraphics.barks_titles import BARKS_TITLES, ENUM_FROM_BARKS_TITLE, Titles
 from bs4 import BeautifulSoup, Tag
 from comic_utils.comic_consts import MONTH_AS_LONG_STR
 
@@ -396,7 +395,7 @@ for year in range(1958, 1960):
 for cols in titles_with_prelim_payment_info:
     print("Prelim: ", cols)
 
-title_dict = BARKS_TITLE_DICT
+title_dict = ENUM_FROM_BARKS_TITLE
 titles_with_payment_info = []
 for cols in titles_with_prelim_payment_info[1:]:
     if cols[0][:2] in ISSUE_PREFIXES_TO_SKIP:

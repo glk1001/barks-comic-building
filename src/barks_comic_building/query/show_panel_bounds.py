@@ -2,8 +2,8 @@ from pathlib import Path
 
 import cv2 as cv
 import typer
+from barks_fantagraphics.barks_titles import ENUM_FROM_BARKS_TITLE
 from barks_fantagraphics.comic_book import get_page_str
-from barks_fantagraphics.comic_book_info import BARKS_TITLE_DICT
 from barks_fantagraphics.comics_consts import PNG_FILE_EXT, RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_helpers import (
@@ -28,7 +28,7 @@ def _build_page_images(
     comic = comics_database.get_comic_book(title)
     svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
     title_pages_panel_boxes = TitlePanelBoxes(comics_database).get_page_panel_boxes(
-        BARKS_TITLE_DICT[title]
+        ENUM_FROM_BARKS_TITLE[title]
     )
 
     pages: list[tuple[str, Image.Image]] = []

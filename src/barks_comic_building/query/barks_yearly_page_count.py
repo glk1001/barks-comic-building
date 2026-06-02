@@ -3,7 +3,7 @@
 from collections import defaultdict
 
 import typer
-from barks_fantagraphics.barks_titles import BARKS_TITLES, Titles
+from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from barks_fantagraphics.comic_book import get_total_num_pages
 from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, NON_COMIC_TITLES, ONE_PAGERS
 from barks_fantagraphics.comics_database import ComicsDatabase
@@ -198,7 +198,7 @@ def main(log_level_str: LogLevelArg = "DEBUG") -> None:
         elif title_info.title in TEMP_PAGE_COUNTS:
             num_pages = TEMP_PAGE_COUNTS[title_info.title]
         else:
-            title_str = BARKS_TITLES[title_info.title]
+            title_str = ENUM_TO_STR_TITLE[title_info.title]
             # noinspection PyBroadException
             try:
                 comic_book = comics_database.get_comic_book(title_str)

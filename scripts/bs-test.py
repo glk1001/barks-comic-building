@@ -1,7 +1,7 @@
 # ruff: noqa: T201, ERA001
 from pathlib import Path
 
-from barks_fantagraphics.barks_titles import ENUM_FROM_BARKS_TITLE
+from barks_fantagraphics.barks_titles import STR_TITLE_TO_ENUM
 from bs4 import BeautifulSoup, Tag
 
 # html_file = "/home/greg/Downloads/the-beagle-boys_I.N.D.U.C.K.S.html"
@@ -70,8 +70,8 @@ character_titles = []
 for row in filtered_data:
     print(row)
     title = row[1]
-    if title in ENUM_FROM_BARKS_TITLE:
-        character_titles.append(ENUM_FROM_BARKS_TITLE[title])
+    if title in STR_TITLE_TO_ENUM:
+        character_titles.append(STR_TITLE_TO_ENUM[title])
     else:
         print("Not a Barks title: ", title)
 

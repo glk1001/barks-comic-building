@@ -100,6 +100,7 @@ def main(
 
     console = Console()
     table = Table(title=f"Barks Titles Submitted {from_year}-{to_year}")
+    table.add_column("#", justify="right")
     table.add_column("Title")
     table.add_column("Issue (Published)")
     table.add_column("Submitted")
@@ -109,6 +110,7 @@ def main(
     for info in selected:
         payment = BARKS_PAYMENTS.get(info.title)
         table.add_row(
+            str(info.chronological_number),
             info.get_display_title(),
             _issue_with_pub_date(info),
             _submitted_date(info),

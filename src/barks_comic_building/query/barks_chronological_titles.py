@@ -5,7 +5,8 @@ from typing import Annotated
 
 import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS, PaymentInfo
-from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, ComicBookInfo
+from barks_fantagraphics.barks_titles import Titles
+from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, ONE_PAGERS, ComicBookInfo
 from comic_utils.common_typer_options import LogLevelArg
 from dateutil.relativedelta import relativedelta
 from rich.console import Console
@@ -80,6 +81,15 @@ def _payment_str(payment: PaymentInfo | None) -> str:
     return f"${payment.payment:,.2f}"
 
 
+def _non_one_pager_chronological_numbers() -> dict[Titles, int]:
+    """Map each non one-pager title to its chronological number among non one-pagers only."""
+    non_one_pagers = sorted(
+        (info for info in BARKS_TITLE_INFO if info.title not in ONE_PAGERS),
+        key=lambda info: info.chronological_number,
+    )
+    return {info.title: num for num, info in enumerate(non_one_pagers, start=1)}
+
+
 app = typer.Typer()
 
 
@@ -87,6 +97,13 @@ app = typer.Typer()
 def main(
     from_year: Annotated[int, typer.Argument(help="First submission year (inclusive).")],
     to_year: Annotated[int, typer.Argument(help="Last submission year (inclusive).")],
+    no_one_pagers: Annotated[
+        bool,
+        typer.Option(
+            "--no-one-pagers",
+            help="Exclude one-pager titles and number chronologically among non one-pagers only.",
+        ),
+    ] = False,
     log_level_str: LogLevelArg = "INFO",
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
@@ -96,6 +113,11 @@ def main(
         raise typer.BadParameter(msg)
 
     selected = [info for info in BARKS_TITLE_INFO if from_year <= info.submitted_year <= to_year]
+    if no_one_pagers:
+        selected = [info for info in selected if info.title not in ONE_PAGERS]
+        chronological_numbers = _non_one_pager_chronological_numbers()
+    else:
+        chronological_numbers = {info.title: info.chronological_number for info in BARKS_TITLE_INFO}
     selected.sort(key=_submitted_sort_key)
 
     console = Console()
@@ -110,7 +132,7 @@ def main(
     for info in selected:
         payment = BARKS_PAYMENTS.get(info.title)
         table.add_row(
-            str(info.chronological_number),
+            str(chronological_numbers[info.title]),
             info.get_display_title(),
             _issue_with_pub_date(info),
             _submitted_date(info),

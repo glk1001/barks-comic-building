@@ -11,7 +11,14 @@
       "Bash(wc:*)",
       "Bash(cd:*)",
       "Bash(uv sync *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Read(//home/greg/Prj/github/**)",
+      "Bash(awk '/^== Chronological:/,/^== aaa/' /tmp/dryrun.txt)",
+      "Bash(awk '/^== aaa/,/^== Chronological Years/' /tmp/dryrun.txt)",
+      "Bash(awk 'NR!=int\\($1\\){print \"GAP at\", $1; exit}')",
+      "Bash(awk '{n=int\\($1\\); if \\(last && n != last+1\\) print \"missing:\", last+1, \"to\", n-1; last=n}')",
+      "Bash(sed -i '464d' src/barks-fantagraphics/src/barks_fantagraphics/fanta_series_data.py)",
+      "Bash(sed -n '463,466p' src/barks-fantagraphics/src/barks_fantagraphics/fanta_series_data.py)"
     ]
   }
 }

@@ -76,6 +76,9 @@ def verify_volume_dir(volume_dir: Path) -> tuple[int, int]:
         if image_file.suffix == ".txt":
             logger.debug(f'Skipping txt file: "{image_file}".')
             continue
+        if image_file.suffix == ".svg":
+            logger.debug(f'Skipping svg file: "{image_file}".')
+            continue
 
         if not verify_file(image_file):
             logger.error(f'File "{image_file}" is not a valid image file.')

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from barks_comic_building.restore.image_io import (
     resize_image_file,
+    svg_file_to_optimized_png,
     svg_file_to_png,
     write_cv_image_file,
 )
@@ -166,14 +167,8 @@ class RestorePipeline:
         with _timed_step(self, f'generate svg "{self.dest_svg_restored_file.name}"'):
             image_file_to_svg(self.smoothed_removed_colors_file, self.dest_svg_restored_file)
 
-            output_width, output_height = get_image_size(self.srce_file)
-            logger.info(
-                f"\nSaving svg file to {output_width} x {output_height}"
-                f' png file "{self.png_of_svg_file}"...'
-            )
-            svg_file_to_png(
-                self.dest_svg_restored_file, output_width, output_height, self.png_of_svg_file
-            )
+            logger.info(f'\nSaving svg file to same-sized png file "{self.png_of_svg_file}"...')
+            svg_file_to_png(self.dest_svg_restored_file, self.png_of_svg_file)
 
     def _do_inpaint(self) -> None:
         if USE_EXISTING_WORK_FILES and self.inpainted_file.is_file():
@@ -217,6 +212,15 @@ class RestorePipeline:
                 self.scale,
                 self.dest_restored_file,
                 restored_file_metadata,
+            )
+
+            output_width, output_height = get_image_size(self.srce_file)
+            logger.info(
+                f"\nSaving svg file to {output_width} x {output_height}"
+                f' optimized png file "{self.png_of_svg_file}"...'
+            )
+            svg_file_to_optimized_png(
+                self.dest_svg_restored_file, output_width, output_height, self.png_of_svg_file
             )
 
 

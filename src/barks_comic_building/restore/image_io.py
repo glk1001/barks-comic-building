@@ -25,7 +25,16 @@ if TYPE_CHECKING:
 Image.MAX_IMAGE_PIXELS = None
 
 
-def svg_file_to_png(svg_file: Path, output_width: int, output_height: int, png_file: Path) -> None:
+def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
+    png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=None)
+
+    pil_image = load_pil_image_from_bytes(png_image, ext=PNG_FILE_EXT)
+    pil_image.save(str(png_file), optimize=False, compress_level=0)
+
+
+def svg_file_to_optimized_png(
+    svg_file: Path, output_width: int, output_height: int, png_file: Path
+) -> None:
     png_image = cairosvg.svg2png(
         url=str(svg_file),
         scale=1,

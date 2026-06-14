@@ -1,4 +1,5 @@
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -40,6 +41,7 @@ def compare_images_in_dir(
         result_code, _metric = compare_images(image_file1, image_file2, fuzz, ae_cutoff, diff_dir)
 
         if result_code != 0:
+            logger.error(f"Compare error: {result_code}, {_metric}.")
             errors += 1
 
     return errors
@@ -82,14 +84,59 @@ def compare_images(
 
     """
     if fuzz == "0%":
-        # Use Mean Absolute Error (MAE) for no-fuzz comparison
-        return mae_compare(file1, file2)
+        # Use Root Mean Squared Error (RMSE) for no-fuzz comparison
+        return compare_images_rmse(file1, file2)
 
     # Use Absolute Error (AE) for fuzz comparison
-    return fuzz_ae_compare(file1, file2, fuzz, ae_cutoff, diff_dir)
+    return compare_images_fuzz_ae(file1, file2, fuzz, ae_cutoff, diff_dir)
 
 
-def mae_compare(file1: Path, file2: Path) -> tuple[int, str]:
+def compare_images_rmse(file1: Path, file2: Path, threshold: float = 0.01) -> tuple[int, str]:
+    """Compare two images using ImageMagick's RMSE metric.
+
+    Args:
+        file1 (Path): Path object pointing to the first image.
+        file2 (Path): Path object pointing to the second image.
+        threshold (float): Maximum acceptable normalized difference (0.01 = 1%).
+
+    Returns:
+        tuple[bool, float]: A boolean indicating if it passed, and the actual RMSE value.
+
+    """
+    if not file1.exists():
+        msg = f"Cannot find image: {file1}"
+        raise FileNotFoundError(msg)
+    if not file2.exists():
+        msg = f"Cannot find image: {file2}"
+        raise FileNotFoundError(msg)
+
+    cmd = ["compare", "-metric", "RMSE", file1, file2, "null:"]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: PLW1510, S603
+
+    # ImageMagick writes metric data to standard error (stderr)
+    output = result.stderr.strip()
+
+    # Exit code 2 usually means a hard error (e.g., completely different dimensions).
+    if result.returncode == 2:  # noqa: PLR2004
+        msg = f"ImageMagick failed to compare images: {output}"
+        raise RuntimeError(msg)
+
+    # Extract the normalized number inside the parentheses.
+    match = re.search(r"\(([^)]+)\)", output)
+    if not match:
+        if output == "0 (0)":
+            return 0, "0.0"
+        msg = f"Could not parse RMSE value from output: '{output}'"
+        raise ValueError(msg)
+
+    rmse_value = float(match.group(1))
+    is_pass = 0 if rmse_value <= threshold else 1
+
+    return is_pass, f"{rmse_value:.3}"
+
+
+def compare_mae(file1: Path, file2: Path) -> tuple[int, str]:
     """Compare two images using ImageMagick's `compare` with the mae metric.
 
     Args:
@@ -130,7 +177,7 @@ def mae_compare(file1: Path, file2: Path) -> tuple[int, str]:
     return result, metric_output
 
 
-def fuzz_ae_compare(
+def compare_images_fuzz_ae(
     file1: Path, file2: Path, fuzz: str, ae_cutoff: float, diff_dir: Path | None
 ) -> tuple[int, str]:
     """Compare two images using ImageMagick's `compare` tool, with 'fuzz' and 'ae'.

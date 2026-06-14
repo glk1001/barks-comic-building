@@ -12,7 +12,7 @@ from comic_utils.pil_image_utils import get_image_size
 from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
-from barks_comic_building.restore.image_io import svg_file_to_png
+from barks_comic_building.restore.image_io import svg_file_to_optimized_png
 
 APP_LOGGING_NAME = "bsvg"
 
@@ -66,7 +66,7 @@ def convert_svg_to_png(srce_file: Path, srce_svg: Path) -> None:
             f'Converting svg file "{get_abbrev_path(srce_svg)}"'
             f' to dest png {srce_width} x {srce_height} "{get_abbrev_path(png_file)}".',
         )
-        svg_file_to_png(srce_svg, srce_width, srce_height, png_file)
+        svg_file_to_optimized_png(srce_svg, srce_width, srce_height, png_file)
 
     except Exception:  # noqa: BLE001
         logger.exception("Error: ")

@@ -16,17 +16,14 @@ class CompareError:
     Attributes:
         error_type: The category of error (e.g. "image", "file-diff").
         file: The file the error relates to.
-        detail: Short context shown in the summary table (e.g. a metric value
-            or a truncated diff preview).
-        context: Optional full context (e.g. the complete diff) logged below
-            the summary table. Empty when there is nothing extra to show.
+        detail: Short context shown in the summary table (e.g. an image metric
+            value, or a short "diff" marker for a file difference).
 
     """
 
     error_type: str
     file: str
     detail: str = ""
-    context: str = ""
 
 
 def compare_images_in_dir(

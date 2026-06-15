@@ -74,9 +74,9 @@ def main(  # noqa: PLR0913
         errors += compare_images_in_dir(image_dir1, image_dir2, fuzz, ae_cutoff, image_diff_dir)
 
     if errors:
-        logger.error(f"\nComparison failed with {len(errors)} errors.")
+        logger.error(f"Comparison failed with {len(errors)} errors.")
     else:
-        logger.success("\nComparison successful. All directories are equivalent.")
+        logger.success("Comparison successful. All directories are equivalent.")
 
     sys.exit(len(errors))
 

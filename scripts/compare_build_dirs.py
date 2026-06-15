@@ -28,15 +28,9 @@ DIFF_IGNORE_OPTIONS = [
     "ini_hash",  # TODO(glk1001): Temporary until all built comics use metadata
 ]
 
-# Number of diff lines shown inline in the summary table before truncating.
-_MAX_DIFF_PREVIEW_LINES = 4
-
 
 def print_error_summary(errors: list[tuple[str, CompareError]]) -> None:
     """Print a rich summary table of all comparison errors.
-
-    Any errors carrying full context (e.g. a complete file diff) have that
-    context logged below the table.
 
     Args:
         errors: A list of (directory name, error) pairs collected over all
@@ -53,11 +47,6 @@ def print_error_summary(errors: list[tuple[str, CompareError]]) -> None:
         table.add_row(dir_name, err.error_type, err.file, err.detail)
 
     Console().print(table)
-
-    for dir_name, err in errors:
-        if err.context:
-            files = err.file.replace("\n", " vs ")
-            logger.info(f'\nFull diff for "{dir_name}" file {files}:\n{err.context}')
 
 
 def compare_build_dirs(dir1: Path, dir2: Path) -> list[CompareError]:
@@ -103,7 +92,7 @@ def compare_dirs_excluding_images(dir1: Path, dir2: Path) -> list[CompareError]:
     if not errs:
         # The files differ but the output did not name any (e.g. a stderr-only
         # failure). Record a single generic error so it is still reported.
-        errs = [CompareError(error_type="file-diff", file=str(dir1), detail="files differ")]
+        errs = [CompareError(error_type="file", file=str(dir1), detail="files differ")]
 
     return errs
 
@@ -111,8 +100,9 @@ def compare_dirs_excluding_images(dir1: Path, dir2: Path) -> list[CompareError]:
 def parse_diff_output(diff_output: str) -> list[CompareError]:
     """Extract per-file errors from the output of `diff -rq`.
 
-    For each differing file the full diff is captured (and truncated for the
-    summary table) so the caller has the changed lines for context.
+    For each differing file the full diff is logged inline (so it appears in the
+    scrollback near where it was found); the table only flags the file with a
+    short "diff" marker, keeping rows short and the paths easy to copy.
 
     Args:
         diff_output: The stdout captured from a recursive brief `diff` run.
@@ -130,20 +120,21 @@ def parse_diff_output(diff_output: str) -> list[CompareError]:
             file1_str = file1_str.strip("'")
             file2_str = file2_str.strip("'")
             full_diff = get_file_diff(Path(file1_str), Path(file2_str))
+            if full_diff:
+                logger.error(f'Diff for "{file1_str}" vs "{file2_str}":\n{full_diff}')
             errs.append(
                 CompareError(
-                    error_type="file-diff",
+                    error_type="file",
                     file=f'"{file1_str}"\n"{file2_str}"',
-                    detail=_truncate_diff(full_diff),
-                    context=full_diff,
+                    detail="diff",
                 )
             )
         elif line.startswith("Only in "):
             # Lines of the form: Only in <dir>: <name>
             location, _, name = line[len("Only in ") :].partition(": ")
-            file = str(Path(location) / name)
+            file = Path(location) / name
             errs.append(
-                CompareError(error_type="file-missing", file=file, detail="only in one dir")
+                CompareError(error_type="file-missing", file=f'"{file}"', detail="only in one dir")
             )
 
     return errs
@@ -164,27 +155,6 @@ def get_file_diff(file1: Path, file2: Path) -> str:
     command = ["diff", *DIFF_IGNORE_OPTIONS, str(file1), str(file2)]
     proc = subprocess.run(command, capture_output=True, text=True, check=False)  # noqa: S603
     return proc.stdout.strip()
-
-
-def _truncate_diff(diff_text: str, max_lines: int = _MAX_DIFF_PREVIEW_LINES) -> str:
-    """Return the first few lines of a diff for inline display.
-
-    Args:
-        diff_text: The full diff text.
-        max_lines: Maximum number of lines to keep before adding an ellipsis.
-
-    Returns:
-        A short preview of the diff, or a generic message if it is empty.
-
-    """
-    if not diff_text:
-        return "contents differ"
-
-    lines = diff_text.splitlines()
-    if len(lines) <= max_lines:
-        return diff_text
-
-    return "\n".join(lines[:max_lines]) + "\n…"
 
 
 def compare_dir_images(dir1: Path, dir2: Path) -> list[CompareError]:
@@ -227,10 +197,10 @@ def main(
     errors = compare_build_dirs(dir1, dir2)
 
     if errors:
-        logger.error(f"\nComparison failed with {len(errors)} errors.")
+        logger.error(f"Comparison failed with {len(errors)} errors.")
         print_error_summary([(dir1.name, err) for err in errors])
     else:
-        logger.success("\nComparison successful. Directories are equivalent.")
+        logger.success("Comparison successful. Directories are equivalent.")
 
     sys.exit(len(errors))
 

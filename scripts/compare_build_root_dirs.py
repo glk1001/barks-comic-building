@@ -53,10 +53,10 @@ def main(
         all_errors.extend((subdir1.name, err) for err in compare_build_dirs(subdir1, subdir2))
 
     if all_errors:
-        logger.error(f"\nComparison failed with {len(all_errors)} errors.")
+        logger.error(f"Comparison failed with {len(all_errors)} errors.")
         print_error_summary(all_errors)
     else:
-        logger.info("\nComparison successful. All directories are equivalent.")
+        logger.success("Comparison successful. All directories are equivalent.")
 
     sys.exit(len(all_errors))
 

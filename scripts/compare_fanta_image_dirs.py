@@ -1,5 +1,3 @@
-# ruff: noqa: T201
-
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -11,7 +9,7 @@ from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
 
-APP_LOGGING_NAME = "dcmp"
+APP_LOGGING_NAME = "fcmp"
 
 app = typer.Typer()
 log_level = ""
@@ -27,8 +25,8 @@ def main(  # noqa: PLR0913
         str,
         typer.Option(
             "--fuzz",
-            help="Fuzz factor for comparison (e.g., '5%%')\n"
-            "A value of '0%%' uses the MAE metric instead of AE.",
+            help="Fuzz factor for comparison (e.g., '5%')\n"
+            "A value of '0%' uses the RMSE metric instead of AE.",
         ),
     ],
     ae_cutoff: Annotated[
@@ -36,9 +34,25 @@ def main(  # noqa: PLR0913
         typer.Option(
             "--ae_cutoff",
             help="AE (Absolute Error) pixel count cutoff for non-zero fuzz.\n"
-            "Required if fuzz is not '0%%'.",
+            "Required if fuzz is not '0%' (unless --ae-cutoff-pct is given).",
         ),
     ] = 0.0,
+    ae_cutoff_pct: Annotated[
+        float | None,
+        typer.Option(
+            "--ae-cutoff-pct",
+            help="AE cutoff as a percentage of each image's total pixels.\n"
+            "Overrides --ae_cutoff when set (resolution-independent).",
+        ),
+    ] = None,
+    calibrate: Annotated[
+        bool,
+        typer.Option(
+            "--calibrate",
+            help="Print the AE pixel count per image (at --fuzz) without applying a\n"
+            "cutoff, to help choose a good --ae_cutoff / --ae-cutoff-pct.",
+        ),
+    ] = False,
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
     # Global variable accessed by loguru-config.
@@ -47,7 +61,6 @@ def main(  # noqa: PLR0913
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     volumes = list(intspan(volumes_str))
-    print(volumes)
 
     if not dir1.is_dir():
         msg = f'Error: Could not find Fantagraphics directory1: "{dir1}".'
@@ -65,15 +78,25 @@ def main(  # noqa: PLR0913
         if not any(str(v) in str(file1.name) for v in volumes):
             continue
 
-        logger.info(f'\nComparing image dirs in {file1.name}"...')
+        logger.info(f'Comparing image dirs in {file1.name}"...')
 
         image_dir1 = file1 / "images"
         image_dir2 = dir2 / file1.name / "images"
         image_diff_dir = diff_dir / file1.name
 
-        errors += compare_images_in_dir(image_dir1, image_dir2, fuzz, ae_cutoff, image_diff_dir)
+        errors += compare_images_in_dir(
+            image_dir1,
+            image_dir2,
+            fuzz,
+            ae_cutoff,
+            image_diff_dir,
+            ae_cutoff_pct=ae_cutoff_pct,
+            calibrate=calibrate,
+        )
 
-    if errors:
+    if calibrate:
+        logger.info("Calibration complete. Use the AE counts above to choose a cutoff.")
+    elif errors:
         logger.error(f"Comparison failed with {len(errors)} errors.")
     else:
         logger.success("Comparison successful. All directories are equivalent.")

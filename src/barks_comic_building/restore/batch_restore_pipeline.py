@@ -22,7 +22,13 @@ SCALE = 4
 SMALL_RAM = 16 * 1024 * 1024 * 1024
 
 
-def restore(comics_database: ComicsDatabase, title_list: list[str], work_dir: Path) -> None:
+def restore(
+    comics_database: ComicsDatabase,
+    title_list: list[str],
+    work_dir: Path,
+    use_existing_work_files: bool,
+    debug_color_counts: bool,
+) -> None:
     start = time.time()
 
     num_restored = 0
@@ -30,7 +36,13 @@ def restore(comics_database: ComicsDatabase, title_list: list[str], work_dir: Pa
         if is_non_comic_title(title):
             num_restored += copy_title(comics_database, title)
         else:
-            num_restored += restore_title(comics_database, title, work_dir)
+            num_restored += restore_title(
+                comics_database,
+                title,
+                work_dir,
+                use_existing_work_files,
+                debug_color_counts,
+            )
 
     if num_restored > 0:
         logger.info(
@@ -60,7 +72,13 @@ def copy_title(comics_database: ComicsDatabase, title_str: str) -> int:
     return len(srce_files)
 
 
-def restore_title(comics_database: ComicsDatabase, title: str, work_dir: Path) -> int:
+def restore_title(
+    comics_database: ComicsDatabase,
+    title: str,
+    work_dir: Path,
+    use_existing_work_files: bool,
+    debug_color_counts: bool,
+) -> int:
     start = time.time()
 
     logger.info(f'Processing story "{title}".')
@@ -118,6 +136,8 @@ def restore_title(comics_database: ComicsDatabase, title: str, work_dir: Path) -
                 Path(dest_restored_file),
                 Path(dest_upscayled_restored_file),
                 Path(dest_svg_restored_file),
+                use_existing_work_files=use_existing_work_files,
+                debug_color_counts=debug_color_counts,
             ),
         )
 
@@ -139,6 +159,11 @@ def restore_title(comics_database: ComicsDatabase, title: str, work_dir: Path) -
 
 _SMALL_RAM_DETECTED = psutil.virtual_memory().total < SMALL_RAM
 
+# Each phase runs across all pages before the next phase starts. The third tuple element
+# is the worker count for that phase: the memory-hungry phases (part 2 smoothing, part 4
+# inpaint/overlay/resize) are throttled to few workers (1 on small-RAM machines) to avoid
+# exhausting memory, while the lighter phases use the default pool size. This is why
+# run_restore() builds a fresh ProcessPoolExecutor per phase rather than one shared pool.
 _PHASES: list[tuple[str, str, int | None]] = [
     ("part 1", "do_part1", None),
     ("part 2", "do_part2_memory_hungry", 1 if _SMALL_RAM_DETECTED else 6),
@@ -148,7 +173,13 @@ _PHASES: list[tuple[str, str, int | None]] = [
 
 
 def _run_restore_phase(proc: RestorePipeline, method_name: str) -> bool:
-    """Run a single restore phase on a process, returning whether errors occurred."""
+    """Run a single restore phase on a process, returning whether errors occurred.
+
+    Runs in a worker process, so any mutation of ``proc.errors_occurred`` here does NOT
+    propagate back to the parent's copy of ``proc``. Cross-phase failure tracking
+    therefore relies on the returned bool (see ``run_restore``), and the parent-side
+    ``check_for_errors`` falls back to verifying output files exist.
+    """
     getattr(proc, method_name)()
     return proc.errors_occurred
 
@@ -195,11 +226,19 @@ app = typer.Typer()
 
 
 @app.command(help="Make restored files")
-def main(
+def main(  # noqa: PLR0913
     work_dir: Path = typer.Option(...),  # noqa: B008
     volumes_str: VolumesArg = "",
     title_str: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
+    use_existing_work_files: bool = typer.Option(
+        default=False,
+        help="Reuse existing intermediate work files instead of regenerating them (resume).",
+    ),
+    debug_color_counts: bool = typer.Option(
+        default=False,
+        help="Write debug colour-count text files during colour removal (slow).",
+    ),
 ) -> None:
     init_logging(APP_LOGGING_NAME, "batch-restore.log", log_level_str)
 
@@ -207,7 +246,7 @@ def main(
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    restore(comics_database, titles, work_dir)
+    restore(comics_database, titles, work_dir, use_existing_work_files, debug_color_counts)
 
 
 if __name__ == "__main__":

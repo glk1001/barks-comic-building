@@ -16,6 +16,7 @@ cbld
 chrn
 codepoint
 colorfmt
+colours
 dateutil
 dcmp
 dups

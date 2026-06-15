@@ -22,11 +22,16 @@ from barks_comic_building.restore.image_io import (
 from barks_comic_building.restore.inpaint import inpaint_image_file
 from barks_comic_building.restore.overlay import overlay_inpainted_file_with_black_ink
 from barks_comic_building.restore.remove_alias_artifacts import get_median_filter
-from barks_comic_building.restore.remove_colors import remove_colors_from_image
+from barks_comic_building.restore.remove_colors import (
+    DEBUG_WRITE_COLOR_COUNTS,
+    remove_colors_from_image,
+)
 from barks_comic_building.restore.smooth_image import smooth_image_file
 from barks_comic_building.restore.vtracer_to_svg import image_file_to_svg
 
-USE_EXISTING_WORK_FILES = False  # Use with care
+# Default for whether existing intermediate work files are reused (resume) rather than
+# regenerated. Can be overridden per pipeline via the constructor. Use with care.
+USE_EXISTING_WORK_FILES = False
 
 
 @contextlib.contextmanager
@@ -54,6 +59,8 @@ class RestorePipeline:
         dest_restored_file: Path,
         dest_upscayled_restored_file: Path,
         dest_svg_restored_file: Path,
+        use_existing_work_files: bool = USE_EXISTING_WORK_FILES,
+        debug_color_counts: bool = DEBUG_WRITE_COLOR_COUNTS,
     ) -> None:
         self.work_dir = work_dir
         self.out_dir = dest_restored_file.parent
@@ -63,6 +70,8 @@ class RestorePipeline:
         self.dest_restored_file = dest_restored_file
         self.dest_upscayled_restored_file = dest_upscayled_restored_file
         self.dest_svg_restored_file = dest_svg_restored_file
+        self.use_existing_work_files = use_existing_work_files
+        self.debug_color_counts = debug_color_counts
 
         self.errors_occurred = False
 
@@ -119,7 +128,7 @@ class RestorePipeline:
             self._do_resize_restored_file()
 
     def _do_remove_jpg_artifacts(self) -> None:
-        if USE_EXISTING_WORK_FILES and self.removed_artifacts_file.is_file():
+        if self.use_existing_work_files and self.removed_artifacts_file.is_file():
             logger.warning(
                 f"Removed artifacts file already exists - skipping:"
                 f' "{self.removed_artifacts_file}".'
@@ -135,7 +144,7 @@ class RestorePipeline:
             write_cv_image_file(self.removed_artifacts_file, out_image)
 
     def _do_remove_colors(self) -> None:
-        if USE_EXISTING_WORK_FILES and self.removed_colors_file.is_file():
+        if self.use_existing_work_files and self.removed_colors_file.is_file():
             logger.warning(
                 f'Removed colors file already exists - skipping: "{self.removed_colors_file}".'
             )
@@ -148,10 +157,11 @@ class RestorePipeline:
                 self.srce_upscale_stem,
                 self.removed_artifacts_file,
                 self.removed_colors_file,
+                debug_color_counts=self.debug_color_counts,
             )
 
     def _do_smooth_removed_colors(self) -> None:
-        if USE_EXISTING_WORK_FILES and self.smoothed_removed_colors_file.is_file():
+        if self.use_existing_work_files and self.smoothed_removed_colors_file.is_file():
             logger.warning(
                 f"Smoothed removed colors file already exists - skipping:"
                 f' "{self.smoothed_removed_colors_file}".'
@@ -171,7 +181,7 @@ class RestorePipeline:
             svg_file_to_png(self.dest_svg_restored_file, self.png_of_svg_file)
 
     def _do_inpaint(self) -> None:
-        if USE_EXISTING_WORK_FILES and self.inpainted_file.is_file():
+        if self.use_existing_work_files and self.inpainted_file.is_file():
             logger.warning(f'Inpainted file already exists - skipping: "{self.inpainted_file}".')
             return
 

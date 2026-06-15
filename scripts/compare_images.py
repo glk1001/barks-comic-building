@@ -1,15 +1,33 @@
-import argparse
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
+import typer
 from loguru import logger
+
+
+@dataclass
+class CompareError:
+    """A single comparison error, suitable for tabular reporting.
+
+    Attributes:
+        error_type: The category of error (e.g. "image", "file-diff").
+        file: The file the error relates to.
+        detail: Extra context (e.g. a metric value or diff message).
+
+    """
+
+    error_type: str
+    file: str
+    detail: str = ""
 
 
 def compare_images_in_dir(
     dir1: Path, dir2: Path, fuzz: str, ae_cutoff: float, diff_dir: Path | None
-) -> int:
+) -> list[CompareError]:
     # --- Argument Validation ---
     if not dir1.is_dir():
         msg = f'Error: Could not find directory1: "{dir1}".'
@@ -29,7 +47,7 @@ def compare_images_in_dir(
             msg = 'Error: You must specify a non-zero "AE_CUTOFF" for non-zero fuzz.'
             raise ValueError(msg)
 
-    errors = 0
+    errors: list[CompareError] = []
     files_in_dir1 = sorted(f for f in dir1.iterdir() if f.is_file())
 
     for image_file1 in files_in_dir1:
@@ -42,7 +60,7 @@ def compare_images_in_dir(
 
         if result_code != 0:
             logger.error(f"Compare error: {result_code}, {_metric}.")
-            errors += 1
+            errors.append(CompareError(error_type="image", file=image_file1.name, detail=_metric))
 
     return errors
 
@@ -235,44 +253,36 @@ def compare_images_fuzz_ae(
     return result, metric_output
 
 
+def main(
+    dir1: Annotated[Path, typer.Argument(help="First directory of images.")],
+    dir2: Annotated[Path, typer.Argument(help="Second directory of images.")],
+    fuzz: Annotated[
+        str,
+        typer.Argument(
+            help="Fuzz factor for comparison (e.g., '5%').\n"
+            "A value of '0%' uses the MAE metric instead of AE."
+        ),
+    ],
+    ae_cutoff: Annotated[
+        float,
+        typer.Argument(
+            help="AE (Absolute Error) pixel count cutoff for non-zero fuzz.\n"
+            "Required if fuzz is not '0%'."
+        ),
+    ] = 0.0,
+    diff_dir: Annotated[
+        Path | None,
+        typer.Argument(
+            help="Directory to store difference images for non-zero fuzz.\n"
+            "Required if fuzz is not '0%'."
+        ),
+    ] = None,
+) -> None:
+    """Compare all images in two directories."""
+    image_errors = compare_images_in_dir(dir1, dir2, fuzz, ae_cutoff, diff_dir)
+
+    sys.exit(len(image_errors))
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Compare all images in two directories.",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    parser.add_argument("dir1", type=Path, help="First directory of images.")
-    parser.add_argument("dir2", type=Path, help="Second directory of images.")
-    parser.add_argument(
-        "fuzz",
-        type=str,
-        help="Fuzz factor for comparison (e.g., '5%%').\n"
-        "A value of '0%%' uses the MAE metric instead of AE.",
-    )
-    parser.add_argument(
-        "ae_cutoff",
-        type=float,
-        nargs="?",
-        default=0.0,
-        help="AE (Absolute Error) pixel count cutoff for non-zero fuzz.\n"
-        "Required if fuzz is not '0%%'.",
-    )
-    parser.add_argument(
-        "diff_dir",
-        type=Path,
-        nargs="?",
-        help="Directory to store difference images for non-zero fuzz.\n"
-        "Required if fuzz is not '0%%'.",
-    )
-
-    args = parser.parse_args()
-
-    the_diff_dir = None if not args.diff_dir else Path(args.diff_dir)
-
-    num_errors = compare_images_in_dir(
-        Path(args.dir1), Path(args.dir2), args.fuzz, args.ae_cutoff, the_diff_dir
-    )
-
-    # if num_errors > 0:
-    #     print(f'"{args.dir1}": Found {num_errors} differing images.')  # noqa: ERA001
-
-    sys.exit(num_errors)
+    typer.run(main)

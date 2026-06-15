@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
-from compare_images import compare_images_in_dir
+from compare_images import CompareError, compare_images_in_dir
 from intspan import intspan
 from loguru import logger
 from loguru_config import LoguruConfig
@@ -56,7 +56,7 @@ def main(  # noqa: PLR0913
         msg = f'Error: Could not find Fantagraphics directory2: "{dir2}".'
         raise FileNotFoundError(msg)
 
-    num_errors = 0
+    errors: list[CompareError] = []
     for file1 in dir1.iterdir():
         if not file1.is_dir():
             msg = f'Error: Expecting dir not file: "{file1}".'
@@ -71,14 +71,14 @@ def main(  # noqa: PLR0913
         image_dir2 = dir2 / file1.name / "images"
         image_diff_dir = diff_dir / file1.name
 
-        num_errors += compare_images_in_dir(image_dir1, image_dir2, fuzz, ae_cutoff, image_diff_dir)
+        errors += compare_images_in_dir(image_dir1, image_dir2, fuzz, ae_cutoff, image_diff_dir)
 
-    if num_errors > 0:
-        logger.error(f"\nComparison failed with {num_errors} errors.")
+    if errors:
+        logger.error(f"\nComparison failed with {len(errors)} errors.")
     else:
         logger.success("\nComparison successful. All directories are equivalent.")
 
-    sys.exit(num_errors)
+    sys.exit(len(errors))
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ def create_symlink_zip(zip_file: Path, symlink_dir: Path, symlink: Path) -> None
     )
 
     if not symlink_dir.is_dir():
-        symlink_dir.mkdir()
+        symlink_dir.mkdir(parents=True, exist_ok=True)
     if symlink.is_symlink():
         symlink.unlink()
 
@@ -77,7 +77,7 @@ def relative_symlink(target: Path, destination: Path) -> None:
 
     """
     target_dir = destination.parent
-    target_dir.mkdir(exist_ok=True, parents=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     relative_source = target.relative_to(target_dir, walk_up=True)
 

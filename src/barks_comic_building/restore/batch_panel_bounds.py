@@ -27,6 +27,11 @@ def panel_bounds(comics_database: ComicsDatabase, title_list: list[str], work_di
         title_work_dir = work_dir / title
         title_work_dir.mkdir(parents=True, exist_ok=True)
 
+        title_vol_dir = comics_database.get_fantagraphics_panel_segments_volume_dir(
+            comics_database.get_fanta_volume_int(title)
+        )
+        title_vol_dir.mkdir(parents=True, exist_ok=True)
+
         bounding_box_processor = BoundingBoxProcessor(title_work_dir, COMIC_BUILDING_DIR)
 
         comic = comics_database.get_comic_book(title)

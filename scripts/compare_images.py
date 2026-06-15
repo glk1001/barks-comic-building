@@ -16,13 +16,17 @@ class CompareError:
     Attributes:
         error_type: The category of error (e.g. "image", "file-diff").
         file: The file the error relates to.
-        detail: Extra context (e.g. a metric value or diff message).
+        detail: Short context shown in the summary table (e.g. a metric value
+            or a truncated diff preview).
+        context: Optional full context (e.g. the complete diff) logged below
+            the summary table. Empty when there is nothing extra to show.
 
     """
 
     error_type: str
     file: str
     detail: str = ""
+    context: str = ""
 
 
 def compare_images_in_dir(
@@ -60,7 +64,11 @@ def compare_images_in_dir(
 
         if result_code != 0:
             logger.error(f"Compare error: {result_code}, {_metric}.")
-            errors.append(CompareError(error_type="image", file=image_file1.name, detail=_metric))
+            errors.append(
+                CompareError(
+                    error_type="image", file=f'"{image_file1}"\n"{image_file2}"', detail=_metric
+                )
+            )
 
     return errors
 

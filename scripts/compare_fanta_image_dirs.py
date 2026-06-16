@@ -6,7 +6,12 @@ import typer
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_helpers import get_comic_titles
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
-from compare_images import CompareError, compare_image_lists
+from compare_images import (
+    CalibrationResult,
+    CompareError,
+    compare_image_lists,
+    log_calibration_summary,
+)
 from loguru import logger
 from loguru_config import LoguruConfig
 
@@ -82,6 +87,7 @@ def main(  # noqa: PLR0913
     comics_database, titles = get_comic_titles(volumes_str, title_str)
 
     errors: list[CompareError] = []
+    calibration_results: list[CalibrationResult] = []
     for title in titles:
         logger.info(f'Comparing images in {title}"...')
 
@@ -106,9 +112,11 @@ def main(  # noqa: PLR0913
             calibrate=calibrate,
             tile_size=tile_size,
             tile_cutoff_pct=tile_cutoff_pct,
+            calibration_out=calibration_results,
         )
 
     if calibrate:
+        log_calibration_summary(calibration_results)
         logger.info("Calibration complete. Use the figures above to choose a cutoff.")
     elif errors:
         logger.error(f"Comparison failed with {len(errors)} errors.")

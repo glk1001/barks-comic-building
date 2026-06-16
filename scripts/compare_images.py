@@ -27,6 +27,23 @@ class CompareError:
     detail: str = ""
 
 
+@dataclass
+class CalibrationResult:
+    """A single per-image calibration measurement, for global ranking.
+
+    Attributes:
+        image: The image whose difference was measured.
+        value: The sortable metric (AE pixel count, or worst-tile percent).
+        detail: Human-readable figure shown in the summary (e.g. the pixel
+            count with percentage, or the worst-tile percent and position).
+
+    """
+
+    image: Path
+    value: float
+    detail: str
+
+
 def compare_image_lists(  # noqa: PLR0913
     file_list1: list[Path],
     file_list2: list[Path],
@@ -37,6 +54,7 @@ def compare_image_lists(  # noqa: PLR0913
     calibrate: bool = False,
     tile_size: int | None = None,
     tile_cutoff_pct: float | None = None,
+    calibration_out: list[CalibrationResult] | None = None,
 ) -> list[CompareError]:
     """Compare two parallel lists of images element by element.
 
@@ -58,6 +76,8 @@ def compare_image_lists(  # noqa: PLR0913
             the whole-page AE cutoff and uses `tile_cutoff_pct`.
         tile_cutoff_pct: In tiled mode, flag the image if any tile's
             differing-pixel percentage exceeds this.
+        calibration_out: When calibrating, the per-image measurements are
+            appended to this list (for a global summary across many calls).
 
     Returns:
         A list of comparison errors (empty in calibration mode).
@@ -79,9 +99,11 @@ def compare_image_lists(  # noqa: PLR0913
 
     if calibrate:
         if tile_size is not None:
-            calibrate_tiles_in_lists(file_list1, file_list2, fuzz, tile_size, diff_dir)
+            results = calibrate_tiles_in_lists(file_list1, file_list2, fuzz, tile_size, diff_dir)
         else:
-            calibrate_ae_in_lists(file_list1, file_list2, fuzz)
+            results = calibrate_ae_in_lists(file_list1, file_list2, fuzz)
+        if calibration_out is not None:
+            calibration_out.extend(results)
         return []
 
     errors: list[CompareError] = []
@@ -133,6 +155,7 @@ def compare_images_in_dir(  # noqa: PLR0913
     calibrate: bool = False,
     tile_size: int | None = None,
     tile_cutoff_pct: float | None = None,
+    calibration_out: list[CalibrationResult] | None = None,
 ) -> list[CompareError]:
     """Compare every image in `dir1` against its name-matched counterpart in `dir2`.
 
@@ -151,6 +174,8 @@ def compare_images_in_dir(  # noqa: PLR0913
         calibrate: When True, log per-image figures without applying a cutoff.
         tile_size: When set, compare regionally using `tile_cutoff_pct`.
         tile_cutoff_pct: In tiled mode, the per-tile differing-pixel cutoff.
+        calibration_out: When calibrating, the per-image measurements are
+            appended to this list (for a global summary across many calls).
 
     Returns:
         A list of comparison errors (missing-file errors plus list comparison).
@@ -192,6 +217,7 @@ def compare_images_in_dir(  # noqa: PLR0913
         calibrate=calibrate,
         tile_size=tile_size,
         tile_cutoff_pct=tile_cutoff_pct,
+        calibration_out=calibration_out,
     )
 
     return errors
@@ -307,24 +333,27 @@ def compare_one_image(  # noqa: PLR0913
     return CompareError(error_type="image", file=f'"{image_file1}"\n"{image_file2}"', detail=metric)
 
 
-def calibrate_ae_in_lists(file_list1: list[Path], file_list2: list[Path], fuzz: str) -> None:
-    """Log the AE pixel count for each image pair to help choose a cutoff.
+def calibrate_ae_in_lists(
+    file_list1: list[Path], file_list2: list[Path], fuzz: str
+) -> list[CalibrationResult]:
+    """Measure the AE pixel count for each image pair to help choose a cutoff.
 
-    For every parallel pair whose `file_list2` image exists, log the
-    absolute-error pixel count at the given `fuzz` (and as a percentage of the
-    image's total pixels), then log the maximum seen. No cutoff is applied.
+    For every parallel pair whose images exist, log the absolute-error pixel
+    count at the given `fuzz` (and as a percentage of the image's total pixels)
+    and collect it for the global summary. No cutoff is applied.
 
     Args:
         file_list1: First image list.
         file_list2: Second image list (parallel to `file_list1`).
         fuzz: Fuzz factor used when counting differing pixels.
 
+    Returns:
+        One CalibrationResult per measured pair (sortable by AE pixel count).
+
     """
     label = str(file_list1[0].parent) if file_list1 else "(images)"
     logger.info(f'Calibrating AE counts in "{label}" at fuzz {fuzz}...')
-    max_count = 0
-    max_name = ""
-    max_pct = 0.0
+    results: list[CalibrationResult] = []
     for image_file1, image_file2 in zip(file_list1, file_list2, strict=True):
         if not image_file1.exists() or not image_file2.exists():
             continue
@@ -337,12 +366,13 @@ def calibrate_ae_in_lists(file_list1: list[Path], file_list2: list[Path], fuzz: 
         total_pixels = get_pixel_count(image_file1)
         pct = (100.0 * count / total_pixels) if total_pixels else 0.0
         logger.info(f"  {image_file1.name}: AE={count} ({pct:.3f}% of {total_pixels} px)")
+        results.append(
+            CalibrationResult(
+                image=image_file1, value=float(count), detail=f"{count} px ({pct:.3f}%)"
+            )
+        )
 
-        if count > max_count:
-            max_count, max_name, max_pct = count, image_file1.name, pct
-
-    if max_count:
-        logger.info(f'Max AE for "{label}": {max_count} px ({max_pct:.3f}%) ("{max_name}").')
+    return results
 
 
 def get_dimensions(image: Path) -> tuple[int, int] | None:
@@ -508,8 +538,8 @@ def calibrate_tiles_in_lists(
     fuzz: str,
     tile_size: int,
     diff_dir: Path | None,
-) -> None:
-    """Log the worst-tile differing-pixel % per image to help choose a cutoff.
+) -> list[CalibrationResult]:
+    """Measure the worst-tile differing-pixel % per image to help choose a cutoff.
 
     Args:
         file_list1: First image list.
@@ -519,13 +549,14 @@ def calibrate_tiles_in_lists(
         diff_dir: Directory for the (transient) tile masks; a temp dir is used
             if None.
 
+    Returns:
+        One CalibrationResult per measured pair (sortable by worst-tile percent).
+
     """
     label = str(file_list1[0].parent) if file_list1 else "(images)"
     logger.info(f'Calibrating tile AE in "{label}" at fuzz {fuzz}, tile ~{tile_size}px...')
     mask_dir = diff_dir if diff_dir is not None else Path(tempfile.gettempdir())
-    max_pct = 0.0
-    max_name = ""
-    max_pos = ""
+    results: list[CalibrationResult] = []
     for image_file1, image_file2 in zip(file_list1, file_list2, strict=True):
         if not image_file1.exists() or not image_file2.exists():
             continue
@@ -542,15 +573,33 @@ def calibrate_tiles_in_lists(
         worst = max(fractions)
         worst_pct = worst * 100.0
         row, col = divmod(fractions.index(worst), cols)
-        logger.info(
-            f"  {image_file1.name}: worst tile {worst_pct:.3f}% at (r{row},c{col}) [{cols}x{rows}]"
-        )
+        detail = f"{worst_pct:.3f}% at (r{row},c{col}) [{cols}x{rows}]"
+        logger.info(f"  {image_file1.name}: worst tile {detail}")
+        results.append(CalibrationResult(image=image_file1, value=worst_pct, detail=detail))
 
-        if worst_pct > max_pct:
-            max_pct, max_name, max_pos = worst_pct, image_file1.name, f"(r{row},c{col})"
+    return results
 
-    if max_pct:
-        logger.info(f'Max tile AE for "{label}": {max_pct:.3f}% {max_pos} ("{max_name}").')
+
+def log_calibration_summary(results: list[CalibrationResult], top_n: int = 10) -> None:
+    """Log the overall maximum and the worst top-N pages across a calibration run.
+
+    Args:
+        results: All per-image calibration measurements collected over the run.
+        top_n: How many of the worst pages to list.
+
+    """
+    if not results:
+        logger.info("No calibration measurements were collected.")
+        return
+
+    ranked = sorted(results, key=lambda r: r.value, reverse=True)
+    best = ranked[0]
+    logger.info(f'Max: {best.detail} ("{best.image}").')
+
+    top = ranked[:top_n]
+    logger.info(f"Top {len(top)} of {len(results)} pages (worst first):")
+    for i, result in enumerate(top, start=1):
+        logger.info(f'  {i:2}. {result.detail}  "{result.image}"')
 
 
 def get_image_file2(dir2: Path, image_file1: Path) -> Path | None:

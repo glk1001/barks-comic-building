@@ -45,6 +45,7 @@ kumiko
 labelpad
 levelname
 linestyle
+lowlight
 magica
 markerfacecolor
 markersize
@@ -84,6 +85,7 @@ svgs
 svpg
 symlinking
 thepayments
+tilemask
 tobytes
 ultramix
 upscayl

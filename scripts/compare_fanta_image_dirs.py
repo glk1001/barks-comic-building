@@ -45,12 +45,29 @@ def main(  # noqa: PLR0913
             "Overrides --ae_cutoff when set (resolution-independent).",
         ),
     ] = None,
+    tile_size: Annotated[
+        int | None,
+        typer.Option(
+            "--tile-size",
+            help="Enable regional comparison: split each page into ~this-size (px)\n"
+            "tiles and flag a page if any tile differs too much. Replaces the\n"
+            "whole-page AE cutoff; use with --tile-cutoff-pct.",
+        ),
+    ] = None,
+    tile_cutoff_pct: Annotated[
+        float | None,
+        typer.Option(
+            "--tile-cutoff-pct",
+            help="In tiled mode, flag a page if any tile's differing-pixel\n"
+            "percentage exceeds this.",
+        ),
+    ] = None,
     calibrate: Annotated[
         bool,
         typer.Option(
             "--calibrate",
-            help="Print the AE pixel count per image (at --fuzz) without applying a\n"
-            "cutoff, to help choose a good --ae_cutoff / --ae-cutoff-pct.",
+            help="Print the per-image figure (AE, or worst tile in tiled mode) at\n"
+            "--fuzz without applying a cutoff, to help choose a cutoff.",
         ),
     ] = False,
     log_level_str: LogLevelArg = "DEBUG",
@@ -92,10 +109,12 @@ def main(  # noqa: PLR0913
             image_diff_dir,
             ae_cutoff_pct=ae_cutoff_pct,
             calibrate=calibrate,
+            tile_size=tile_size,
+            tile_cutoff_pct=tile_cutoff_pct,
         )
 
     if calibrate:
-        logger.info("Calibration complete. Use the AE counts above to choose a cutoff.")
+        logger.info("Calibration complete. Use the figures above to choose a cutoff.")
     elif errors:
         logger.error(f"Comparison failed with {len(errors)} errors.")
     else:

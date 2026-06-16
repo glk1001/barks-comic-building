@@ -27,9 +27,9 @@ class CompareError:
     detail: str = ""
 
 
-def compare_images_in_dir(  # noqa: PLR0913
-    dir1: Path,
-    dir2: Path,
+def compare_image_lists(  # noqa: PLR0913
+    file_list1: list[Path],
+    file_list2: list[Path],
     fuzz: str,
     ae_cutoff: float,
     diff_dir: Path | None,
@@ -38,11 +38,14 @@ def compare_images_in_dir(  # noqa: PLR0913
     tile_size: int | None = None,
     tile_cutoff_pct: float | None = None,
 ) -> list[CompareError]:
-    """Compare every image in `dir1` against its counterpart in `dir2`.
+    """Compare two parallel lists of images element by element.
+
+    `file_list1[i]` is compared against `file_list2[i]`; the two lists must be
+    the same length (element *i* is expected to be the same page in each).
 
     Args:
-        dir1: First image directory.
-        dir2: Second image directory.
+        file_list1: First image list.
+        file_list2: Second image list (parallel to `file_list1`).
         fuzz: Fuzz factor (e.g. "5%"). "0%" uses the RMSE metric, otherwise AE.
         ae_cutoff: Absolute AE pixel-count cutoff above which an image is flagged.
         diff_dir: Directory for diff images (required for non-zero fuzz).
@@ -60,9 +63,11 @@ def compare_images_in_dir(  # noqa: PLR0913
         A list of comparison errors (empty in calibration mode).
 
     """
+    if len(file_list1) != len(file_list2):
+        msg = f"Error: Image lists differ in length: {len(file_list1)} vs {len(file_list2)}."
+        raise ValueError(msg)
+
     _validate_compare_inputs(
-        dir1,
-        dir2,
         fuzz,
         ae_cutoff,
         ae_cutoff_pct,
@@ -72,26 +77,32 @@ def compare_images_in_dir(  # noqa: PLR0913
         calibrate=calibrate,
     )
 
-    files_in_dir1 = sorted(f for f in dir1.iterdir() if f.is_file())
-
     if calibrate:
         if tile_size is not None:
-            calibrate_tiles_in_dir(dir1, dir2, fuzz, tile_size, files_in_dir1, diff_dir)
+            calibrate_tiles_in_lists(file_list1, file_list2, fuzz, tile_size, diff_dir)
         else:
-            calibrate_ae_in_dir(dir1, dir2, fuzz, files_in_dir1)
+            calibrate_ae_in_lists(file_list1, file_list2, fuzz)
         return []
 
     errors: list[CompareError] = []
-    for image_file1 in files_in_dir1:
-        image_file2 = get_image_file2(dir2, image_file1)
-        if not image_file2:
-            # No counterpart in dir2 (get_image_file2 has already logged a
-            # warning). Record it so the comparison is reported as failed.
+    for image_file1, image_file2 in zip(file_list1, file_list2, strict=True):
+        if not image_file1.exists():
+            logger.warning(f'Missing image: "{image_file1}".')
             errors.append(
                 CompareError(
                     error_type="image-missing",
                     file=f'"{image_file1}"',
-                    detail="no corresponding file",
+                    detail="file does not exist",
+                )
+            )
+            continue
+        if not image_file2.exists():
+            logger.warning(f'Missing image: "{image_file2}".')
+            errors.append(
+                CompareError(
+                    error_type="image-missing",
+                    file=f'"{image_file2}"',
+                    detail="file does not exist",
                 )
             )
             continue
@@ -112,9 +123,81 @@ def compare_images_in_dir(  # noqa: PLR0913
     return errors
 
 
-def _validate_compare_inputs(  # noqa: PLR0913
+def compare_images_in_dir(  # noqa: PLR0913
     dir1: Path,
     dir2: Path,
+    fuzz: str,
+    ae_cutoff: float,
+    diff_dir: Path | None,
+    ae_cutoff_pct: float | None = None,
+    calibrate: bool = False,
+    tile_size: int | None = None,
+    tile_cutoff_pct: float | None = None,
+) -> list[CompareError]:
+    """Compare every image in `dir1` against its name-matched counterpart in `dir2`.
+
+    Each file in `dir1` is matched to a file of the same name in `dir2` (with a
+    ``.jpg`` fallback). Files with no counterpart are reported as
+    `image-missing` errors; the matched pairs are then compared via
+    `compare_image_lists`.
+
+    Args:
+        dir1: First image directory.
+        dir2: Second image directory.
+        fuzz: Fuzz factor (e.g. "5%"). "0%" uses the RMSE metric, otherwise AE.
+        ae_cutoff: Absolute AE pixel-count cutoff above which an image is flagged.
+        diff_dir: Directory for diff images (required for non-zero fuzz).
+        ae_cutoff_pct: AE cutoff as a percentage of each image's total pixels.
+        calibrate: When True, log per-image figures without applying a cutoff.
+        tile_size: When set, compare regionally using `tile_cutoff_pct`.
+        tile_cutoff_pct: In tiled mode, the per-tile differing-pixel cutoff.
+
+    Returns:
+        A list of comparison errors (missing-file errors plus list comparison).
+
+    """
+    if not dir1.is_dir():
+        msg = f'Error: Could not find directory1: "{dir1}".'
+        raise FileNotFoundError(msg)
+    if not dir2.is_dir():
+        msg = f'Error: Could not find directory2: "{dir2}".'
+        raise FileNotFoundError(msg)
+
+    errors: list[CompareError] = []
+    file_list1: list[Path] = []
+    file_list2: list[Path] = []
+    for image_file1 in sorted(f for f in dir1.iterdir() if f.is_file()):
+        image_file2 = get_image_file2(dir2, image_file1)
+        if not image_file2:
+            # No counterpart in dir2 (get_image_file2 has already logged a
+            # warning). Record it so the comparison is reported as failed.
+            errors.append(
+                CompareError(
+                    error_type="image-missing",
+                    file=f'"{image_file1}"',
+                    detail="no corresponding file",
+                )
+            )
+            continue
+        file_list1.append(image_file1)
+        file_list2.append(image_file2)
+
+    errors += compare_image_lists(
+        file_list1,
+        file_list2,
+        fuzz,
+        ae_cutoff,
+        diff_dir,
+        ae_cutoff_pct=ae_cutoff_pct,
+        calibrate=calibrate,
+        tile_size=tile_size,
+        tile_cutoff_pct=tile_cutoff_pct,
+    )
+
+    return errors
+
+
+def _validate_compare_inputs(  # noqa: PLR0913
     fuzz: str,
     ae_cutoff: float,
     ae_cutoff_pct: float | None,
@@ -124,13 +207,7 @@ def _validate_compare_inputs(  # noqa: PLR0913
     tile_cutoff_pct: float | None,
     calibrate: bool,
 ) -> None:
-    """Validate `compare_images_in_dir` arguments, raising on bad input."""
-    if not dir1.is_dir():
-        msg = f'Error: Could not find directory1: "{dir1}".'
-        raise FileNotFoundError(msg)
-    if not dir2.is_dir():
-        msg = f'Error: Could not find directory2: "{dir2}".'
-        raise FileNotFoundError(msg)
+    """Validate `compare_image_lists` arguments, raising on bad input."""
     if not fuzz.endswith("%"):
         msg = f"Error: The fuzz amount must end with a '%': \"{fuzz}\"."
         raise ValueError(msg)
@@ -230,27 +307,26 @@ def compare_one_image(  # noqa: PLR0913
     return CompareError(error_type="image", file=f'"{image_file1}"\n"{image_file2}"', detail=metric)
 
 
-def calibrate_ae_in_dir(dir1: Path, dir2: Path, fuzz: str, files_in_dir1: list[Path]) -> None:
+def calibrate_ae_in_lists(file_list1: list[Path], file_list2: list[Path], fuzz: str) -> None:
     """Log the AE pixel count for each image pair to help choose a cutoff.
 
-    For every file in `files_in_dir1` that has a counterpart in `dir2`, log the
+    For every parallel pair whose `file_list2` image exists, log the
     absolute-error pixel count at the given `fuzz` (and as a percentage of the
     image's total pixels), then log the maximum seen. No cutoff is applied.
 
     Args:
-        dir1: First image directory.
-        dir2: Second image directory.
+        file_list1: First image list.
+        file_list2: Second image list (parallel to `file_list1`).
         fuzz: Fuzz factor used when counting differing pixels.
-        files_in_dir1: The files in `dir1` to measure.
 
     """
-    logger.info(f'Calibrating AE counts in "{dir1}" at fuzz {fuzz}...')
+    label = str(file_list1[0].parent) if file_list1 else "(images)"
+    logger.info(f'Calibrating AE counts in "{label}" at fuzz {fuzz}...')
     max_count = 0
     max_name = ""
     max_pct = 0.0
-    for image_file1 in files_in_dir1:
-        image_file2 = get_image_file2(dir2, image_file1)
-        if not image_file2:
+    for image_file1, image_file2 in zip(file_list1, file_list2, strict=True):
+        if not image_file1.exists() or not image_file2.exists():
             continue
 
         count = get_ae_pixel_count(image_file1, image_file2, fuzz)
@@ -266,7 +342,7 @@ def calibrate_ae_in_dir(dir1: Path, dir2: Path, fuzz: str, files_in_dir1: list[P
             max_count, max_name, max_pct = count, image_file1.name, pct
 
     if max_count:
-        logger.info(f'Max AE for "{dir1}": {max_count} px ({max_pct:.3f}%) ("{max_name}").')
+        logger.info(f'Max AE for "{label}": {max_count} px ({max_pct:.3f}%) ("{max_name}").')
 
 
 def get_dimensions(image: Path) -> tuple[int, int] | None:
@@ -426,34 +502,32 @@ def compare_images_tiled(  # noqa: PLR0913
     return 0, detail
 
 
-def calibrate_tiles_in_dir(  # noqa: PLR0913
-    dir1: Path,
-    dir2: Path,
+def calibrate_tiles_in_lists(
+    file_list1: list[Path],
+    file_list2: list[Path],
     fuzz: str,
     tile_size: int,
-    files_in_dir1: list[Path],
     diff_dir: Path | None,
 ) -> None:
     """Log the worst-tile differing-pixel % per image to help choose a cutoff.
 
     Args:
-        dir1: First image directory.
-        dir2: Second image directory.
+        file_list1: First image list.
+        file_list2: Second image list (parallel to `file_list1`).
         fuzz: Fuzz factor used when counting differing pixels.
         tile_size: Target tile edge length in pixels.
-        files_in_dir1: The files in `dir1` to measure.
         diff_dir: Directory for the (transient) tile masks; a temp dir is used
             if None.
 
     """
-    logger.info(f'Calibrating tile AE in "{dir1}" at fuzz {fuzz}, tile ~{tile_size}px...')
+    label = str(file_list1[0].parent) if file_list1 else "(images)"
+    logger.info(f'Calibrating tile AE in "{label}" at fuzz {fuzz}, tile ~{tile_size}px...')
     mask_dir = diff_dir if diff_dir is not None else Path(tempfile.gettempdir())
     max_pct = 0.0
     max_name = ""
     max_pos = ""
-    for image_file1 in files_in_dir1:
-        image_file2 = get_image_file2(dir2, image_file1)
-        if not image_file2:
+    for image_file1, image_file2 in zip(file_list1, file_list2, strict=True):
+        if not image_file1.exists() or not image_file2.exists():
             continue
 
         mask_path = mask_dir / f"tilemask-{image_file1.stem}.png"
@@ -476,7 +550,7 @@ def calibrate_tiles_in_dir(  # noqa: PLR0913
             max_pct, max_name, max_pos = worst_pct, image_file1.name, f"(r{row},c{col})"
 
     if max_pct:
-        logger.info(f'Max tile AE for "{dir1}": {max_pct:.3f}% {max_pos} ("{max_name}").')
+        logger.info(f'Max tile AE for "{label}": {max_pct:.3f}% {max_pos} ("{max_name}").')
 
 
 def get_image_file2(dir2: Path, image_file1: Path) -> Path | None:

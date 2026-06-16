@@ -3,9 +3,10 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from comic_utils.common_typer_options import LogLevelArg, VolumesArg
-from compare_images import CompareError, compare_images_in_dir
-from intspan import intspan
+from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_helpers import get_comic_titles
+from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
+from compare_images import CompareError, compare_image_lists
 from loguru import logger
 from loguru_config import LoguruConfig
 
@@ -15,12 +16,13 @@ app = typer.Typer()
 log_level = ""
 
 
-@app.command(help="Compares the images in two Fantagraphics directories")
+@app.command(
+    help="Compares the images in Fantagraphics original and restored directories by title or volume"
+)
 def main(  # noqa: PLR0913
-    dir1: Path,
-    dir2: Path,
-    volumes_str: VolumesArg,
-    diff_dir: Path,
+    volumes_str: VolumesArg = "",
+    title_str: TitleArg = "",
+    diff_dir: Path = Path("/tmp"),  # noqa: S108
     fuzz: Annotated[
         str,
         typer.Option(
@@ -28,7 +30,7 @@ def main(  # noqa: PLR0913
             help="Fuzz factor for comparison (e.g., '5%')\n"
             "A value of '0%' uses the RMSE metric instead of AE.",
         ),
-    ],
+    ] = "5%",
     ae_cutoff: Annotated[
         float,
         typer.Option(
@@ -77,33 +79,26 @@ def main(  # noqa: PLR0913
     log_level = log_level_str
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
-    volumes = list(intspan(volumes_str))
-
-    if not dir1.is_dir():
-        msg = f'Error: Could not find Fantagraphics directory1: "{dir1}".'
-        raise FileNotFoundError(msg)
-    if not dir2.is_dir():
-        msg = f'Error: Could not find Fantagraphics directory2: "{dir2}".'
-        raise FileNotFoundError(msg)
+    comics_database, titles = get_comic_titles(volumes_str, title_str)
 
     errors: list[CompareError] = []
-    for file1 in dir1.iterdir():
-        if not file1.is_dir():
-            msg = f'Error: Expecting dir not file: "{file1}".'
-            raise FileExistsError(msg)
+    for title in titles:
+        logger.info(f'Comparing images in {title}"...')
 
-        if not any(str(v) in str(file1.name) for v in volumes):
-            continue
+        comic_book = comics_database.get_comic_book(title)
 
-        logger.info(f'Comparing image dirs in {file1.name}"...')
+        original_files = [
+            f[0] for f in comic_book.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
+        ]
+        restored_files = [
+            f[0] for f in comic_book.get_final_srce_story_files(RESTORABLE_PAGE_TYPES)
+        ]
 
-        image_dir1 = file1 / "images"
-        image_dir2 = dir2 / file1.name / "images"
-        image_diff_dir = diff_dir / file1.name
+        image_diff_dir = diff_dir / title
 
-        errors += compare_images_in_dir(
-            image_dir1,
-            image_dir2,
+        errors += compare_image_lists(
+            restored_files,
+            original_files,
             fuzz,
             ae_cutoff,
             image_diff_dir,

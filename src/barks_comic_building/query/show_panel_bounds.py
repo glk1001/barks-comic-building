@@ -55,14 +55,15 @@ def _build_page_images(
 def show_panel_bounds(
     comics_database: ComicsDatabase,
     title: str,
-    start_page: int,
+    start_fanta_page: str | None = None,
 ) -> None:
     """Display panel-bounds overlays for ``title`` in a Kivy viewer window.
 
     Args:
         comics_database: The comics database used to resolve the title.
         title: The Barks title to display.
-        start_page: 1-based page index to show first. Clamped to the available range.
+        start_fanta_page: Fanta page string (e.g. ``"202"``) to open on. If ``None`` or
+            not found among the title's restorable pages, the first page is shown.
 
     """
     logger.info(f'Showing panel bounds for "{title}"...')
@@ -71,6 +72,16 @@ def show_panel_bounds(
     if not pages:
         logger.error(f'No restorable pages found for "{title}".')
         return
+
+    start_page = 1
+    if start_fanta_page is not None:
+        fanta_pages = [fanta_page for fanta_page, _ in pages]
+        if start_fanta_page in fanta_pages:
+            start_page = fanta_pages.index(start_fanta_page) + 1
+        else:
+            logger.warning(
+                f'Fanta page "{start_fanta_page}" not found in "{title}"; showing first page.'
+            )
 
     KivyPageViewer(
         window_title=f"Panel bounds — {title}",
@@ -82,41 +93,50 @@ def show_panel_bounds(
 app = typer.Typer()
 
 
-@app.command(help="Show panel bounds for title")
+@app.command(help="Show panel bounds for a title")
 def main(
     title_str: TitleArg = "",
     volume: int | None = typer.Option(
         None,
         "--volume",
         "-v",
-        help="Fanta volume; use with --page to look up the title. Mutually exclusive with --title.",
+        help="Fanta volume; use with --fanta-page to look up the title. "
+        "Mutually exclusive with --title.",
     ),
-    page: int = typer.Option(1, "--page", "-p", help="Page number to start on (1-based)."),
+    fanta_page: int | None = typer.Option(
+        None,
+        "--fanta-page",
+        "-p",
+        help="Fanta volume page to open on; use with --volume. Mutually exclusive with --title.",
+    ),
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    if title_str and volume is not None:
-        msg = "Options --title and --volume are mutually exclusive."
+    using_volume = volume is not None or fanta_page is not None
+    if title_str and using_volume:
+        msg = "Options --title and --volume/--fanta-page are mutually exclusive."
         raise typer.BadParameter(msg)
 
     comics_database = ComicsDatabase()
 
-    if volume is not None:
-        page_str = get_page_str(page)
-        title_str, page = get_title_from_volume_page(comics_database, volume, page_str)
-        if not title_str:
-            msg = f'No title found for volume {volume}, page "{page_str}".'
+    start_fanta_page: str | None = None
+    if using_volume:
+        if volume is None or fanta_page is None:
+            msg = "Options --volume and --fanta-page must be given together."
             raise typer.BadParameter(msg)
-        logger.info(
-            f'Resolved volume {volume}, page "{page_str}" -> title="{title_str}", page={page}.'
-        )
+        start_fanta_page = get_page_str(fanta_page)
+        title_str, _ = get_title_from_volume_page(comics_database, volume, start_fanta_page)
+        if not title_str:
+            msg = f'No title found for volume {volume}, page "{start_fanta_page}".'
+            raise typer.BadParameter(msg)
+        logger.info(f'Resolved volume {volume}, page "{start_fanta_page}" -> title="{title_str}".')
 
     if not title_str:
-        msg = "Must pass --title, or --volume with --page."
+        msg = "Must pass --title, or --volume with --fanta-page."
         raise typer.BadParameter(msg)
 
-    show_panel_bounds(comics_database, title_str, page)
+    show_panel_bounds(comics_database, title_str, start_fanta_page)
 
 
 if __name__ == "__main__":

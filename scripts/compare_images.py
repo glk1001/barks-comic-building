@@ -142,6 +142,9 @@ def compare_image_lists(  # noqa: PLR0913
         if error is not None:
             errors.append(error)
 
+    if not errors and diff_dir is not None:
+        diff_dir.rmdir()
+
     return errors
 
 

@@ -16,6 +16,8 @@ from compare_images import (
 )
 from loguru import logger
 from loguru_config import LoguruConfig
+from rich.console import Console
+from rich.table import Table
 
 APP_LOGGING_NAME = "fcmp"
 
@@ -69,6 +71,25 @@ def _delete_any_downscaled_files(image_dir: Path) -> None:
     for item in image_dir.iterdir():
         item.unlink()
     image_dir.rmdir()
+
+
+def print_error_summary(errors: list[tuple[str, CompareError]]) -> None:
+    """Print a rich summary table of all comparison errors.
+
+    Args:
+        errors: A list of (title, error) pairs collected over all compared titles.
+
+    """
+    table = Table(title="Comparison Errors", show_lines=True)
+    table.add_column("Title", style="cyan", no_wrap=True)
+    table.add_column("Type", style="magenta", no_wrap=True)
+    table.add_column("File", style="yellow")
+    table.add_column("Detail", style="white")
+
+    for title, err in errors:
+        table.add_row(title, err.error_type, err.file, err.detail)
+
+    Console().print(table)
 
 
 def _delete_diff_dir_if_empty(diff_dir: Path) -> None:
@@ -150,7 +171,7 @@ def main(  # noqa: PLR0913
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
 
-    errors: list[CompareError] = []
+    errors: list[tuple[str, CompareError]] = []
     calibration_results: list[CalibrationResult] = []
     for title in titles:
         logger.info(f'Comparing images in {title}"...')
@@ -166,7 +187,7 @@ def main(  # noqa: PLR0913
         if len(restored_files) == 0:
             logger.warning(f'No restored files need to be compared for "{title}".')
         else:
-            errors += compare_image_lists(
+            title_errors = compare_image_lists(
                 restored_files,
                 original_files,
                 fuzz,
@@ -178,6 +199,7 @@ def main(  # noqa: PLR0913
                 tile_cutoff_pct=tile_cutoff_pct,
                 calibration_out=calibration_results,
             )
+            errors += [(title, err) for err in title_errors]
 
         _delete_any_downscaled_files(title_downscaled_dir)
         _delete_diff_dir_if_empty(image_diff_dir)
@@ -190,6 +212,7 @@ def main(  # noqa: PLR0913
             logger.info("Calibration complete. Use the figures above to choose a cutoff.")
     elif errors:
         logger.error(f"Comparison failed with {len(errors)} errors.")
+        print_error_summary(errors)
     else:
         logger.success("Comparison successful. All directories are equivalent.")
 

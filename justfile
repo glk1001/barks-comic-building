@@ -6,6 +6,7 @@ rsync_dirs := "rsync --delete -avh " + rsync_flags
 barks_dir := "$HOME/Books/Carl Barks"
 
 # @formatter:off
+# Base drive mount points
 internal_2tb          := "/mnt/2tb_drive"
 external_2tb_backup_1 := "/run/media/greg/2tb_drive_backup"
 external_2tb_backup_2 := "/run/media/greg/2tb_drv_backup_2"
@@ -14,34 +15,20 @@ external_1tb_2        := "/run/media/greg/1TB_Backup_2"
 external_750          := "/run/media/greg/750_Backup"
 external_500_1        := "/run/media/greg/500_Backup_1"
 external_500_2        := "/run/media/greg/500_Backup_2"
+external_music        := "/run/media/greg/MusicBarksBackup"
+external_restic       := "/run/media/greg/restic_backup"
+external_root         := "/run/media/greg/root_backup"
 
-internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/"
-
-barks_2tb_internal_backup_dir                     := internal_2tb + "/barks-backup/Carl Barks"
-barks_2tb_internal_books_dir                      := internal_2tb + "/Books"
-barks_2tb_internal_backup_barks_wiki_dir          := internal_2tb + "/barks-backup/barks-wiki"
-barks_2tb_internal_backup_barks_reader_config_dir := internal_2tb + "/barks-backup/barks-reader-config"
-
-barks_1tb_external_backup_1_dir := external_1tb_1 + "/barks-backup/Carl Barks"
-barks_1tb_external_backup_2_dir := external_1tb_2 + "/barks-backup/Carl Barks"
-barks_750_external_backup_dir   := external_750   + "/barks-backup/Carl Barks"
-
-barks_1tb_external_backup_1_big_dirs := external_1tb_1 + "/Books"
-barks_1tb_external_backup_2_big_dirs := external_1tb_2 + "/Books"
-barks_750_external_backup_big_dirs   := external_750   + "/Books"
-
-barks_1tb_external_backup_1_barks_wiki_dir := external_1tb_1 + "/barks-backup/barks-wiki"
-barks_1tb_external_backup_2_barks_wiki_dir := external_1tb_2 + "/barks-backup/barks-wiki"
-barks_750_external_backup_barks_wiki_dir   := external_750   + "/barks-backup/barks-wiki"
-
-barks_music_external_backup_dir := "/run/media/greg/MusicBarksBackup/Books/Carl Barks"
-barks_restic_external_backup_dir := "/run/media/greg/restic_backup/Books/Carl Barks"
-
+# Source directories
 barks_wiki_dir          := "$HOME/Prj/github/barks-compleat-digital/barks-wiki"
 barks_reader_config_dir := "$HOME/opt/barks-reader/config"
 fast_data_dir           := "/mnt/fast_data"
 fast_external_dir       := "/mnt/fast_external"
 # @formatter:on
+
+internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/"
+restore_work_dir          := internal_2tb + "/workdir/barks-restore"
+regression_tests_dir      := internal_2tb + "/Books/Carl Barks/Regression-Tests"
 
 _default:
     just --list --unsorted | tee /tmp/junk.log
@@ -98,22 +85,22 @@ upscayl-title title:
 # Restore all restoreable pages in a volume or volumes
 [group('comics')]
 restore volume:
-    {{uv_run}} barks-batch-restore --work-dir /mnt/2tb_drive/workdir/barks-restore/restore --volume {{volume}}
+    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --volume {{volume}}
 
 # Restore all restoreable pages in a title
 [group('comics')]
 restore-title title:
-    {{uv_run}} barks-batch-restore --work-dir /mnt/2tb_drive/workdir/barks-restore/restore --title "{{title}}"
+    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --title "{{title}}"
 
 # Generate panel bounds for all restoreable pages in a volume or volumes
 [group('comics')]
 panels volume:
-    {{uv_run}} barks-batch-panel-bounds --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --volume {{volume}}
+    {{uv_run}} barks-batch-panel-bounds --work-dir {{restore_work_dir}}/panel-bounds --volume {{volume}}
 
 # Generate panel bounds for all restoreable pages in a title
 [group('comics')]
 panels-title title:
-    {{uv_run}} barks-batch-panel-bounds --work-dir /mnt/2tb_drive/workdir/barks-restore/panel-bounds --title "{{title}}"
+    {{uv_run}} barks-batch-panel-bounds --work-dir {{restore_work_dir}}/panel-bounds --title "{{title}}"
 
 # Quickly browse a volume page
 [group('utils')]
@@ -160,14 +147,14 @@ show-diffs volume:
 test-small:
     bash scripts/small-build-test.sh
     {{uv_run}} scripts/compare_build_root_dirs.py \
-               "{{barks_2tb_internal_books_dir}}/Carl Barks/Regression-Tests/Small/aaa-Chronological-dirs" \
+               "{{regression_tests_dir}}/Small/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
 # Compare all build files to the last known good build files
 [group('comics')]
 compare-all:
     {{uv_run}} scripts/compare_build_root_dirs.py \
-               "{{barks_2tb_internal_books_dir}}/Carl Barks/Regression-Tests/Big/aaa-Chronological-dirs" \
+               "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
 # Do a big image compare of restored to original looking for upscayl errors
@@ -184,6 +171,21 @@ compare-restored-orig volume:
     {{uv_run}} scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
                                                    "{{barks_dir}}/Fantagraphics-original" 50% 5000 {{volume}}
 
+# Rsync root drive to 'root' external drive
+[group('rsync')]
+backup-to-root-external:
+    sudo rsync -aAXv --delete \
+        --exclude='/dev/*' \
+        --exclude='/proc/*' \
+        --exclude='/sys/*' \
+        --exclude='/tmp/*' \
+        --exclude='/run/*' \
+        --exclude='/mnt/*' \
+        --exclude='/media/*' \
+        --exclude='/lost+found' \
+        --exclude='/home/*' \
+        / "{{external_root}}/"
+
 # Rsync 2tb internal drive to the main 2tb external backup drive
 [group('rsync')]
 [confirm]
@@ -198,41 +200,41 @@ backup-to-2tb-external-2:
 # Rsync all Barks files to the 2tb internal drive
 [group('rsync')]
 backup-to-2tb-internal:
-    {{rsync_dirs}} "{{barks_dir}}/"               "{{barks_2tb_internal_backup_dir}}/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"          "{{barks_2tb_internal_backup_barks_wiki_dir}}/"
-    {{rsync_dirs}} "{{barks_reader_config_dir}}/" "{{barks_2tb_internal_backup_barks_reader_config_dir}}/"
+    {{rsync_dirs}} "{{barks_dir}}/"               "{{internal_2tb}}/barks-backup/Carl Barks/"
+    {{rsync_dirs}} "{{barks_wiki_dir}}/"          "{{internal_2tb}}/barks-backup/barks-wiki/"
+    {{rsync_dirs}} "{{barks_reader_config_dir}}/" "{{internal_2tb}}/barks-backup/barks-reader-config/"
 
 # Rsync all Barks files FROM the main 2tb external backup drive
 [group('rsync')]
 [confirm]
 backup-from-2tb-external:
     {{rsync_dirs}} {{internal_2tb_exclude_dirs}} \
-                   "{{external_2tb_backup_1}}/"                             "{{internal_2tb}}/"
-    {{rsync_dirs}} "{{barks_2tb_internal_backup_dir}}/"                     "{{barks_dir}}/"
-    {{rsync_dirs}} "{{barks_2tb_internal_backup_barks_wiki_dir}}/"          "{{barks_wiki_dir}}/"
-    {{rsync_dirs}} "{{barks_2tb_internal_backup_barks_reader_config_dir}}/" "{{barks_reader_config_dir}}/"
+                   "{{external_2tb_backup_1}}/"                         "{{internal_2tb}}/"
+    {{rsync_dirs}} "{{internal_2tb}}/barks-backup/Carl Barks/"          "{{barks_dir}}/"
+    {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-wiki/"          "{{barks_wiki_dir}}/"
+    {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-reader-config/" "{{barks_reader_config_dir}}/"
 
 # Rsync all Barks files to the 1tb external backup drive no. 1
 [group('rsync')]
-backup-to-1tb-external:
-    {{rsync_dirs}} "{{barks_dir}}/"                    "{{barks_1tb_external_backup_1_dir}}/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"               "{{barks_1tb_external_backup_1_barks_wiki_dir}}/"
-    {{rsync_dirs}} "{{barks_2tb_internal_books_dir}}/" "{{barks_1tb_external_backup_1_big_dirs}}/"
+backup-to-1tb-external-1:
+    {{rsync_dirs}} "{{barks_dir}}/"          "{{external_1tb_1}}/barks-backup/Carl Barks/"
+    {{rsync_dirs}} "{{barks_wiki_dir}}/"     "{{external_1tb_1}}/barks-backup/barks-wiki/"
+    {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_1tb_1}}/Books/"
 
 # Rsync all Barks files to the 1tb external backup drive no. 2
 [group('rsync')]
 backup-to-1tb-external-2:
-    {{rsync_dirs}} "{{barks_dir}}/"                    "{{barks_1tb_external_backup_2_dir}}/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"               "{{barks_1tb_external_backup_2_barks_wiki_dir}}/"
-    {{rsync_dirs}} "{{barks_2tb_internal_books_dir}}/" "{{barks_1tb_external_backup_2_big_dirs}}/"
+    {{rsync_dirs}} "{{barks_dir}}/"          "{{external_1tb_2}}/barks-backup/Carl Barks/"
+    {{rsync_dirs}} "{{barks_wiki_dir}}/"     "{{external_1tb_2}}/barks-backup/barks-wiki/"
+    {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_1tb_2}}/Books/"
 
 # Rsync all Barks files to the '750_Backup' external backup drive
 # Not sustainable - almost reached limit.
 [group('rsync')]
 backup-to-750-external:
-    {{rsync_dirs}} "{{barks_dir}}/"                    "{{barks_750_external_backup_dir}}/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"               "{{barks_750_external_backup_barks_wiki_dir}}/"
-    {{rsync_dirs}} "{{barks_2tb_internal_books_dir}}/" "{{barks_750_external_backup_big_dirs}}/"
+    {{rsync_dirs}} "{{barks_dir}}/"          "{{external_750}}/barks-backup/Carl Barks/"
+    {{rsync_dirs}} "{{barks_wiki_dir}}/"     "{{external_750}}/barks-backup/barks-wiki/"
+    {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_750}}/Books/"
 
 # Rsync fast_data and fast_external to '500_backup_1' external backup drive
 [group('rsync')]
@@ -249,9 +251,9 @@ backup-to-500-external-2:
 # Rsync all Barks files to the 'music' external drive
 [group('rsync')]
 backup-to-music-external:
-    {{rsync_dirs}} "{{barks_dir}}/" "{{barks_music_external_backup_dir}}/"
+    {{rsync_dirs}} "{{barks_dir}}/" "{{external_music}}/Books/Carl Barks/"
 
 # Rsync all Barks files to the 'restic' external drive
 [group('rsync')]
 backup-to-restic-external:
-    {{rsync_dirs}} "{{barks_dir}}/" "{{barks_restic_external_backup_dir}}/"
+    {{rsync_dirs}} "{{barks_dir}}/" "{{external_restic}}/Books/Carl Barks/"

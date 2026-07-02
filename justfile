@@ -6,13 +6,14 @@ rsync_dirs := "rsync --delete -avh " + rsync_flags
 barks_dir := "$HOME/Books/Carl Barks"
 
 # @formatter:off
-internal_2tb        := "/mnt/2tb_drive"
-external_2tb_backup := "/run/media/greg/2tb_drive_backup"
-external_1tb_1      := "/run/media/greg/1TB_Backup"
-external_1tb_2      := "/run/media/greg/1TB_Backup_2"
-external_750        := "/run/media/greg/750_Backup"
-external_500_1      := "/run/media/greg/500_Backup_1"
-external_500_2      := "/run/media/greg/500_Backup_2"
+internal_2tb          := "/mnt/2tb_drive"
+external_2tb_backup_1 := "/run/media/greg/2tb_drive_backup"
+external_2tb_backup_2 := "/run/media/greg/2tb_drv_backup_2"
+external_1tb_1        := "/run/media/greg/1TB_Backup"
+external_1tb_2        := "/run/media/greg/1TB_Backup_2"
+external_750          := "/run/media/greg/750_Backup"
+external_500_1        := "/run/media/greg/500_Backup_1"
+external_500_2        := "/run/media/greg/500_Backup_2"
 
 internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/"
 
@@ -183,11 +184,16 @@ compare-restored-orig volume:
     {{uv_run}} scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
                                                    "{{barks_dir}}/Fantagraphics-original" 50% 5000 {{volume}}
 
-# Rsync 2tb internal drive to the 2tb external drive
+# Rsync 2tb internal drive to the main 2tb external backup drive
 [group('rsync')]
 [confirm]
-backup-to-2tb-external:
-    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup}}/"
+backup-to-2tb-external-1:
+    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_1}}/"
+
+# Rsync 2tb internal drive to the 2tb external backup drive no. 2
+[group('rsync')]
+backup-to-2tb-external-2:
+    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_2}}/"
 
 # Rsync all Barks files to the 2tb internal drive
 [group('rsync')]
@@ -196,31 +202,31 @@ backup-to-2tb-internal:
     {{rsync_dirs}} "{{barks_wiki_dir}}/"          "{{barks_2tb_internal_backup_barks_wiki_dir}}/"
     {{rsync_dirs}} "{{barks_reader_config_dir}}/" "{{barks_2tb_internal_backup_barks_reader_config_dir}}/"
 
-# Rsync all Barks files FROM the 2tb external drive
+# Rsync all Barks files FROM the main 2tb external backup drive
 [group('rsync')]
 [confirm]
 backup-from-2tb-external:
     {{rsync_dirs}} {{internal_2tb_exclude_dirs}} \
-                   "{{external_2tb_backup}}/"                               "{{internal_2tb}}/"
+                   "{{external_2tb_backup_1}}/"                             "{{internal_2tb}}/"
     {{rsync_dirs}} "{{barks_2tb_internal_backup_dir}}/"                     "{{barks_dir}}/"
     {{rsync_dirs}} "{{barks_2tb_internal_backup_barks_wiki_dir}}/"          "{{barks_wiki_dir}}/"
     {{rsync_dirs}} "{{barks_2tb_internal_backup_barks_reader_config_dir}}/" "{{barks_reader_config_dir}}/"
 
-# Rsync all Barks files to the 1tb external drive
+# Rsync all Barks files to the 1tb external backup drive no. 1
 [group('rsync')]
 backup-to-1tb-external:
     {{rsync_dirs}} "{{barks_dir}}/"                    "{{barks_1tb_external_backup_1_dir}}/"
     {{rsync_dirs}} "{{barks_wiki_dir}}/"               "{{barks_1tb_external_backup_1_barks_wiki_dir}}/"
     {{rsync_dirs}} "{{barks_2tb_internal_books_dir}}/" "{{barks_1tb_external_backup_1_big_dirs}}/"
 
-# Rsync all Barks files to the 1tb external drive no. 2
+# Rsync all Barks files to the 1tb external backup drive no. 2
 [group('rsync')]
 backup-to-1tb-external-2:
     {{rsync_dirs}} "{{barks_dir}}/"                    "{{barks_1tb_external_backup_2_dir}}/"
     {{rsync_dirs}} "{{barks_wiki_dir}}/"               "{{barks_1tb_external_backup_2_barks_wiki_dir}}/"
     {{rsync_dirs}} "{{barks_2tb_internal_books_dir}}/" "{{barks_1tb_external_backup_2_big_dirs}}/"
 
-# Rsync all Barks files to the '750_Backup' external drive
+# Rsync all Barks files to the '750_Backup' external backup drive
 # Not sustainable - almost reached limit.
 [group('rsync')]
 backup-to-750-external:
@@ -228,13 +234,13 @@ backup-to-750-external:
     {{rsync_dirs}} "{{barks_wiki_dir}}/"               "{{barks_750_external_backup_barks_wiki_dir}}/"
     {{rsync_dirs}} "{{barks_2tb_internal_books_dir}}/" "{{barks_750_external_backup_big_dirs}}/"
 
-# Rsync fast_data and fast_external to '500_backup_1'
+# Rsync fast_data and fast_external to '500_backup_1' external backup drive
 [group('rsync')]
 backup-to-500-external-1:
     {{rsync_dirs}} --exclude lost+found/ "{{fast_data_dir}}/"     "{{external_500_1}}/fast_data_backup/"
     {{rsync_dirs}} --exclude lost+found/ "{{fast_external_dir}}/" "{{external_500_1}}/fast_external_backup/"
 
-# Rsync fast_data and fast_external to '500_backup_2'
+# Rsync fast_data and fast_external to '500_backup_2' external backup drive
 [group('rsync')]
 backup-to-500-external-2:
     {{rsync_dirs}} --exclude lost+found/ "{{fast_data_dir}}/"     "{{external_500_2}}/fast_data_backup/"

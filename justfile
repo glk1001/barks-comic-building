@@ -10,8 +10,10 @@ barks_dir := "$HOME/Books/Carl Barks"
 internal_2tb          := "/mnt/2tb_drive"
 external_2tb_backup_1 := "/run/media/greg/2tb_drive_backup"
 external_2tb_backup_2 := "/run/media/greg/2tb_drv_backup_2"
-external_1tb_1        := "/run/media/greg/1TB_Backup"
-external_1tb_2        := "/run/media/greg/1TB_Backup_2"
+external_2tb_backup_3 := "/run/media/greg/2tb_drv_backup_3"
+external_1tb_backup_1 := "/run/media/greg/1TB_Backup_1"
+external_1tb_backup_2 := "/run/media/greg/1TB_Backup_2/home-rsync-backup"
+external_1tb_backup_3 := "/run/media/greg/1TB_Backup_3/home-rsync-backup"
 external_750          := "/run/media/greg/750_Backup"
 external_500_1        := "/run/media/greg/500_Backup_1"
 external_500_2        := "/run/media/greg/500_Backup_2"
@@ -27,8 +29,11 @@ fast_external_dir       := "/mnt/fast_external"
 # @formatter:on
 
 internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/"
+internal_1tb_exclude_dirs := "--exclude greg/.cache/ --exclude greg/.local/share/Trash/ " \
+                             + "--exclude greg/.gvfs/ --exclude greg/.dbus/ --exclude lost+found/"
 restore_work_dir          := internal_2tb + "/workdir/barks-restore"
 regression_tests_dir      := internal_2tb + "/Books/Carl Barks/Regression-Tests"
+home_dir                  := "/home"
 
 _default:
     just --list --unsorted | tee /tmp/junk.log
@@ -183,6 +188,13 @@ backup-to-root-external:
         --exclude='/mnt/*' \
         --exclude='/media/*' \
         --exclude='/lost+found' \
+        --exclude='/var/cache/*' \
+        --exclude='/var/tmp/*' \
+        --exclude='/snap/*' \
+        --exclude='/var/lib/snapd/void' \
+        --exclude='/var/lib/snapd/cache/*' \
+        --exclude='/var/lib/snapd/cookie' \
+        --exclude='/root/.cache/*' \
         --exclude='/home/*' \
         / "{{external_root}}/"
 
@@ -196,6 +208,26 @@ backup-to-2tb-external-1:
 [group('rsync')]
 backup-to-2tb-external-2:
     {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_2}}/"
+
+# Rsync 2tb internal drive to the 2tb external backup drive no. 3
+[group('rsync')]
+backup-to-2tb-external-3:
+    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_3}}/"
+
+# Rsync 1tb home internal drive to the 1tb external backup drive no. 1
+[group('rsync')]
+backup-home-to-1tb-external-1:
+    {{rsync_dirs}} -x {{internal_1tb_exclude_dirs}} "{{home_dir}}/" "{{external_1tb_backup_1}}/"
+
+# Rsync 1tb home internal drive to the 1tb external backup drive no. 2
+[group('rsync')]
+backup-home-to-1tb-external-2:
+    {{rsync_dirs}} -x {{internal_1tb_exclude_dirs}} "{{home_dir}}/" "{{external_1tb_backup_2}}/"
+
+# Rsync 1tb home internal drive to the 1tb external backup drive no. 3
+[group('rsync')]
+backup-home-to-1tb-external-3:
+    {{rsync_dirs}} -x {{internal_1tb_exclude_dirs}} "{{home_dir}}/" "{{external_1tb_backup_3}}/"
 
 # Rsync all Barks files to the 2tb internal drive
 [group('rsync')]
@@ -213,20 +245,6 @@ backup-from-2tb-external:
     {{rsync_dirs}} "{{internal_2tb}}/barks-backup/Carl Barks/"          "{{barks_dir}}/"
     {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-wiki/"          "{{barks_wiki_dir}}/"
     {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-reader-config/" "{{barks_reader_config_dir}}/"
-
-# Rsync all Barks files to the 1tb external backup drive no. 1
-[group('rsync')]
-backup-to-1tb-external-1:
-    {{rsync_dirs}} "{{barks_dir}}/"          "{{external_1tb_1}}/barks-backup/Carl Barks/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"     "{{external_1tb_1}}/barks-backup/barks-wiki/"
-    {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_1tb_1}}/Books/"
-
-# Rsync all Barks files to the 1tb external backup drive no. 2
-[group('rsync')]
-backup-to-1tb-external-2:
-    {{rsync_dirs}} "{{barks_dir}}/"          "{{external_1tb_2}}/barks-backup/Carl Barks/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"     "{{external_1tb_2}}/barks-backup/barks-wiki/"
-    {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_1tb_2}}/Books/"
 
 # Rsync all Barks files to the '750_Backup' external backup drive
 # Not sustainable - almost reached limit.

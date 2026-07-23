@@ -1,25 +1,24 @@
 """Stage cover artifacts as FANTA_02 "extra" pages for the build pipeline.
 
-The synthetic "All Covers" collection is a FANTA_02 comic whose body pages are
-numbered from ``COVER_COLLECTION_PAGE_BASE`` (see
+The synthetic "All Covers" collection is a FANTA_02 comic whose pages are numbered
+from ``COVER_COLLECTION_PAGE_BASE`` (see
 ``barks_covers.get_cover_collection_pages``). Each located cover's real files live
 in its own volume's back-matter cover gallery (``COVER_LOCATIONS``). This symlinks
 them into the matching FANTA_02 dirs as page ``base + i`` so the existing pipeline
 processes ``All Covers`` like any other title - and reuses whatever work is
 already done.
 
-For each located cover it links (only when the source file exists):
+Covers are ``PageType.COVER``: they are built full-page (scaled with black bars,
+never cropped to panels or restored), so only two source files are worth staging
+(each linked only when it exists):
 
-* the original scan       -> FANTA_02 *fixes* dir          (``.jpg``)
-* the upscayled image     -> FANTA_02 upscayled dir        (``.png``)
-* the restored image      -> FANTA_02 restored dir         (``.png``)
-* the restored-svg files  -> FANTA_02 restored-svg dir     (``.svg`` + ``.svg.png``)
-* the panel-segments      -> FANTA_02 panel-segments dir   (``.json``)
+* the original scan   -> FANTA_02 *fixes* dir      (``.jpg``)
+* the upscayled image -> FANTA_02 upscayled dir    (``.png``)
 
-Most cover pages are untouched gallery scans, so usually only the original scan
-exists and the later stages get computed by the pipeline. The original scan is
-linked into FANTA_02's *fixes* dir (read-write) rather than its read-only original
-dir, so no permission changes are needed.
+The original scan is linked into FANTA_02's *fixes* dir (read-write) rather than
+its read-only original dir, so no permission changes are needed. There is no
+restore or panel-bounds stage for covers - a COVER page never reads a restored,
+restored-svg, or panel-segments file.
 
 The staged fixes images also double as the verification of the extrapolated
 ``COVER_LOCATIONS`` page numbers: every staged image should visibly be a cover. A
@@ -30,12 +29,10 @@ is off - fix its ``COVER_LOCATIONS`` entries, restage, and drop their
 Usage::
 
     barks-stage-covers
-    barks-stage-covers --copy                       # copy instead of symlink
-    barks-batch-upscayl      --title "All Covers"   # only if some are unprocessed
-    barks-batch-restore      --title "All Covers" --work-dir <dir>
-    barks-batch-panel-bounds --title "All Covers"
-    barks-build              --title "All Covers"   # -> All Covers.cbz
-    barks-stage-covers --remove                     # clean up
+    barks-stage-covers --copy                     # copy instead of symlink
+    barks-batch-upscayl --title "All Covers"      # only if some are unprocessed
+    barks-build         --title "All Covers"      # -> All Covers.cbz
+    barks-stage-covers --remove                   # clean up
 """
 
 from __future__ import annotations
@@ -51,7 +48,7 @@ from barks_fantagraphics.barks_covers import (
 )
 from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.comic_consts import JPG_FILE_EXT, JSON_FILE_EXT, PNG_FILE_EXT, SVG_FILE_EXT
+from comic_utils.comic_consts import JPG_FILE_EXT, PNG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
@@ -95,33 +92,16 @@ def _cover_candidate_links(
         ),
     ]
 
-    # The already-built artifacts: (per-volume source dir, FANTA_02 dest dir, suffixes).
-    artifact_dirs: list[tuple[Path, Path, list[str]]] = [
-        (
-            comics_database.get_fantagraphics_upscayled_volume_image_dir(volume),
-            comics_database.get_fantagraphics_upscayled_volume_image_dir(COLLECTION_VOLUME),
-            [PNG_FILE_EXT],
-        ),
-        (
-            comics_database.get_fantagraphics_restored_volume_image_dir(volume),
-            comics_database.get_fantagraphics_restored_volume_image_dir(COLLECTION_VOLUME),
-            [PNG_FILE_EXT],
-        ),
-        (
-            comics_database.get_fantagraphics_restored_svg_volume_image_dir(volume),
-            comics_database.get_fantagraphics_restored_svg_volume_image_dir(COLLECTION_VOLUME),
-            [SVG_FILE_EXT, SVG_FILE_EXT + PNG_FILE_EXT],
-        ),
-        (
-            comics_database.get_fantagraphics_panel_segments_volume_dir(volume),
-            comics_database.get_fantagraphics_panel_segments_volume_dir(COLLECTION_VOLUME),
-            [JSON_FILE_EXT],
-        ),
-    ]
-    for source_dir, dest_dir, suffixes in artifact_dirs:
-        candidates.extend(
-            (dest_dir / (dst + suffix), source_dir / (src + suffix)) for suffix in suffixes
-        )
+    # Covers are PageType.COVER: they are built full-page from the upscayled scan
+    # (or the original), never restored or panel-processed, so only the upscayled
+    # image is worth staging alongside the original.
+    upscayled_source_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(volume)
+    upscayled_dest_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(
+        COLLECTION_VOLUME
+    )
+    candidates.append(
+        (upscayled_dest_dir / (dst + PNG_FILE_EXT), upscayled_source_dir / (src + PNG_FILE_EXT))
+    )
 
     return candidates
 

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 APP_LOGGING_NAME = "smod"
 
 
-def get_srce_dest_mods_map(comic: ComicBook) -> None | tuple[str, str]:
+def get_srce_dest_mods_map(comic: ComicBook) -> tuple[str, str] | None:
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
 
     modified_srce_pages = [

@@ -81,6 +81,12 @@ comic-utils = { path = "../barks-compleat-reader/src/comic-utils", editable = tr
 dev = [
     "prek>=0.3.8",
     "pytest>=8.4.1",
-    "ruff>=0.12.7",
-    "ty>=0.0.17",
+    # Pinned: with select = ["ALL"] (via ../barks-compleat-reader/.ruff-base.toml), a
+    # ruff release that stabilizes rules out of preview changes our lint policy, not
+    # just the version. Bump deliberately and triage the new hits.
+    "ruff==0.16.0",
+    # Pinned to match the rest of the barks repos. 0.0.62 introduced a flaky salsa
+    # panic that aborts files on roughly 1 in 3 runs of a large project; ty is beta
+    # with 1.0 targeted for 2026, so pin until it stabilizes.
+    "ty==0.0.61",
 ]

@@ -268,9 +268,11 @@ class ComicBookBuilder:
             f"{indent}{prefix}:Dest created: {now_str}",
             f"{indent}{prefix}:Srce page num: {srce_page.page_num}",
             f"{indent}{prefix}:Srce page type: {srce_page.page_type.name}",
-            f"{indent}{prefix}:Srce panels bbox:"
-            f" {dest_page.panels_bbox.x_min}, {dest_page.panels_bbox.y_min},"
-            f" {dest_page.panels_bbox.x_max}, {dest_page.panels_bbox.y_max}",
+            (
+                f"{indent}{prefix}:Srce panels bbox:"
+                f" {dest_page.panels_bbox.x_min}, {dest_page.panels_bbox.y_min},"
+                f" {dest_page.panels_bbox.x_max}, {dest_page.panels_bbox.y_max}"
+            ),
             f"{indent}{prefix}:Dest page num: {dest_page.page_num}",
         ]
 

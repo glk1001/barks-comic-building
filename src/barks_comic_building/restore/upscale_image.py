@@ -17,9 +17,10 @@ UPSCAYL_OUTPUT_EXTENSION = ".png"
 # Upscayl's auto tile size ("0") is broken on Ubuntu 26.04: the Vulkan submit fails with
 # VK_ERROR_DEVICE_LOST, after which Upscayl writes an all-black image and still exits 0. A
 # custom tile size avoids it, the same as the "Custom Tile Size" setting in the Upscayl GUI.
-# The safe ceiling falls as the source grows - 100 is fine for a panel but blacks out a full
-# page at scale 4, whereas 64 handles both, for about 8% more time on a panel.
-UPSCAYL_TILE_SIZE = 64
+# Tile sizes from 32 to 144 all work, 160 and above fail the same way as auto does. Running
+# two Upscayl jobs over the same GPU at once also brings on the failure, whatever the tile
+# size, so keep batch runs sequential.
+UPSCAYL_TILE_SIZE = 100
 
 # A broken Upscayl run still exits 0 and writes a correctly sized PNG that is all black, or
 # blacked out below the first few rows, so every result is compared against its source. A
@@ -59,7 +60,8 @@ def _check_upscayl_output(in_file: Path, out_file: Path, scale: int) -> None:
             f"Upscayl exited cleanly but its image does not match the source"
             f" (mean deviation {deviation:.1f} >"
             f" {UPSCAYL_MAX_THUMBNAIL_DEVIATION}) - it is probably black or"
-            f" truncated. Try a smaller UPSCAYL_TILE_SIZE than {UPSCAYL_TILE_SIZE}."
+            f" truncated. Check that nothing else was using the GPU, then try a"
+            f" smaller UPSCAYL_TILE_SIZE than {UPSCAYL_TILE_SIZE}."
         )
         raise RuntimeError(msg)
 

@@ -18,6 +18,14 @@ _GMIC_SMOOTH_ANISOTROPIC_PARAMS = (
     "0"  # channels
 )
 
+# The soft threshold that turns the smoothed image back into an ink mask, and with it the
+# weight of the line art: lower is thinner. Smoothing puts weight on, and this is the only
+# way to take it off again - morphology works a whole pixel at a time, which is several
+# times coarser than the correction needed. Measured against the Fantagraphics page on
+# volume 9 page 110, the old value of 100 came out 1.3% heavier, 60 lands within 0.2%, and
+# 30 sits a little under while keeping the most separation between fine hatching strokes.
+SMOOTH_THRESHOLD = 30
+
 
 def smooth_image_file(in_file: Path, out_file: Path) -> None:
     smooth_cmd = [
@@ -25,7 +33,7 @@ def smooth_image_file(in_file: Path, out_file: Path) -> None:
         "fx_smooth_anisotropic",
         _GMIC_SMOOTH_ANISOTROPIC_PARAMS,
         "-threshold[-1]",
-        "100,1",
+        f"{SMOOTH_THRESHOLD},1",
         "normalize[-1]",
         "0,255",
         "-output[-1]",

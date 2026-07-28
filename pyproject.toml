@@ -90,3 +90,6 @@ dev = [
     # with 1.0 targeted for 2026, so pin until it stabilizes.
     "ty==0.0.61",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

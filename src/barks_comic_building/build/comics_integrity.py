@@ -40,6 +40,7 @@ from comic_utils.comic_consts import JPG_FILE_EXT
 from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 
+from barks_comic_building.build.artifact_renaming import run_artifact_rename_fix
 from barks_comic_building.build.utils import (
     DATE_SEP,
     DATE_TIME_SEP,
@@ -120,13 +121,27 @@ class ComicsIntegrityChecker:
         self._check_for_unexpected_files = not no_check_for_unexpected_files
         self._check_symlinks = not no_check_symlinks
 
-    def check_comics_integrity(self, titles: list[str]) -> int:
+    def check_comics_integrity(
+        self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
+    ) -> int:
         panel_bounding.warn_on_panels_bbox_height_less_than_av = False
 
         print()
 
         if self._check_preconditions() != 0:
             return 1
+
+        if fix_names:
+            # A third tier, between the other two: the gates validate the build's
+            # *inputs*, this repairs its *outputs*, and the report below then
+            # describes whatever remains. Its findings stay out of `OutOfDateErrors`
+            # because it is a whole-tree operation with no per-title home.
+            if run_artifact_rename_fix(self.comics_database, apply=apply_fixes) != 0:
+                return 1
+            if not apply_fixes:
+                # A dry run deliberately changed nothing, so there is no point
+                # reporting on a tree we already know is stale.
+                return 1
 
         unexpected_files = self.check_no_unexpected_files() != 0
 

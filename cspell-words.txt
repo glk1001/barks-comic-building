@@ -2,6 +2,7 @@
 # One word per line. Case-insensitive.
 
 asctime
+Ault
 bbld
 bboxes
 blit
@@ -14,6 +15,7 @@ bufferfmt
 bups
 cbld
 chrn
+chrono
 cvrs
 codepoint
 colorfmt
@@ -22,6 +24,7 @@ dateutil
 fcmp
 dups
 ettl
+exdev
 fanta
 fantagraphics
 favourites
@@ -36,6 +39,7 @@ gmic
 ifan
 imread
 imwrite
+injective
 inpaint
 inpainted
 inpainting
@@ -56,12 +60,14 @@ mdir
 motionevent
 nbrs
 nopython
+normalisation
 normalised
 otsu
 oxipng
 panl
 pnginfo
 pngs
+popleft
 posterize
 posterized
 procs
@@ -89,6 +95,8 @@ thepayments
 tilemask
 tobytes
 ultramix
+unbuilt
+unconfigured
 upscayl
 upscayled
 upscayling
@@ -96,6 +104,7 @@ upscayls
 vimg
 vtracer
 vttl
+wdcs
 whitegrid
 xlabel
 xticks

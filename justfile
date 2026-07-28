@@ -77,6 +77,12 @@ check-title title *flags:
 check-volume volume *flags:
     {{uv_run}} barks-check-build --log-level WARNING --volume "{{volume}}" {{flags}}
 
+# Rename stale built artifacts onto their current chronological numbers, instead of
+# rebuilding them. Dry run: pass --apply to actually perform the renames.
+[group('comics')]
+fix-names *flags:
+    {{uv_run}} barks-check-build --log-level WARNING --fix-names {{flags}}
+
 # Upscayl all restoreable pages in a volume or volumes
 [group('comics')]
 upscayl volume:

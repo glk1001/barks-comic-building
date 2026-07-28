@@ -196,7 +196,13 @@ def write_metadata_file(comic: ComicBook, dest_pages: list[CleanPage]) -> None:
         orig_page_num = index + 1
         if page.page_type not in FRONT_MATTER_PAGES and body_start_page_num == -1:
             body_start_page_num = orig_page_num
-        if body_start_page_num == -1:
+        if page.use_arabic_page_num:
+            # Every page of a synthetic collection is front matter by page type, so
+            # `body_start_page_num` never gets set and the roman branch below would
+            # run off the end of ROMAN_NUMERALS. Number them as an ordinary book
+            # instead - see `CleanPage.use_arabic_page_num`.
+            page_num_str[orig_page_num] = str(orig_page_num)
+        elif body_start_page_num == -1:
             page_num_str[orig_page_num] = ROMAN_NUMERALS[orig_page_num]
         else:
             page_num_str[orig_page_num] = str(orig_page_num - body_start_page_num + 1)
@@ -269,7 +275,9 @@ def get_page_counts(comic: ComicBook, dest_pages: list[CleanPage]) -> dict[str, 
     assert title_page_count == 1 or comic.get_title_enum() in (NON_COMIC_TITLES + SYNTHETIC_TITLES)
 
     cover_page_count = len([p for p in dest_pages if p.page_type == PageType.COVER])
-    assert cover_page_count <= 1
+    # A normal comic has at most one cover; the "All Covers" collection is nothing but
+    # covers.
+    assert cover_page_count <= 1 or comic.get_title_enum() in SYNTHETIC_TITLES
 
     painting_page_count = len([p for p in dest_pages if p.page_type in PAINTING_PAGES])
 

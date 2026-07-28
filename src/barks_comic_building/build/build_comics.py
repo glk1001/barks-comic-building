@@ -22,6 +22,7 @@ from barks_fantagraphics.comics_consts import (
     DEST_TARGET_HEIGHT,
     DEST_TARGET_WIDTH,
     DEST_TARGET_X_MARGIN,
+    PAGES_WITHOUT_PANELS,
     PageType,
 )
 from barks_fantagraphics.comics_utils import (
@@ -134,6 +135,16 @@ class ComicBookBuilder:
                 srce_story_file_resolver=srce_story_file_resolver,
             )
         )
+
+        if not any(
+            page.page_type not in PAGES_WITHOUT_PANELS for page in srce_and_dest_pages.srce_pages
+        ):
+            # Every page is a full-page image, as in the "All Covers" collection. There
+            # are no panel dimensions to compute - `get_required_panels_bbox_width_height`
+            # returns the unset defaults - and nothing consumes them: such a page's dest
+            # bbox is the whole page, and it is rendered without a page number.
+            logger.debug("No pages with panels: skipping the panel dimension checks.")
+            return srce_and_dest_pages, srce_dim, required_dim
 
         assert srce_dim.max_panels_bbox_width >= srce_dim.min_panels_bbox_width > 0
         assert srce_dim.max_panels_bbox_height >= srce_dim.min_panels_bbox_height > 0

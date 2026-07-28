@@ -10,14 +10,19 @@ from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
-from barks_comic_building.restore.upscale_image import upscale_image_file
+from barks_comic_building.restore.upscale_image import (
+    DEFAULT_UPSCALER,
+    Upscaler,
+    UpscalerArg,
+    upscale_image_file,
+)
 
 APP_LOGGING_NAME = "bups"
 
 SCALE = 4
 
 
-def upscayl(comics_database: ComicsDatabase, title_list: list[str]) -> None:
+def upscayl(comics_database: ComicsDatabase, title_list: list[str], upscaler: Upscaler) -> None:
     start = time.time()
 
     num_upscayled_files = 0
@@ -33,7 +38,7 @@ def upscayl(comics_database: ComicsDatabase, title_list: list[str]) -> None:
         upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
 
         for srce_file, (dest_file, _is_mod_file) in zip(srce_files, upscayl_files, strict=True):
-            if upscayl_file(srce_file[0], dest_file):
+            if upscayl_file(srce_file[0], dest_file, upscaler):
                 num_upscayled_files += 1
 
     logger.info(
@@ -41,7 +46,7 @@ def upscayl(comics_database: ComicsDatabase, title_list: list[str]) -> None:
     )
 
 
-def upscayl_file(srce_file: Path, dest_file: Path) -> bool:
+def upscayl_file(srce_file: Path, dest_file: Path, upscaler: Upscaler) -> bool:
     if not srce_file.is_file():
         msg = f'Could not find srce file: "{srce_file}".'
         raise FileNotFoundError(msg)
@@ -53,9 +58,9 @@ def upscayl_file(srce_file: Path, dest_file: Path) -> bool:
 
     logger.info(
         f'Upscayling srce file "{get_abbrev_path(srce_file)}"'
-        f' to dest upscayl file "{get_abbrev_path(dest_file)}".',
+        f' to dest upscayl file "{get_abbrev_path(dest_file)}" using {upscaler}.',
     )
-    upscale_image_file(srce_file, dest_file, SCALE)
+    upscale_image_file(srce_file, dest_file, SCALE, upscaler)
 
     logger.info(f"\nTime taken to upscayl file: {int(time.time() - start)}s.")
 
@@ -69,13 +74,14 @@ app = typer.Typer()
 def main(
     volumes_str: VolumesArg = "",
     title_str: TitleArg = "",
+    upscaler: UpscalerArg = DEFAULT_UPSCALER,
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
     init_logging(APP_LOGGING_NAME, "batch-upscayl.log", log_level_str)
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
 
-    upscayl(comics_database, titles)
+    upscayl(comics_database, titles, upscaler)
 
 
 if __name__ == "__main__":

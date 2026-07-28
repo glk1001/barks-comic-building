@@ -16,11 +16,13 @@ bups
 cbld
 chrn
 chrono
+cunet
 cvrs
 codepoint
 colorfmt
 colours
 dateutil
+denoise
 fcmp
 dups
 ettl
@@ -59,6 +61,7 @@ mcfg
 mdir
 motionevent
 nbrs
+ncnn
 nopython
 normalisation
 normalised
@@ -104,6 +107,7 @@ upscayls
 vimg
 vtracer
 vttl
+waifu
 wdcs
 whitegrid
 xlabel

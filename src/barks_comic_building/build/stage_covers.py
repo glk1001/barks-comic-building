@@ -47,6 +47,7 @@ from barks_fantagraphics.barks_covers import (
     get_located_covers,
 )
 from barks_fantagraphics.comic_book import get_page_str
+from barks_fantagraphics.comic_book_info import COVER_COLLECTION_VOLUME
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.comic_consts import JPG_FILE_EXT, PNG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
@@ -60,7 +61,7 @@ if TYPE_CHECKING:
 APP_LOGGING_NAME = "cvrs"
 
 # Nominal volume the collection is built as (matches All Covers.ini's source_comic).
-COLLECTION_VOLUME = 2
+COLLECTION_VOLUME = COVER_COLLECTION_VOLUME
 
 
 def _cover_candidate_links(

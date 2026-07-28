@@ -39,6 +39,7 @@ import typer
 from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comic_book_info import (
     ONE_PAGER_COLLECTION_PAGE_BASE,
+    ONE_PAGER_COLLECTION_VOLUME,
     ONE_PAGER_LOCATIONS,
     get_located_one_pagers,
 )
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
 APP_LOGGING_NAME = "1pgr"
 
 # Nominal volume the collection is built as (matches All One-Pagers.ini's source_comic).
-COLLECTION_VOLUME = 1
+COLLECTION_VOLUME = ONE_PAGER_COLLECTION_VOLUME
 
 
 def _one_pager_candidate_links(

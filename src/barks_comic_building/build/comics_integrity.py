@@ -9,7 +9,7 @@ from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import Titles
 from barks_fantagraphics.comic_book import ComicBook, get_page_num_str, get_total_num_pages
-from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES
+from barks_fantagraphics.comic_book_info import NON_COMIC_TITLES, get_collection_page_nums
 from barks_fantagraphics.comics_consts import (
     BARKS_ROOT_DIR,
     IMAGES_SUBDIR,
@@ -51,7 +51,11 @@ from barks_comic_building.build.utils import (
 ERROR_MSG_PREFIX = "ERROR: "
 BLANK_ERR_MSG_PREFIX = f"{' ':<{len(ERROR_MSG_PREFIX)}}"
 
-MAX_FIXES_PAGE_NUM = 600
+# Ceiling for *ordinary* added fixes pages - real pages appended past the end of a
+# volume (e.g. volume 1's 251-268). The synthetic collections' staged pages are not
+# covered by this band: they are validated against `get_collection_page_nums`, which
+# tracks the collection tables automatically.
+MAX_EXTRA_FIXES_PAGE_NUM = 300
 
 STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK = {
     Titles.VICTORY_GARDEN_THE,
@@ -121,13 +125,7 @@ class ComicsIntegrityChecker:
 
         print()
 
-        if self.check_comics_source_is_readonly() != 0:
-            return 1
-
-        if self.check_directory_structure() != 0:
-            return 1
-
-        if self.check_fantagraphics_files() != 0:
+        if self._check_preconditions() != 0:
             return 1
 
         unexpected_files = self.check_no_unexpected_files() != 0
@@ -149,6 +147,37 @@ class ComicsIntegrityChecker:
                 ret_code = 1
 
         return ret_code
+
+    def _check_preconditions(self) -> int:
+        """Run the gate checks that must pass before any per-title check is meaningful.
+
+        These validate the *inputs* to the build - the read-only original tree, the
+        directory structure, the fixes-and-additions files, and the ini/series-info
+        agreement. A failure here aborts the run and is printed immediately rather
+        than collected, because per-title results computed against a malformed source
+        tree are noise: one broken input would produce a wall of downstream errors
+        that all disappear once the input is fixed.
+
+        Per-title findings are the other tier - they accumulate into `OutOfDateErrors`
+        and are reported together at the end.
+
+        Returns:
+            0 if every precondition holds, 1 otherwise.
+
+        """
+        if self.check_comics_source_is_readonly() != 0:
+            return 1
+
+        if self.check_directory_structure() != 0:
+            return 1
+
+        if self.check_ini_files_match_series_info() != 0:
+            return 1
+
+        if self.check_fantagraphics_files() != 0:
+            return 1
+
+        return 0
 
     @staticmethod
     def make_out_of_date_errors(title: str) -> OutOfDateErrors:
@@ -256,6 +285,10 @@ class ComicsIntegrityChecker:
         if self.check_basic_fixes(fixes_root_dir, fixes_dir, upscayled_fixes_dir) != 0:
             return 1
 
+        # Both are per-volume, so build them once rather than per fixes file.
+        collection_page_nums = get_collection_page_nums(volume)
+        used_page_nums = self._get_used_page_nums(volume)
+
         # Standard fixes files.
         ret_code = 0
         for file in fixes_dir.iterdir():
@@ -306,32 +339,75 @@ class ComicsIntegrityChecker:
 
             fixes_file = jpg_fixes_file if jpg_fixes_file.is_file() else png_fixes_file
 
-            if not original_file.is_file():
-                # If it's an added file it must have a valid page number.
-                page_num = Path(file).stem
-                if not page_num.isnumeric():
-                    print(f'{ERROR_MSG_PREFIX}Invalid fixes file: "{fixes_file}".')
-                    ret_code = 1
-                    continue
-                page_num = int(page_num)
-                if page_num <= num_fanta_pages or page_num > MAX_FIXES_PAGE_NUM:
-                    print(
-                        f"{ERROR_MSG_PREFIX}Fixes file is outside page num range"
-                        f' [{num_fanta_pages}..{MAX_FIXES_PAGE_NUM}]: "{fixes_file}".',
-                    )
-                    ret_code = 1
-                    continue
-
-                # If it's an added file it must be used in some ini file.
-                if self._not_used(page_num):
-                    print(
-                        f"{ERROR_MSG_PREFIX}Fixes file is not used in any ini files:"
-                        f' "{fixes_file}".',
-                    )
-                    ret_code = 1
-                    continue
+            if not original_file.is_file() and (
+                self.check_added_fixes_file(
+                    fixes_file, num_fanta_pages, collection_page_nums, used_page_nums
+                )
+                != 0
+            ):
+                ret_code = 1
+                continue
 
         return ret_code
+
+    def check_added_fixes_file(
+        self,
+        fixes_file: Path,
+        num_fanta_pages: int,
+        collection_page_nums: frozenset[int],
+        used_page_nums: frozenset[str],
+    ) -> int:
+        """Check a fixes file that adds a page rather than replacing an original one.
+
+        An added page must be numbered either in the volume's ordinary extra-pages
+        band or in its staged synthetic-collection range, and must be referenced by
+        one of the volume's ini files.
+
+        Args:
+            fixes_file: The added fixes file.
+            num_fanta_pages: Page count of the volume's real Fantagraphics scan.
+            collection_page_nums: Staged collection page nums for this volume.
+            used_page_nums: Page nums referenced by this volume's ini files.
+
+        Returns:
+            0 if the added page is valid, 1 otherwise.
+
+        """
+        page_num_str = fixes_file.stem
+        if not page_num_str.isnumeric():
+            print(f'{ERROR_MSG_PREFIX}Invalid fixes file: "{fixes_file}".')
+            return 1
+
+        page_num = int(page_num_str)
+        if page_num not in collection_page_nums and not (
+            num_fanta_pages < page_num <= MAX_EXTRA_FIXES_PAGE_NUM
+        ):
+            print(
+                f"{ERROR_MSG_PREFIX}Fixes file is outside page num range"
+                f" [{num_fanta_pages + 1}..{MAX_EXTRA_FIXES_PAGE_NUM}]"
+                f"{self._get_collection_range_msg(collection_page_nums)}:"
+                f' "{fixes_file}".',
+            )
+            return 1
+
+        if self._not_used(page_num_str, used_page_nums):
+            print(
+                f'{ERROR_MSG_PREFIX}Fixes file is not used in any ini files: "{fixes_file}".',
+            )
+            return 1
+
+        return 0
+
+    @staticmethod
+    def _get_collection_range_msg(collection_page_nums: frozenset[int]) -> str:
+        """Return the staged-collection part of the page num range error message."""
+        if not collection_page_nums:
+            return ""
+
+        return (
+            f" or staged collection range"
+            f" [{min(collection_page_nums)}..{max(collection_page_nums)}]"
+        )
 
     def check_basic_fixes(
         self, fixes_root_dir: Path, fixes_dir: Path, upscayled_fixes_dir: Path
@@ -437,10 +513,28 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    # TODO: Fill this out
+    def _get_used_page_nums(self, volume: int) -> frozenset[str]:
+        """Return every original page num referenced by an ini file in this volume.
+
+        Uses `page_images_in_order`, not `config_page_images`: ini page keys may be
+        ranges ("005-012"), and only the former has them expanded to one entry per
+        page. The synthetic collections need no special case here - the database
+        injects their staged pages into the comic's page list at load time, so those
+        pages already count as used.
+        """
+        used: set[str] = set()
+
+        for title, _info in self.comics_database.get_configured_titles_in_fantagraphics_volumes(
+            [volume]
+        ):
+            comic = self.comics_database.get_comic_book(title)
+            used.update(page.page_filenames for page in comic.page_images_in_order)
+
+        return frozenset(used)
+
     @staticmethod
-    def _not_used(_page_num: int) -> bool:
-        return False
+    def _not_used(page_num_str: str, used_page_nums: frozenset[str]) -> bool:
+        return page_num_str not in used_page_nums
 
     @staticmethod
     def _get_num_files_in_dir(dir_path: Path) -> int:
@@ -697,7 +791,12 @@ class ComicsIntegrityChecker:
     def check_hashes(comic: ComicBook, errors: HashErrors) -> int:
         ini_hash = get_hash_str(comic.ini_file)
         metadata_file = comic.get_metadata_filepath()
-        assert metadata_file.is_file()
+        if not metadata_file.is_file():
+            # A configured title with no metadata has not been built. That is a
+            # finding to report, not a reason to abort the whole run.
+            errors.metadata_file = metadata_file
+            return 1
+
         metadata = json.loads(metadata_file.read_text())
         if "ini_hash" not in metadata:
             logger.warning(f'No metadata ini hash for "{comic.get_ini_title()}".')
@@ -714,6 +813,13 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def print_hash_errors(errors: HashErrors) -> None:
+        if errors.metadata_file is not None:
+            print(
+                f"{ERROR_MSG_PREFIX}Comic has not been built - there is no"
+                f' metadata file: "{errors.metadata_file}".',
+            )
+            return
+
         print(
             f'{ERROR_MSG_PREFIX} Hash mismatch for "{errors.file_to_hash}":'
             f' expected hash = "{errors.expected_hash}", file hash = "{errors.file_hash}".',

@@ -1,6 +1,7 @@
 import sys
 
 import typer
+from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 
 from barks_comic_building.build.comics_integrity import ComicsIntegrityChecker
@@ -21,7 +22,13 @@ def main(
 ) -> None:
     init_logging(APP_LOGGING_NAME, "check-build-comics-integrity.log", log_level_str)
 
-    comics_database, titles = get_comic_titles(volumes_str, title_str)
+    if volumes_str or title_str:
+        comics_database, titles = get_comic_titles(volumes_str, title_str)
+    else:
+        # No volume/title filter given: check every title. An empty title list is what
+        # `check_comics_integrity` routes to `check_all_titles`; `get_comic_titles`
+        # cannot express that, since it asserts on an empty volume list.
+        comics_database, titles = ComicsDatabase(), []
 
     integrity_checker = ComicsIntegrityChecker(
         comics_database, no_check_for_unexpected_files, no_check_symlinks

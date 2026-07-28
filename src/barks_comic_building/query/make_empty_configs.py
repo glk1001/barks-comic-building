@@ -2,6 +2,7 @@ import itertools
 import json
 
 import typer
+from barks_fantagraphics.comic_book_info import COVERS_SET
 from barks_fantagraphics.comics_consts import INTERNAL_DATA_DIR
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_helpers import get_issue_titles, get_titles_and_info
@@ -83,13 +84,23 @@ def main(
         titles = []
         for title_config_info in titles_config_info:
             title = title_config_info[0]
-            is_barks_title = title_config_info[2].comic_book_info.is_barks_title
+            comic_book_info = title_config_info[2].comic_book_info
+            is_barks_title = comic_book_info.is_barks_title
             title_is_configured = title_config_info[3]
-            start_page, end_page = (0, 0) if not toc_dict else toc_dict[title]
+
+            # Covers get no ini file. They are pre-baked into the synthetic "All
+            # Covers" collection from COVER_LOCATIONS rather than built from a
+            # per-title config, and they are not TOC entries either, so the lookup
+            # below would not find them.
+            if comic_book_info.title in COVERS_SET:
+                logger.info(f'Title: "{title}" is a cover - skipping.')
+                continue
 
             if title_is_configured:
                 logger.info(f'Title: "{title}" is already configured - skipping.')
                 continue
+
+            start_page, end_page = (0, 0) if not toc_dict else toc_dict[title]
 
             titles.append((title, is_barks_title, start_page, end_page))
 

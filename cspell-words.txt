@@ -53,6 +53,7 @@ kivy
 kumiko
 labelpad
 levelname
+licence
 linalg
 linestyle
 lowlight
@@ -80,6 +81,7 @@ posterized
 procs
 quantised
 rasterised
+recognise
 relativedelta
 rdonly
 scancode

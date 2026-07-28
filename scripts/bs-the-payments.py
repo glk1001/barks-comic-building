@@ -444,11 +444,7 @@ for payment_info in titles_with_payment_info:
             f" should be one less than title {payment_info.title}."
         )
 
-    # Keep this an int rather than a Titles member. Rebinding a loop-carried int to a
-    # member of a 954-strong IntEnum sends ty into a 67-second type inference; the two
-    # are interchangeable here, since Titles is an IntEnum and every use above compares
-    # or formats it as a number.
-    prev_title = int(payment_info.title)
+    prev_title = payment_info.title
 
     payment_info_dict[payment_info.title] = payment_info
 

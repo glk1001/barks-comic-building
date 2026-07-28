@@ -19,7 +19,7 @@ class Upscaler(StrEnum):
     WAIFU2X = "waifu2x"
 
 
-DEFAULT_UPSCALER = Upscaler.UPSCAYL
+DEFAULT_UPSCALER = Upscaler.WAIFU2X
 
 UpscalerArg = Annotated[Upscaler, typer.Option("--upscaler", help="Upscaling backend")]
 

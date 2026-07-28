@@ -259,8 +259,9 @@ Shared bits:
 - `log_setup.py` — loguru globals used by every CLI script
 - `resources/log-config.yaml` — central log config
 
-The old flat directories (`barks-cmds/`, `build-comics/`, `barks-restore/`) are dead code, and
-are excluded from linting and type checking.
+Two directories sit outside the package: `scripts/` holds standalone helper scripts (directory
+comparisons, image diffs, the cspell hook) and is type checked, while `scraps/` is a holding pen
+for unfinished work and is excluded from both ruff and ty.
 
 ---
 

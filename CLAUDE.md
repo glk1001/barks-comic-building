@@ -45,7 +45,7 @@ uv run ruff format .
 
 ### Package Structure
 
-All live code is in `src/barks_comic_building/` as a proper installable hatchling package. Entry points are registered in `[project.scripts]` in `pyproject.toml`. The old flat directories (`barks-cmds/`, `build-comics/`, `barks-restore/`, `barks-restore/src/`) are kept as dead code and excluded from linting and type checking.
+All live code is in `src/barks_comic_building/` as a proper installable hatchling package. Entry points are registered in `[project.scripts]` in `pyproject.toml`. Outside the package, `scripts/` holds standalone helper scripts and is type checked (it is in `ty.toml`'s roots), while `scraps/` is excluded from both ruff and ty.
 
 | Subpackage | Entry points                                           | Role                                                              |
 |------------|--------------------------------------------------------|-------------------------------------------------------------------|

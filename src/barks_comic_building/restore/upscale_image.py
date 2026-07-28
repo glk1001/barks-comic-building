@@ -11,6 +11,10 @@ UPSCAYL_MODEL = "ultramix_balanced"
 UPSCAYL_OUTPUT_FORMAT = "png"
 UPSCAYL_OUTPUT_EXTENSION = ".png"
 
+# Upscayl's auto tile size ("0") is broken on Ubuntu 26.04 - force a small custom tile size,
+# which is the same workaround as setting "Custom Tile Size" to 100 in the Upscayl GUI.
+UPSCAYL_TILE_SIZE = 100
+
 
 def upscale_image_file(in_file: Path, out_file: Path, scale: int = 2) -> None:
     assert out_file.suffix == UPSCAYL_OUTPUT_EXTENSION
@@ -29,6 +33,8 @@ def upscale_image_file(in_file: Path, out_file: Path, scale: int = 2) -> None:
         UPSCAYL_OUTPUT_FORMAT,
         "-c",
         "0",
+        "-t",
+        str(UPSCAYL_TILE_SIZE),
         "-m",
         str(UPSCAYL_MODELS_DIR),
         "-v",

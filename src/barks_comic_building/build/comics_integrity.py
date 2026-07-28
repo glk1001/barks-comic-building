@@ -291,7 +291,7 @@ class ComicsIntegrityChecker:
 
         # Standard fixes files.
         ret_code = 0
-        for file in fixes_dir.iterdir():
+        for file in sorted(fixes_dir.iterdir()):
             # TODO: Should 'bounded' be here?
             if file.name == "bounded":
                 continue
@@ -454,7 +454,7 @@ class ComicsIntegrityChecker:
             return 1
 
         # Upscayled fixes files.
-        for file in upscayled_fixes_dir.iterdir():
+        for file in sorted(upscayled_fixes_dir.iterdir()):
             file_stem = file.stem
             original_file = fanta_original_image_dir / (file_stem + JPG_FILE_EXT)
             fixes_file = fixes_dir / file.name
@@ -543,7 +543,7 @@ class ComicsIntegrityChecker:
     def check_folder_and_contents_are_readonly(self, dir_path: Path) -> int:
         ret_code = 0
 
-        for file_path in dir_path.iterdir():
+        for file_path in sorted(dir_path.iterdir()):
             if file_path.is_dir():
                 if file_path.stat().st_mode & stat.S_IWRITE:
                     print(f'{ERROR_MSG_PREFIX}Directory "{file_path}" is not readonly.')
@@ -932,7 +932,7 @@ class ComicsIntegrityChecker:
             errors.dest_dir_files_missing.append(dest_image_dir)
             return
 
-        for file in dest_image_dir.iterdir():
+        for file in sorted(dest_image_dir.iterdir()):
             dest_image_file = dest_image_dir / file
             if str(dest_image_file) not in allowed_dest_image_files:
                 errors.unexpected_dest_image_files.append(dest_image_file)
@@ -971,7 +971,7 @@ class ComicsIntegrityChecker:
                 ret_code = 1
                 continue
 
-            for file in dest_dir.iterdir():
+            for file in sorted(dest_dir.iterdir()):
                 if file.name in [IMAGES_SUBDIR, ini_file]:
                     continue
                 if file.name not in DEST_NON_IMAGE_FILES:
@@ -990,7 +990,9 @@ class ComicsIntegrityChecker:
                 ret_code = 1
 
         if allowed_zip_series_symlinks:
-            for dest_dir in allowed_zip_series_symlink_dirs:
+            # Sorted: these dirs come from a set, so the report would otherwise jump
+            # between series at random.
+            for dest_dir in sorted(allowed_zip_series_symlink_dirs):
                 if self.check_files_in_dir("series", dest_dir, list(allowed_zip_series_symlinks)):
                     ret_code = 1
 
@@ -1006,7 +1008,7 @@ class ComicsIntegrityChecker:
             ):
                 ret_code = 1
 
-            for dest_dir in allowed_zip_year_symlink_dirs:
+            for dest_dir in sorted(allowed_zip_year_symlink_dirs):
                 if self.check_files_in_dir("year", dest_dir, list(allowed_zip_year_symlinks)):
                     ret_code = 1
 
@@ -1023,7 +1025,9 @@ class ComicsIntegrityChecker:
             print(f'{ERROR_MSG_PREFIX}The directory "{dir_path}" is missing.')
             return 1
 
-        for file in dir_path.iterdir():
+        # Sorted so a long run of unexpected files reads in filename order rather than
+        # whatever order the filesystem hands back.
+        for file in sorted(dir_path.iterdir()):
             if file not in allowed_files:
                 print(f'{ERROR_MSG_PREFIX}The {file_type} directory file "{file}" was unexpected.')
                 ret_code = 1

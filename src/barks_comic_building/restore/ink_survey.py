@@ -21,19 +21,11 @@ from intspan import intspan
 from loguru import logger
 
 from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.restore.palette_snap import get_flat_palette
 
 APP_LOGGING_NAME = "inks"
 
 DEFAULT_PAGES_PER_VOLUME = 5
-
-# A colour has to hold this share of a page's flat area before it counts as part of the
-# palette, and sit this far from an already kept colour rather than being jpeg noise
-# around it.
-MIN_PALETTE_SHARE = 0.002
-MERGE_DISTANCE = 8
-
-FLAT_GRADIENT_KERNEL = 5
-FLAT_GRADIENT_MAX = 4
 
 INK_MAX_LUMINANCE = 110
 PAPER_MIN_LUMINANCE = 200
@@ -44,40 +36,6 @@ MIN_INK_COVERAGE = 0.05
 MAX_INK_COVERAGE = 0.35
 
 _BGR_LUMINANCE_WEIGHTS = np.array([0.114, 0.587, 0.299])
-
-
-def get_flat_palette(image: cv.typing.MatLike) -> np.ndarray:
-    """Return the exact colours that dominate an image's flat areas, most common first.
-
-    Args:
-        image: A BGR image.
-
-    Returns:
-        The palette colours as BGR rows.
-
-    """
-    grey = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    gradient = cv.morphologyEx(
-        grey,
-        cv.MORPH_GRADIENT,
-        np.ones((FLAT_GRADIENT_KERNEL, FLAT_GRADIENT_KERNEL), np.uint8),
-    )
-    flat_pixels = image[gradient < FLAT_GRADIENT_MAX].reshape(-1, 3)
-    if len(flat_pixels) == 0:
-        return np.empty((0, 3), dtype=int)
-
-    colours, counts = np.unique(flat_pixels, axis=0, return_counts=True)
-    order = np.argsort(-counts)
-    colours, counts = colours[order].astype(int), counts[order]
-
-    palette: list[np.ndarray] = []
-    for colour, count in zip(colours, counts, strict=True):
-        if count < len(flat_pixels) * MIN_PALETTE_SHARE:
-            break
-        if all(np.linalg.norm(colour - kept) > MERGE_DISTANCE for kept in palette):
-            palette.append(colour)
-
-    return np.array(palette) if palette else np.empty((0, 3), dtype=int)
 
 
 def get_page_ink_and_paper(image_file: Path) -> tuple[tuple[int, ...], tuple[int, ...]] | None:

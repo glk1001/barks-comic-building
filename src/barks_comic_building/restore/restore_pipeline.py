@@ -21,6 +21,7 @@ from barks_comic_building.restore.image_io import (
 )
 from barks_comic_building.restore.inpaint import inpaint_image_file
 from barks_comic_building.restore.overlay import overlay_inpainted_file_with_black_ink
+from barks_comic_building.restore.palette_snap import snap_image_file_to_srce_palette
 from barks_comic_building.restore.remove_alias_artifacts import get_median_filter
 from barks_comic_building.restore.remove_colors import (
     DEBUG_WRITE_COLOR_COUNTS,
@@ -61,6 +62,7 @@ class RestorePipeline:
         dest_svg_restored_file: Path,
         use_existing_work_files: bool = USE_EXISTING_WORK_FILES,
         debug_color_counts: bool = DEBUG_WRITE_COLOR_COUNTS,
+        do_palette_snap: bool = True,
     ) -> None:
         self.work_dir = work_dir
         self.out_dir = dest_restored_file.parent
@@ -72,6 +74,7 @@ class RestorePipeline:
         self.dest_svg_restored_file = dest_svg_restored_file
         self.use_existing_work_files = use_existing_work_files
         self.debug_color_counts = debug_color_counts
+        self.do_palette_snap = do_palette_snap
 
         self.errors_occurred = False
 
@@ -94,6 +97,7 @@ class RestorePipeline:
         )
         self.png_of_svg_file = Path(str(self.dest_svg_restored_file) + ".png")
         self.inpainted_file = work_dir / f"{self.srce_upscale_stem}-inpainted.png"
+        self.palette_snapped_file = work_dir / f"{self.srce_upscale_stem}-palette-snapped.png"
 
     @property
     def expected_output_files(self) -> list[Path]:
@@ -105,9 +109,22 @@ class RestorePipeline:
             self.dest_svg_restored_file,
             self.png_of_svg_file,
             self.inpainted_file,
+            self.palette_snapped_file,
             self.dest_upscayled_restored_file,
             self.dest_restored_file,
         ]
+
+    @property
+    def file_to_overlay(self) -> Path:
+        """Return the colour layer the black ink is overlaid onto.
+
+        The palette snapped file when there is one, otherwise the inpainted file it would
+        have been made from - the snap is skipped when it is turned off or when there is
+        no source file to take a palette from.
+        """
+        if self.do_palette_snap and self.palette_snapped_file.is_file():
+            return self.palette_snapped_file
+        return self.inpainted_file
 
     def do_part1(self) -> None:
         self._do_remove_jpg_artifacts()
@@ -122,6 +139,8 @@ class RestorePipeline:
 
     def do_part4_memory_hungry(self) -> None:
         self._do_inpaint()
+        if not self.errors_occurred:
+            self._do_snap_palette()
         if not self.errors_occurred:
             self._do_overlay_inpaint_with_black_ink()
         if not self.errors_occurred:
@@ -195,14 +214,35 @@ class RestorePipeline:
                 self.inpainted_file,
             )
 
+    def _do_snap_palette(self) -> None:
+        if not self.do_palette_snap:
+            return
+        if self.use_existing_work_files and self.palette_snapped_file.is_file():
+            logger.warning(
+                f'Palette snapped file already exists - skipping: "{self.palette_snapped_file}".'
+            )
+            return
+        if not self.srce_file.is_file():
+            logger.warning(
+                f'No srce file to take a palette from - not snapping: "{self.srce_file}".'
+            )
+            return
+
+        logger.info(f'\nSnapping inpainted file to "{self.palette_snapped_file}"...')
+        with _timed_step(self, f'snap palette for "{self.palette_snapped_file.name}"'):
+            fraction = snap_image_file_to_srce_palette(
+                self.srce_file, self.inpainted_file, self.palette_snapped_file
+            )
+            logger.info(f"Snapped {fraction:.1%} of pixels to the srce palette.")
+
     def _do_overlay_inpaint_with_black_ink(self) -> None:
         logger.info(
-            f'\nOverlaying inpainted file "{self.inpainted_file}"'
+            f'\nOverlaying colour file "{self.file_to_overlay}"'
             f' with black ink file "{self.png_of_svg_file}"...'
         )
-        with _timed_step(self, f'overlay inpainted file "{self.inpainted_file.name}"'):
+        with _timed_step(self, f'overlay colour file "{self.file_to_overlay.name}"'):
             overlay_inpainted_file_with_black_ink(
-                self.inpainted_file, self.png_of_svg_file, self.dest_upscayled_restored_file
+                self.file_to_overlay, self.png_of_svg_file, self.dest_upscayled_restored_file
             )
 
     def _do_resize_restored_file(self) -> None:

@@ -674,6 +674,7 @@ class ComicsIntegrityChecker:
         ret_code = 0
 
         extra_srce_dirs = [
+            self.comics_database.get_root_dir("Fantagraphics-alternate-downloads"),
             self.comics_database.get_root_dir("Fantagraphics-censorship-fixes"),
             self.comics_database.get_root_dir("Articles"),
             self.comics_database.get_root_dir("Barks Panels Pngs"),

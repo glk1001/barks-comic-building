@@ -51,7 +51,7 @@ All live code is in `src/barks_comic_building/` as a proper installable hatchlin
 |------------|--------------------------------------------------------|-------------------------------------------------------------------|
 | `query/`   | 19 (`barks-fanta-info`, `barks-build`, etc.)           | CLI scripts for querying and browsing comic metadata              |
 | `build/`   | 2 (`barks-build`, `barks-check-build`)                 | Comic assembly — builds CBZ archives from restored/upscaled pages |
-| `restore/` | 7 (`barks-batch-restore`, `barks-batch-upscayl`, etc.) | Image restoration and upscaling pipeline                          |
+| `restore/` | 8 (`barks-batch-restore`, `barks-batch-upscayl`, etc.) | Image restoration and upscaling pipeline                          |
 
 ### Shared Modules
 

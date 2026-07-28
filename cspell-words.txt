@@ -16,6 +16,7 @@ bups
 cbld
 chrn
 chrono
+cmyk
 cunet
 cvrs
 codepoint
@@ -51,6 +52,7 @@ kivy
 kumiko
 labelpad
 levelname
+linalg
 linestyle
 lowlight
 magica

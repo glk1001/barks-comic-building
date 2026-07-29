@@ -15,6 +15,7 @@ bsvg
 bufferfmt
 bups
 cbld
+cbz
 chrn
 chrono
 cmyk
@@ -95,6 +96,7 @@ rasterises
 recognise
 relativedelta
 rdonly
+RMSE
 rsta
 scancode
 scnt

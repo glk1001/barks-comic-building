@@ -167,6 +167,10 @@ def compare_images_in_dir(  # noqa: PLR0913
     `image-missing` errors; the matched pairs are then compared via
     `compare_image_lists`.
 
+    The match is checked in both directions: a file in `dir2` that no file in
+    `dir1` matched is reported as an `image-extra` error, so a build that gains
+    a page is caught as well as one that loses a page.
+
     Args:
         dir1: First image directory.
         dir2: Second image directory.
@@ -194,6 +198,7 @@ def compare_images_in_dir(  # noqa: PLR0913
     errors: list[CompareError] = []
     file_list1: list[Path] = []
     file_list2: list[Path] = []
+    matched2: set[Path] = set()
     for image_file1 in sorted(f for f in dir1.iterdir() if f.is_file()):
         image_file2 = get_image_file2(dir2, image_file1)
         if not image_file2:
@@ -207,8 +212,20 @@ def compare_images_in_dir(  # noqa: PLR0913
                 )
             )
             continue
+        matched2.add(image_file2)
         file_list1.append(image_file1)
         file_list2.append(image_file2)
+
+    for image_file2 in sorted(f for f in dir2.iterdir() if f.is_file()):
+        if image_file2 not in matched2:
+            logger.warning(f'Extra image with no counterpart in "{dir1}": "{image_file2}".')
+            errors.append(
+                CompareError(
+                    error_type="image-extra",
+                    file=f'"{image_file2}"',
+                    detail="no corresponding file",
+                )
+            )
 
     errors += compare_image_lists(
         file_list1,
@@ -632,7 +649,7 @@ def compare_images(
     Args:
         file1: Path to the first image.
         file2: Path to the second image.
-        fuzz: The fuzz factor (e.g., "5%"). "0%" uses MAE metric.
+        fuzz: The fuzz factor (e.g., "5%"). "0%" uses the RMSE metric.
         ae_cutoff: The pixel count cutoff for Absolute Error (AE) metric.
         diff_dir: Directory to save diff images. Required for non-zero fuzz.
 
@@ -649,13 +666,19 @@ def compare_images(
     return compare_images_fuzz_ae(file1, file2, fuzz, ae_cutoff, diff_dir)
 
 
-def compare_images_rmse(file1: Path, file2: Path, threshold: float = 0.01) -> tuple[int, str]:
+def compare_images_rmse(file1: Path, file2: Path, threshold: float = 0.001) -> tuple[int, str]:
     """Compare two images using ImageMagick's RMSE metric.
+
+    The default threshold is sized for comparing two builds of the same comic.
+    Re-encoding is near enough deterministic that body pages come back at
+    exactly 0; only the rendered title page drifts, and only by around 0.0003
+    (text antialiasing), so 0.001 leaves headroom without masking a real
+    rendering change.
 
     Args:
         file1 (Path): Path object pointing to the first image.
         file2 (Path): Path object pointing to the second image.
-        threshold (float): Maximum acceptable normalized difference (0.01 = 1%).
+        threshold (float): Maximum acceptable normalized difference (0.001 = 0.1%).
 
     Returns:
         tuple[bool, float]: A boolean indicating if it passed, and the actual RMSE value.
@@ -743,7 +766,7 @@ def compare_images_fuzz_ae(
     Args:
         file1: Path to the first image.
         file2: Path to the second image.
-        fuzz: The fuzz factor (e.g., "5%"). "0%" uses MAE metric.
+        fuzz: The fuzz factor (e.g., "5%").
         ae_cutoff: The pixel count cutoff for Absolute Error (AE) metric.
         diff_dir: Directory to save diff images. Required for non-zero fuzz.
 
@@ -800,7 +823,7 @@ def main(
         str,
         typer.Argument(
             help="Fuzz factor for comparison (e.g., '5%').\n"
-            "A value of '0%' uses the MAE metric instead of AE."
+            "A value of '0%' uses the RMSE metric instead of AE."
         ),
     ],
     ae_cutoff: Annotated[
@@ -821,7 +844,9 @@ def main(
     """Compare all images in two directories."""
     image_errors = compare_images_in_dir(dir1, dir2, fuzz, ae_cutoff, diff_dir)
 
-    sys.exit(len(image_errors))
+    # Exit with a plain pass/fail status: an error *count* would be truncated
+    # modulo 256 by the shell, so exactly 256 errors would look like success.
+    sys.exit(1 if image_errors else 0)
 
 
 if __name__ == "__main__":

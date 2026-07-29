@@ -166,7 +166,7 @@ show-diffs volume:
 # Do a small build test
 [group('comics')]
 test-small:
-    bash scripts/small-build-test.sh
+    scripts/small-build-test.sh "{{regression_tests_dir}}/Small/aaa-Chronological-dirs"
     {{uv_run}} scripts/compare_build_root_dirs.py \
                "{{regression_tests_dir}}/Small/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"

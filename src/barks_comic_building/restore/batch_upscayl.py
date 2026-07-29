@@ -17,6 +17,7 @@ from barks_comic_building.restore.upscale_image import (
     DEFAULT_UPSCALER,
     Upscaler,
     UpscalerArg,
+    check_upscaler_is_usable,
     upscale_image_file,
 )
 from barks_comic_building.restore.upscale_ledger import (
@@ -35,6 +36,11 @@ from barks_comic_building.restore.upscale_state import (
 APP_LOGGING_NAME = "bups"
 
 SCALE = 4
+
+# Give up after this many pages fail in a row. A GPU that has stopped producing usable
+# images fails every page the same way, and grinding through the rest of a volume to
+# record a thousand identical failures helps nobody.
+MAX_CONSECUTIVE_FAILURES = 5
 
 
 class _PageJob(NamedTuple):
@@ -127,6 +133,11 @@ def upscayl(
     """
     start = time.time()
 
+    # Up front, and allowed to raise. A missing binary or an impossible scale is true for
+    # every page or none, so finding out per page would write one identical failure record
+    # per queued page - thousands of them - and call that a completed run.
+    check_upscaler_is_usable(upscaler, SCALE)
+
     recipe = get_current_recipe(upscaler, SCALE)
     logger.info(f"Upscale recipe {recipe.recipe_id}: {recipe.as_json()}")
 
@@ -144,10 +155,22 @@ def upscayl(
         return
 
     num_upscayled = 0
+    consecutive_failures = 0
     with UpscaleLedgerWriter(ledger_file, recipe) as ledger:
         for job in jobs:
             if _upscayl_page(job, upscaler, ledger):
                 num_upscayled += 1
+                consecutive_failures = 0
+                continue
+
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                logger.error(
+                    f"Giving up: {consecutive_failures} page(s) failed in a row."
+                    f" Something is wrong with the upscaler rather than with these pages."
+                    f" {num_upscayled} of {len(jobs)} done.",
+                )
+                break
 
     logger.info(
         f"\nTime taken to upscayl {num_upscayled} of {len(jobs)} file(s):"

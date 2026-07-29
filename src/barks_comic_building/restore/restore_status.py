@@ -42,6 +42,7 @@ _REPORTED_STATES = (
     PageState.STALE,
     PageState.INCOMPLETE,
     PageState.MISSING,
+    PageState.LINKED,
     PageState.NO_SRCE,
 )
 
@@ -171,6 +172,7 @@ def print_status_table(
     table.add_column("Stale", justify="right", style="yellow")
     table.add_column("Incomplete", justify="right", style="red")
     table.add_column("Missing", justify="right", style="red")
+    table.add_column("Linked", justify="right", style="dim")
     table.add_column("No srce", justify="right", style="dim")
     table.add_column("Est. left", justify="right")
 
@@ -207,6 +209,12 @@ def print_status_table(
         console.print(
             f"{num_to_do} page(s) to do. No timings recorded yet, so no estimate -"
             " run a batch and the ledger will have one.",
+        )
+
+    if totals[PageState.LINKED]:
+        console.print(
+            f"{totals[PageState.LINKED]} page(s) are symlinks to other volumes' pages"
+            " and are restored as part of those volumes.",
         )
 
 

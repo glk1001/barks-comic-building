@@ -13,7 +13,12 @@ import pytest
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
-from barks_comic_building.restore.upscale_image import upscale_image_file
+from barks_comic_building.restore import upscale_image
+from barks_comic_building.restore.upscale_image import (
+    Upscaler,
+    check_upscaler_is_usable,
+    upscale_image_file,
+)
 from barks_comic_building.restore.upscale_state import (
     RECIPE_ID_KEY,
     UPSCALE_DATE_KEY,
@@ -162,3 +167,18 @@ class TestTheWriterRefusesToo:
             upscale_image_file(write_png(tmp_path / "srce.png"), out_file, 4)
 
         assert other_volume_page.read_bytes() == before
+
+
+class TestRunLevelPreconditions:
+    """Things true for every page or none belong before the loop, not inside it."""
+
+    def test_a_missing_binary_is_checked_once_up_front(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(upscale_image, "WAIFU2X_BIN", tmp_path / "not-installed")
+        with pytest.raises(FileNotFoundError, match="binary"):
+            check_upscaler_is_usable(Upscaler.WAIFU2X, 4)
+
+    def test_an_impossible_scale_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="cannot scale"):
+            check_upscaler_is_usable(Upscaler.UPSCAYL, 7)

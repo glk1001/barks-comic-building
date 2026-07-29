@@ -152,7 +152,22 @@ def _get_metadata(upscaler: Upscaler, in_file: Path, scale: int) -> dict[str, st
     return metadata
 
 
-def _check_upscaler_is_usable(upscaler: Upscaler, scale: int) -> None:
+def check_upscaler_is_usable(upscaler: Upscaler, scale: int) -> None:
+    """Check the backend can actually be run at this scale.
+
+    A run-level precondition rather than a per-page one, so a batch can call it once
+    up front: neither of these can be true for one page and false for the next, and
+    finding out per page would mean thousands of identical failures instead of one.
+
+    Args:
+        upscaler: The backend to check.
+        scale: The requested upscale factor.
+
+    Raises:
+        FileNotFoundError: If the backend's binary is not installed.
+        ValueError: If the backend cannot handle the requested scale.
+
+    """
     binary = UPSCAYL_BIN if upscaler == Upscaler.UPSCAYL else WAIFU2X_BIN
     if not binary.is_file():
         msg = f'Could not find the {upscaler} binary: "{binary}".'
@@ -235,7 +250,7 @@ def upscale_image_file(
         )
         raise ValueError(msg)
 
-    _check_upscaler_is_usable(upscaler, scale)
+    check_upscaler_is_usable(upscaler, scale)
 
     run_args = _get_run_args(upscaler, in_file, out_file, scale)
     process = subprocess.Popen(run_args, stdout=subprocess.PIPE, text=True)  # noqa: S603

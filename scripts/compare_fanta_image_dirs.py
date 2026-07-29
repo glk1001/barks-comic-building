@@ -125,8 +125,17 @@ def _clear_diff_dir(diff_dir: Path) -> None:
     Args:
         diff_dir: The directory the run will write its per-title diffs into.
 
+    Raises:
+        ValueError: If the path exists and is not a directory. Saying so is better than
+            leaving it for the mkdir that follows, which fails with a bare FileExistsError
+            that says nothing about which argument was wrong.
+
     """
     resolved = diff_dir.resolve()
+
+    if resolved.exists() and not resolved.is_dir():
+        msg = f'Diff dir is not a directory: "{resolved}".'
+        raise ValueError(msg)
 
     # A shared or top-level directory is never ours to empty.
     if resolved in UNSAFE_DIFF_DIRS or len(resolved.parts) <= MIN_DIFF_DIR_PARTS:

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import shutil
-import sys
-import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -64,7 +62,22 @@ if TYPE_CHECKING:
     from PIL.Image import Image as PilImage
 
 USE_CONCURRENT_PROCESSES = True
-_process_page_error = False
+
+# Page failures that say something about the data rather than about the code: a file that
+# is not there, a source scan too small to build from. The message already says what to go
+# and fix, so these are reported as one line. Anything else keeps its traceback, because
+# an unexpected exception is a bug and the traceback is the whole point of it.
+_EXPECTED_PAGE_ERRORS = (FileNotFoundError, ValueError)
+
+
+class BuildError(Exception):
+    """A build that failed for a reason already reported to the user.
+
+    Raised once the individual failures have been logged, so that the caller knows to
+    report it plainly rather than dumping a traceback that would only repeat what has
+    already been said - and say it in terms of this module's internals rather than in
+    terms of the comic that could not be built.
+    """
 
 
 class ComicBookBuilder:
@@ -86,6 +99,11 @@ class ComicBookBuilder:
         self._required_dim: RequiredDimensions | None = None
 
         self._srce_and_dest_pages: SrceAndDestPages | None = None
+
+        # What went wrong, per page. Pages are built on a thread pool, so this is
+        # appended to from several threads at once - list.append is atomic, and nothing
+        # reads it until the pool has drained.
+        self._page_errors: list[str] = []
 
     def get_srce_dim(self) -> ComicDimensions:
         assert self._srce_dim
@@ -174,8 +192,7 @@ class ComicBookBuilder:
         delete_all_files_in_directory(self._comic.get_dest_dir())
         delete_all_files_in_directory(self._comic.get_dest_image_dir())
 
-        global _process_page_error  # noqa: PLW0603
-        _process_page_error = False
+        self._page_errors = []
 
         if USE_CONCURRENT_PROCESSES:
             assert self._srce_and_dest_pages
@@ -198,9 +215,12 @@ class ComicBookBuilder:
             ):
                 self._process_page(srce_page, dest_page)
 
-        if _process_page_error:
-            msg = "There were errors while processing pages."
-            raise RuntimeError(msg)
+        if self._page_errors:
+            assert self._srce_and_dest_pages
+            num_pages = len(self._srce_and_dest_pages.dest_pages)
+            failures = "\n  ".join(sorted(self._page_errors))
+            msg = f"{len(self._page_errors)} of {num_pages} pages failed:\n  {failures}"
+            raise BuildError(msg)
 
     def _process_page(
         self,
@@ -243,14 +263,15 @@ class ComicBookBuilder:
             logger.info(f'Saved changes to image "{get_abbrev_path(dest_page.page_filename)}".')
 
             logger.info("")
-        except Exception:  # noqa: BLE001
-            _, _, tb = sys.exc_info()
-            tb_info = traceback.extract_tb(tb)
-            filename, line, _func, text = tb_info[-1]
-            err_msg = f'Error in process page at "{filename}:{line}" for statement "{text}".'
-            logger.exception(err_msg)
-            global _process_page_error  # noqa: PLW0603
-            _process_page_error = True
+        except Exception as exc:  # noqa: BLE001
+            page = get_abbrev_path(dest_page.page_filename)
+            reason = str(exc) or exc.__class__.__name__
+            self._page_errors.append(f'"{page}": {reason}')
+
+            if isinstance(exc, _EXPECTED_PAGE_ERRORS):
+                logger.error(f'Could not build page "{page}": {reason}')
+            else:
+                logger.exception(f'Unexpected error building page "{page}":')
 
     def _save_dest_image(
         self,

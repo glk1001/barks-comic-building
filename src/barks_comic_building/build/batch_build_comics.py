@@ -11,7 +11,7 @@ from comic_utils.timing import Timing
 from loguru import logger
 
 from barks_comic_building.build.additional_file_writing import write_summary_file
-from barks_comic_building.build.build_comics import ComicBookBuilder
+from barks_comic_building.build.build_comics import BuildError, ComicBookBuilder
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
 
 APP_LOGGING_NAME = "bbld"
@@ -56,8 +56,13 @@ def process_comic_book(comic: ComicBook) -> int:
             comic_book_builder.get_max_dest_page_timestamp(),
             process_timing,
         )
+    except BuildError as exc:
+        # Already reported page by page, in terms of the files that are wrong. A
+        # traceback here would repeat it back in terms of this module's call stack.
+        logger.error(f'Could not build "{comic.title}": {exc}')
+        return 1
     except Exception:  # noqa: BLE001
-        logger.exception("Build error:")
+        logger.exception(f'Unexpected error building "{comic.title}":')
         return 1
 
     return 0
@@ -79,6 +84,9 @@ def main(
     exit_code = process_comic_book_titles(comics_database, titles)
 
     if exit_code != 0:
+        # The log sinks are enqueued, so without draining them first this summary races
+        # ahead of the errors it is summarising and prints above them.
+        logger.complete()
         print(f"\nThere were errors: exit code = {exit_code}.")  # noqa: T201
         sys.exit(exit_code)
 

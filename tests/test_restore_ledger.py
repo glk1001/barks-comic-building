@@ -15,6 +15,7 @@ import pytest
 
 from barks_comic_building.restore.restore_ledger import (
     LEDGER_SCHEMA,
+    OUTCOME_COPIED,
     OUTCOME_FAILED,
     OUTCOME_OK,
     LedgerWriter,
@@ -231,3 +232,46 @@ class TestStatsAreOverOneSetOfPages:
         assert stats is not None
         assert stats.count == 1
         assert stats.step_mean_seconds["smooth"] == pytest.approx(150.0)
+
+
+class TestCopiedPages:
+    """Non-comic pages are copied through rather than restored, and recorded as such.
+
+    They read as fine, since the page is there and correct, but they are not evidence of
+    what restoring costs: a file copy takes a fraction of a second where a restore takes
+    minutes.
+    """
+
+    def write_copy(self, ledger_file: Path, page: str, seconds: float) -> None:
+        recipe = get_current_recipe(4, do_palette_snap=True)
+        with LedgerWriter(ledger_file, recipe, WORKERS) as writer:
+            writer.write_page(
+                title="Silent Night",
+                volume=9,
+                page=page,
+                outcome=OUTCOME_COPIED,
+                started="2026-07-29T12:00:00+10:00",
+                total_seconds=seconds,
+                step_seconds={},
+            )
+
+    def test_a_copied_page_reads_as_fine(self, ledger_file: Path) -> None:
+        self.write_copy(ledger_file, "201", 0.2)
+
+        assert read_ledger(ledger_file).pages[0].is_ok
+
+    def test_a_copied_page_is_not_counted_as_a_restore_timing(self, ledger_file: Path) -> None:
+        """Otherwise a volume of one-pagers would shorten every estimate after it."""
+        write_pages(ledger_file, [("110", OUTCOME_OK, 300.0)])
+        self.write_copy(ledger_file, "201", 0.2)
+
+        stats = read_ledger(ledger_file).timing_stats()
+
+        assert stats is not None
+        assert stats.count == 1
+        assert stats.mean_seconds == pytest.approx(300.0)
+
+    def test_copies_alone_give_no_timings(self, ledger_file: Path) -> None:
+        self.write_copy(ledger_file, "201", 0.2)
+
+        assert read_ledger(ledger_file).timing_stats() is None

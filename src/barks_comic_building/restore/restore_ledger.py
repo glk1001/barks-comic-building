@@ -172,8 +172,30 @@ class Ledger:
 
         return latest
 
+    def _is_measured(self, record: PageRecord, recipe_id: str | None) -> bool:
+        """Whether a record is evidence of what a restored page costs.
+
+        Restored pages only. A copied page is recorded as done, and reads as fine through
+        ``is_ok``, but it is a file copy taking a fraction of a second where a restore
+        takes minutes - counting it would drag the mean down and shorten every estimate
+        built from it.
+
+        Args:
+            record: The page record to weigh up.
+            recipe_id: Restrict to this recipe, or None for any.
+
+        Returns:
+            Whether it should count.
+
+        """
+        return (
+            record.outcome == OUTCOME_OK
+            and record.total_seconds > 0
+            and (recipe_id is None or record.recipe_id == recipe_id)
+        )
+
     def timing_stats(self, recipe_id: str | None = None) -> TimingStats | None:
-        """Return how long successful pages have been taking.
+        """Return how long restored pages have been taking.
 
         Args:
             recipe_id: Only count pages made with this recipe. Pass None to count all of
@@ -181,29 +203,21 @@ class Ledger:
                 what the next page will cost.
 
         Returns:
-            The statistics, or None if no successful page qualifies.
+            The statistics, or None if no restored page qualifies.
 
         """
         totals = [
-            record.total_seconds
-            for record in self.pages
-            if record.is_ok
-            and record.total_seconds > 0
-            and (recipe_id is None or record.recipe_id == recipe_id)
+            record.total_seconds for record in self.pages if self._is_measured(record, recipe_id)
         ]
         if not totals:
             return None
 
-        # The same pages the totals above were taken from, untimed ones included in
-        # neither. Counting a page's steps but not its total would put the two figures on
-        # different sets, and the step table reports itself as being over `count` pages.
+        # The same pages the totals above were taken from. Counting a page's steps but not
+        # its total would put the two figures on different sets, and the step table
+        # reports itself as being over `count` pages.
         step_totals: dict[str, list[float]] = {}
         for record in self.pages:
-            if (
-                not record.is_ok
-                or record.total_seconds <= 0
-                or (recipe_id is not None and record.recipe_id != recipe_id)
-            ):
+            if not self._is_measured(record, recipe_id):
                 continue
             for step, seconds in record.step_seconds.items():
                 step_totals.setdefault(step, []).append(seconds)

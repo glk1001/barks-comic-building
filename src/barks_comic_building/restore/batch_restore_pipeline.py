@@ -35,6 +35,7 @@ from barks_comic_building.restore.page_state import (
     get_page_status,
     get_upscaler_used,
 )
+from barks_comic_building.restore.report_format import format_duration
 from barks_comic_building.restore.restore_ledger import (
     OUTCOME_FAILED,
     OUTCOME_OK,
@@ -56,9 +57,6 @@ SMALL_RAM = 16 * 1024 * 1024 * 1024
 # that an interrupted run loses at most this much unfinished work.
 DEFAULT_BATCH_SIZE = 64
 
-_SECONDS_PER_HOUR = 3600
-_SECONDS_PER_MINUTE = 60
-
 
 class _PageJob(NamedTuple):
     """A page queued for restoring, with what the ledger needs to describe it."""
@@ -67,17 +65,6 @@ class _PageJob(NamedTuple):
     title: str
     volume: int
     page: str
-
-
-def _format_duration(seconds: float) -> str:
-    """Return a duration as hours and minutes, or seconds when it is short."""
-    if seconds < _SECONDS_PER_MINUTE:
-        return f"{int(seconds)}s"
-
-    hours, remainder = divmod(int(seconds), _SECONDS_PER_HOUR)
-    minutes = remainder // _SECONDS_PER_MINUTE
-
-    return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
 
 
 def restore(  # noqa: PLR0913
@@ -159,7 +146,7 @@ def restore(  # noqa: PLR0913
 
     logger.info(
         f"\nTime taken to restore {len(jobs)} page(s)"
-        f" and copy {num_copied}: {_format_duration(time.time() - start)}.",
+        f" and copy {num_copied}: {format_duration(time.time() - start)}.",
     )
 
 
@@ -173,7 +160,7 @@ def _log_run_estimate(jobs: list[_PageJob], ledger_file: Path, recipe: RestoreRe
     logger.info(
         f"{len(jobs)} page(s) to restore."
         f" Previous pages on this recipe averaged {int(stats.mean_seconds)}s,"
-        f" so expect around {_format_duration(len(jobs) * stats.mean_seconds)}.",
+        f" so expect around {format_duration(len(jobs) * stats.mean_seconds)}.",
     )
 
 
@@ -242,8 +229,8 @@ def _log_progress(num_done: int, num_jobs: int, run_start: float) -> None:
 
     logger.info(
         f"\nProgress: {num_done}/{num_jobs} page(s) ({num_done / num_jobs:.1%})"
-        f" - elapsed {_format_duration(elapsed)},"
-        f" {remaining} left, around {_format_duration(estimate)} to go.",
+        f" - elapsed {format_duration(elapsed)},"
+        f" {remaining} left, around {format_duration(estimate)} to go.",
     )
 
 

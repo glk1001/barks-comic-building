@@ -103,6 +103,16 @@ restore volume:
 restore-title title:
     {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --title "{{title}}"
 
+# Show what the upscale has done and what is left, per volume, with an estimate
+[group('comics')]
+upscale-status volume *flags:
+    {{uv_run}} barks-upscale-status --volume {{volume}} {{flags}}
+
+# List the pages whose last upscale attempt failed, and why
+[group('comics')]
+upscale-failures:
+    {{uv_run}} barks-upscale-status --failed
+
 # Show what the restore has done and what is left, per volume, with an estimate
 [group('comics')]
 restore-status volume *flags:

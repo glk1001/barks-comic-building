@@ -12,6 +12,7 @@ from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
+from barks_comic_building.restore.report_format import format_duration
 from barks_comic_building.restore.upscale_image import (
     DEFAULT_UPSCALER,
     Upscaler,
@@ -44,13 +45,6 @@ class _PageJob(NamedTuple):
     page: str
     srce_file: Path
     dest_file: Path
-
-
-def _format_duration(seconds: float) -> str:
-    minutes, _ = divmod(int(seconds), 60)
-    hours, minutes = divmod(minutes, 60)
-
-    return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
 
 
 def get_title_jobs(
@@ -157,7 +151,7 @@ def upscayl(
 
     logger.info(
         f"\nTime taken to upscayl {num_upscayled} of {len(jobs)} file(s):"
-        f" {_format_duration(time.time() - start)}.",
+        f" {format_duration(time.time() - start)}.",
     )
 
 
@@ -180,7 +174,7 @@ def _log_run_estimate(
     logger.info(
         f"{len(jobs)} page(s) to upscayl."
         f" Previous pages on this recipe averaged {int(stats.mean_seconds)}s,"
-        f" so expect around {_format_duration(len(jobs) * stats.mean_seconds)}.",
+        f" so expect around {format_duration(len(jobs) * stats.mean_seconds)}.",
     )
 
 

@@ -182,3 +182,42 @@ class TestRunLevelPreconditions:
     def test_an_impossible_scale_is_refused(self) -> None:
         with pytest.raises(ValueError, match="cannot scale"):
             check_upscaler_is_usable(Upscaler.UPSCAYL, 7)
+
+
+class TestRunningTheBackend:
+    """Neither backend reports progress, so what it prints only matters when it fails.
+
+    Both streams have to reach the log: the "done" line goes to stdout and the device
+    banner - which GPU was picked - goes to stderr, and losing either leaves a failed run
+    with nothing to go on.
+    """
+
+    def run(self, script: str) -> None:
+        upscale_image._run_upscaler(Upscaler.WAIFU2X, ["sh", "-c", script])  # noqa: SLF001
+
+    def test_a_clean_run_says_nothing(self) -> None:
+        self.run("echo 'in.png -> out.png done'")
+
+    def test_both_streams_are_captured(self) -> None:
+        with pytest.raises(RuntimeError) as exc:
+            self.run("echo on-stdout; echo on-stderr >&2; exit 1")
+
+        assert "on-stdout" in str(exc.value)
+        assert "on-stderr" in str(exc.value)
+
+    def test_the_exit_code_is_reported(self) -> None:
+        with pytest.raises(RuntimeError, match="exit 3"):
+            self.run("exit 3")
+
+    def test_a_silent_failure_still_names_the_backend(self) -> None:
+        with pytest.raises(RuntimeError, match="waifu2x failed"):
+            self.run("exit 3")
+
+    def test_a_flood_of_output_is_bounded(self) -> None:
+        """A backend stuck in a loop must not fill memory with its complaints."""
+        with pytest.raises(RuntimeError) as exc:
+            self.run("for i in $(seq 500); do echo line-$i; done; exit 1")
+
+        kept = str(exc.value).splitlines()[1:]
+        assert len(kept) == upscale_image._MAX_KEPT_OUTPUT_LINES  # noqa: SLF001
+        assert kept[-1] == "line-500"

@@ -1,4 +1,5 @@
 import subprocess
+from collections import deque
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -67,6 +68,10 @@ WAIFU2X_NOISE_LEVEL = 1
 # over a hundred levels away - anything in between is unexplained, so reject it.
 CHECK_THUMBNAIL_SIZE = (64, 64)
 MAX_THUMBNAIL_DEVIATION = 25.0
+
+# Enough of a failing run's output to diagnose it, bounded so that a backend stuck in a
+# loop cannot fill memory with its complaints.
+_MAX_KEPT_OUTPUT_LINES = 40
 
 
 def _get_upscayl_run_args(in_file: Path, out_file: Path, scale: int) -> list[str]:
@@ -179,6 +184,48 @@ def check_upscaler_is_usable(upscaler: Upscaler, scale: int) -> None:
         raise ValueError(msg)
 
 
+def _run_upscaler(upscaler: Upscaler, run_args: list[str]) -> None:
+    """Run the backend, logging everything it says and keeping it in case it fails.
+
+    Neither backend reports progress - they print a device banner on stderr at the start
+    and one "done" line on stdout at the end, with the whole page in between. So the point
+    of reading them is not to follow along, it is to have what they said when something
+    goes wrong: which GPU was picked, and whatever the failure was.
+
+    stderr is merged into stdout rather than given a pipe of its own, because reading two
+    pipes from one thread deadlocks as soon as either fills. Lines go to the log at debug,
+    since a device banner per page is not worth a log line per page at info, and are
+    repeated in the error if the run fails.
+
+    Args:
+        upscaler: The backend being run, for the error message.
+        run_args: Its full command line.
+
+    Raises:
+        RuntimeError: If the backend exits non-zero, carrying what it printed.
+
+    """
+    process = subprocess.Popen(  # noqa: S603
+        run_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+
+    output: deque[str] = deque(maxlen=_MAX_KEPT_OUTPUT_LINES)
+    assert process.stdout is not None
+    for raw_line in process.stdout:
+        line = raw_line.strip()
+        if line:
+            output.append(line)
+            logger.debug(line)
+
+    # wait() rather than poll(): stdout reaching EOF does not mean the process has been
+    # reaped yet, and poll() returning None there would read as a failure on a good run.
+    return_code = process.wait()
+    if return_code != 0:
+        said = "\n".join(output)
+        msg = f"{upscaler} failed (exit {return_code})."
+        raise RuntimeError(f"{msg}\n{said}" if said else msg)
+
+
 def _get_check_thumbnail(image_file: Path) -> Image.Image:
     with Image.open(image_file) as image:
         return image.convert("RGB").resize(CHECK_THUMBNAIL_SIZE, Image.Resampling.BOX)
@@ -233,8 +280,9 @@ def upscale_image_file(
         FileNotFoundError: If the backend's binary is not installed.
         ValueError: If the backend cannot handle the requested scale, or if the output
             path is a symlink.
-        RuntimeError: If the backend fails, or returns an image that does not
-            match the source. The unusable output file is deleted first.
+        RuntimeError: If the backend fails, carrying what it printed, or returns an
+            image that does not match the source. The unusable output file is
+            deleted first.
 
     """
     assert out_file.suffix == OUTPUT_EXTENSION
@@ -252,20 +300,7 @@ def upscale_image_file(
 
     check_upscaler_is_usable(upscaler, scale)
 
-    run_args = _get_run_args(upscaler, in_file, out_file, scale)
-    process = subprocess.Popen(run_args, stdout=subprocess.PIPE, text=True)  # noqa: S603
-
-    while True:
-        output = process.stdout.readline()  # ty: ignore[unresolved-attribute]
-        if output == "" and process.poll() is not None:
-            break
-        if output:
-            logger.info(output.strip())
-
-    rc = process.poll()
-    if rc != 0:
-        msg = f"{upscaler} failed."
-        raise RuntimeError(msg)
+    _run_upscaler(upscaler, _get_run_args(upscaler, in_file, out_file, scale))
 
     try:
         _check_upscaled_output(upscaler, in_file, out_file, scale)

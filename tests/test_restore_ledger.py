@@ -18,6 +18,7 @@ from barks_comic_building.restore.restore_ledger import (
     OUTCOME_COPIED,
     OUTCOME_FAILED,
     OUTCOME_OK,
+    OUTCOME_PRESENT,
     LedgerWriter,
     read_ledger,
 )
@@ -242,14 +243,16 @@ class TestCopiedPages:
     minutes.
     """
 
-    def write_copy(self, ledger_file: Path, page: str, seconds: float) -> None:
+    def write_copy(
+        self, ledger_file: Path, page: str, seconds: float, outcome: str = OUTCOME_COPIED
+    ) -> None:
         recipe = get_current_recipe(4, do_palette_snap=True)
         with LedgerWriter(ledger_file, recipe, WORKERS) as writer:
             writer.write_page(
                 title="Silent Night",
                 volume=9,
                 page=page,
-                outcome=OUTCOME_COPIED,
+                outcome=outcome,
                 started="2026-07-29T12:00:00+10:00",
                 total_seconds=seconds,
                 step_seconds={},
@@ -275,3 +278,23 @@ class TestCopiedPages:
         self.write_copy(ledger_file, "201", 0.2)
 
         assert read_ledger(ledger_file).timing_stats() is None
+
+    def test_a_page_that_was_already_there_reads_as_fine(self, ledger_file: Path) -> None:
+        """Not a failure, and listing it as one would bury the real failures."""
+        self.write_copy(ledger_file, "201", 0.0, OUTCOME_PRESENT)
+
+        record = read_ledger(ledger_file).pages[0]
+
+        assert record.is_ok
+        assert record.outcome == OUTCOME_PRESENT
+
+    def test_a_page_that_was_already_there_is_not_a_timing_either(self, ledger_file: Path) -> None:
+        """It records that a run looked at the page, not that it did work on it."""
+        write_pages(ledger_file, [("110", OUTCOME_OK, 300.0)])
+        self.write_copy(ledger_file, "201", 0.3, OUTCOME_PRESENT)
+
+        stats = read_ledger(ledger_file).timing_stats()
+
+        assert stats is not None
+        assert stats.count == 1
+        assert stats.mean_seconds == pytest.approx(300.0)

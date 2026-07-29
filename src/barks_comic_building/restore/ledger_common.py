@@ -32,6 +32,9 @@ RECORD_TYPE_PAGE = "page"
 OUTCOME_OK = "ok"
 OUTCOME_FAILED = "failed"
 OUTCOME_COPIED = "copied"
+# A page that was already there, so this run did nothing to it. Recorded rather than
+# passed over so that the ledger accounts for every page a run looked at.
+OUTCOME_PRESENT = "present"
 
 
 def now() -> str:

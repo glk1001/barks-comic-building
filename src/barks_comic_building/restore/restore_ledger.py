@@ -33,6 +33,7 @@ from barks_comic_building.restore.ledger_common import (
     OUTCOME_COPIED,
     OUTCOME_FAILED,
     OUTCOME_OK,
+    OUTCOME_PRESENT,
     RECORD_TYPE_PAGE,
     RECORD_TYPE_RUN,
     JsonlWriter,
@@ -52,6 +53,7 @@ __all__ = [
     "OUTCOME_COPIED",
     "OUTCOME_FAILED",
     "OUTCOME_OK",
+    "OUTCOME_PRESENT",
     "RECORD_TYPE_PAGE",
     "RECORD_TYPE_RUN",
     "Ledger",
@@ -119,8 +121,12 @@ class PageRecord:
 
     @property
     def is_ok(self) -> bool:
-        """Whether the page came out of the pipeline intact."""
-        return self.outcome in (OUTCOME_OK, OUTCOME_COPIED)
+        """Whether the page is in good order, whatever this run did or did not do to it.
+
+        A page that was already there counts: it is not a failure, and listing it as one
+        would bury the real failures under every page a re-run walked past.
+        """
+        return self.outcome in (OUTCOME_OK, OUTCOME_COPIED, OUTCOME_PRESENT)
 
 
 @dataclass(frozen=True, slots=True)

@@ -40,6 +40,7 @@ from barks_comic_building.restore.restore_ledger import (
     OUTCOME_COPIED,
     OUTCOME_FAILED,
     OUTCOME_OK,
+    OUTCOME_PRESENT,
     LedgerWriter,
     get_default_ledger_file,
     read_ledger,
@@ -59,8 +60,12 @@ SMALL_RAM = 16 * 1024 * 1024 * 1024
 DEFAULT_BATCH_SIZE = 64
 
 
-class _CopiedPage(NamedTuple):
-    """A non-comic page copied through unrestored, with what the ledger needs."""
+class _NonComicPage(NamedTuple):
+    """A non-comic page a run dealt with, and what it did about it.
+
+    The outcome is either copied, for a page this run wrote, or present, for one that was
+    already there and left alone.
+    """
 
     title: str
     volume: int
@@ -68,6 +73,7 @@ class _CopiedPage(NamedTuple):
     dest_file: Path
     started: str
     seconds: float
+    outcome: str
 
 
 class _PageJob(NamedTuple):
@@ -111,10 +117,10 @@ def restore(  # noqa: PLR0913
     logger.info(f"Restore recipe {recipe.recipe_id}: {recipe.as_json()}")
 
     jobs: list[_PageJob] = []
-    copied: list[_CopiedPage] = []
+    non_comic: list[_NonComicPage] = []
     for title in title_list:
         if is_non_comic_title(title):
-            copied += copy_title(comics_database, title)
+            non_comic += copy_title(comics_database, title)
         else:
             jobs += get_title_jobs(
                 comics_database,
@@ -126,7 +132,7 @@ def restore(  # noqa: PLR0913
                 force=force,
             )
 
-    if not jobs and not copied:
+    if not jobs and not non_comic:
         logger.info(
             f"Nothing to do across {len(title_list)} title(s)"
             f" - every page is already up to date with this recipe.",
@@ -138,7 +144,7 @@ def restore(  # noqa: PLR0913
 
     workers = {phase[0]: phase[2] or os.process_cpu_count() or 0 for phase in _PHASES}
     with LedgerWriter(ledger_file, recipe, workers) as ledger:
-        _write_copied_records(ledger, copied)
+        _write_non_comic_records(ledger, non_comic)
 
         num_done = 0
         for batch_start in range(0, len(jobs), batch_size):
@@ -158,26 +164,27 @@ def restore(  # noqa: PLR0913
                 keep_work_files=keep_work_files,
             )
 
+    num_copied = sum(1 for page in non_comic if page.outcome == OUTCOME_COPIED)
     logger.info(
         f"\nTime taken to restore {len(jobs)} page(s)"
-        f" and copy {len(copied)}: {format_duration(time.time() - start)}.",
+        f" and copy {num_copied}: {format_duration(time.time() - start)}.",
     )
 
 
-def _write_copied_records(ledger: LedgerWriter, copied: list[_CopiedPage]) -> None:
-    """Record the pages that were copied through rather than restored.
+def _write_non_comic_records(ledger: LedgerWriter, non_comic: list[_NonComicPage]) -> None:
+    """Record the non-comic pages, whether this run wrote them or found them.
 
     Args:
         ledger: Where to record them.
-        copied: The pages `copy_title` reported.
+        non_comic: The pages `copy_title` reported.
 
     """
-    for page in copied:
+    for page in non_comic:
         ledger.write_page(
             title=page.title,
             volume=page.volume,
             page=page.page,
-            outcome=OUTCOME_COPIED,
+            outcome=page.outcome,
             started=page.started,
             total_seconds=page.seconds,
             step_seconds={},
@@ -293,22 +300,24 @@ def _clean_up_work_files(pipeline: RestorePipeline) -> None:
         )
 
 
-def copy_title(comics_database: ComicsDatabase, title_str: str) -> list[_CopiedPage]:
+def copy_title(comics_database: ComicsDatabase, title_str: str) -> list[_NonComicPage]:
     """Copy a non-comic title's pages through unrestored.
 
     Reports the pages rather than a count of them, so that they can be written to the
     ledger. A copied page is as finished as a restored one, and leaving it out meant a run
     that only copied left no trace at all - not even that it happened.
 
-    Pages already present are skipped and not reported, the same way a page already
-    current is not queued: the ledger records what a run did, not what it found.
+    Pages already there are reported too, as present rather than copied. They cost
+    nothing to record and they make the ledger account for every page of the title, so
+    that a title with no records is a title nothing looked at rather than a title whose
+    pages all happened to exist.
 
     Args:
         comics_database: The comics database.
         title_str: The title to copy.
 
     Returns:
-        One entry per page actually copied.
+        One entry per page, saying what was done about it.
 
     """
     logger.info(f'Copying non-comic title "{title_str}".')
@@ -318,33 +327,34 @@ def copy_title(comics_database: ComicsDatabase, title_str: str) -> list[_CopiedP
     srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
     dest_restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
 
-    copied: list[_CopiedPage] = []
+    pages: list[_NonComicPage] = []
     for srce_file, dest_file in zip(srce_files, dest_restored_files, strict=True):
-        if Path(dest_file).is_file():
-            logger.warning(
-                f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".',
-            )
-            continue
-
-        logger.info(
-            f'Copying "{get_abbrev_path(srce_file[0])}" to "{get_abbrev_path(dest_file)}".',
-        )
         started = datetime.now().astimezone().isoformat(timespec="seconds")
         page_start = time.time()
-        copy_file_to_png(srce_file[0], dest_file)
 
-        copied.append(
-            _CopiedPage(
+        if Path(dest_file).is_file():
+            logger.debug(f'Dest file exists - leaving alone: "{get_abbrev_path(dest_file)}".')
+            outcome = OUTCOME_PRESENT
+        else:
+            logger.info(
+                f'Copying "{get_abbrev_path(srce_file[0])}" to "{get_abbrev_path(dest_file)}".',
+            )
+            copy_file_to_png(srce_file[0], dest_file)
+            outcome = OUTCOME_COPIED
+
+        pages.append(
+            _NonComicPage(
                 title=title_str,
                 volume=volume,
                 page=Path(dest_file).stem,
                 dest_file=Path(dest_file),
                 started=started,
                 seconds=time.time() - page_start,
+                outcome=outcome,
             )
         )
 
-    return copied
+    return pages
 
 
 def get_title_jobs(  # noqa: PLR0913

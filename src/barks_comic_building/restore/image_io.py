@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import cairosvg
@@ -30,6 +31,9 @@ Image.MAX_IMAGE_PIXELS = None
 # 2.0s. Storing it raw was costing fifty times the disk for a third of a second.
 _FAST_PNG_COMPRESSION = 1
 
+# The zero-length chunk every finished png ends with: length, type, and its fixed crc.
+_PNG_IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+
 
 def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
     png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=None)
@@ -58,28 +62,62 @@ def svg_file_to_optimized_png(
 def read_png_metadata(png_file: Path) -> dict[str, str]:
     """Read back the metadata a png was written with, without its ``BARKS:`` prefix.
 
-    Only the header is touched - Pillow does not decode the pixels until they are asked
-    for - so this stays cheap enough to run over the whole library.
+    Reads only the chunks that precede the image data. This is worth being deliberate
+    about, because deciding what a run has left to do reads the metadata of every page in
+    the library: ``Image.text`` also returns text written *after* the image data, but can
+    only get there by decoding the image, which is 1.5s on a 4x page against 6ms here.
+    Everything in this codebase writes its metadata through ``pnginfo=`` at save time,
+    which Pillow puts before the image data.
+
+    A file not ending in an IEND chunk is treated as unreadable. A write killed part way
+    leaves the text chunks in place with no pixels behind them, and reporting its metadata
+    would let a half written page pass as a finished one - which the full decode used to
+    prevent as a side effect, and this checks on purpose.
 
     Args:
         png_file: The png to read.
 
     Returns:
-        The metadata, keyed without the group prefix. Empty if the file has none, or
-        cannot be read as a png.
+        The metadata, keyed without the group prefix. Empty if the file has none, is
+        incomplete, or cannot be read as a png.
 
     """
     prefix = f"{METADATA_PROPERTY_GROUP}:"
 
+    if not _is_complete_png(png_file):
+        return {}
+
     try:
         with Image.open(str(png_file)) as pil_image:
-            text = dict(getattr(pil_image, "text", {}))
+            text = dict(pil_image.info)
     except (OSError, ValueError):
         return {}
 
+    # `info` holds the other png chunks too, whose keys and values are not all strings.
     return {
-        key.removeprefix(prefix): value for key, value in text.items() if key.startswith(prefix)
+        key.removeprefix(prefix): value
+        for key, value in text.items()
+        if isinstance(key, str) and key.startswith(prefix) and isinstance(value, str)
     }
+
+
+def _is_complete_png(png_file: Path) -> bool:
+    """Return whether a png ends with the IEND chunk that closes a finished file.
+
+    Args:
+        png_file: The png to check.
+
+    Returns:
+        True if the file ends in IEND. False if it does not, or is too short to, or
+        cannot be read.
+
+    """
+    try:
+        with png_file.open("rb") as f:
+            f.seek(-len(_PNG_IEND_CHUNK), os.SEEK_END)
+            return f.read(len(_PNG_IEND_CHUNK)) == _PNG_IEND_CHUNK
+    except OSError:
+        return False
 
 
 def write_cv_image_file(

@@ -65,6 +65,7 @@ levelname
 licence
 linalg
 linestyle
+localised
 lowlight
 magica
 markerfacecolor

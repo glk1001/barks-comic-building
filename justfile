@@ -182,8 +182,8 @@ compare-all:
 [group('comics')]
 check-for-upscayl-errors volume:
     {{uv_run}} scripts/compare_fanta_image_dirs.py --volume "{{volume}}" \
-               --diff-dir "/tmp/upscayl-diffs" --fuzz 50% \
-               --tile-size 256 --tile-cutoff-pct 0.5 --log-level INFO
+               --diff-dir "/tmp/upscayl-diffs" --fuzz 20% \
+               --tile-size 512 --tile-cutoff-pct 2 --log-level INFO
 
 # Do a big image compare of restored to original looking for obvious changes
 [group('comics')]

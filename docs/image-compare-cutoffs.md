@@ -9,74 +9,92 @@ Re-measure with `--calibrate`, which reports the per-page figure at a given
 `--fuzz` without applying any cutoff:
 
 ```sh
-uv run scripts/compare_fanta_image_dirs.py --volume 1 --calibrate --fuzz 50%
-uv run scripts/compare_fanta_image_dirs.py --volume 1 --calibrate --fuzz 50% \
-    --tile-size 256 --diff-dir /tmp/tilecalib
+uv run scripts/compare_fanta_image_dirs.py --volume 2,12,29 --calibrate \
+    --fuzz 20% --tile-size 512 --diff-dir /tmp/tilecalib
 ```
 
 ## What the comparison is actually measuring
 
 Restoring a page is *meant* to change it: the halftone screen is removed, the
-palette is snapped, edges are smoothed. So the difference between a restored
-page and its original is mostly legitimate, and the cutoff has to separate an
-upscayl error from a restoration that worked. That turns out to be the hard
-part, and it is what decides which metric is usable.
+palette is snapped, edges are smoothed and thinned. So the difference between a
+restored page and its original is mostly legitimate, and the cutoff has to
+separate an upscale fault from a restoration that worked. That is the hard part,
+and it is what decides both the metric and its parameters.
 
-## Measurements (volume 1, 254 pages, fuzz 50%, July 2026)
+## The fuzz and tile size came from a sweep
 
-| metric | median | p90 | p99 | max |
-| --- | --- | --- | --- | --- |
-| whole-page AE | 157 px | 303 px | 461 px | 3896 px |
-| worst tile, 256 px tiles | 0.026% | 0.053% | 0.131% | 1.715% |
+`--fuzz` was swept over 5%, 10%, 15% and 20% across volumes 2, 12 and 29 in
+June 2026, and 20% chosen. Regional comparison was then added and `--tile-size
+512` settled on over the same volumes plus per-title spot checks. Those two
+parameters are the result of that sweep - do not change one without re-running
+it, because every figure below is quoted at fuzz 20% and 512 px tiles.
 
-Both metrics put the same page top: `557.png`. Inspecting it shows the
-difference is entirely legitimate - the halftone has been descreened and the
-panel edges redrawn. It is the *best* case for the restore, not a defect.
+## Measurements (volumes 2, 12 and 29; 607 pages; fuzz 20%, tile 512)
 
-Against that, localised artefacts injected into a known-clean page (`110.png`)
-to stand in for upscayl damage:
+| | median | p90 | p95 | p99 | max |
+| --- | --- | --- | --- | --- | --- |
+| worst tile | 0.767% | 1.135% | 1.336% | 1.803% | 3.539% |
 
-| injected defect | whole-page AE | worst tile |
+What each cutoff would flag:
+
+| `--tile-cutoff-pct` | pages flagged of 607 |
+| --- | --- |
+| 0.5 | 532 |
+| 1 | 110 |
+| **2** | **4** |
+| 3 | 1 |
+| 5 | 0 |
+
+2% sits just above the p99 and yields a four-page shortlist, so that is what
+`check-for-upscayl-errors` uses.
+
+The scan source matters, and one cutoff across the library is a compromise:
+
+| volume | source | n | median | max | over 2% |
+| --- | --- | --- | --- | --- | --- |
+| 2 | Salem-Empire | 212 | 0.538% | 1.201% | 0 |
+| 12 | Digital-Empire | 215 | 0.929% | 3.539% | 3 |
+| 29 | Salem-Empire | 180 | 0.813% | 2.147% | 1 |
+
+Digital-Empire volumes run consistently hotter. Only one is in this sample; if
+the shortlist gets long on a Digital-Empire volume, re-calibrate before assuming
+the pages are bad.
+
+## Why the check is regional and not whole-page
+
+Localised artefacts injected into a known-clean page, to stand in for upscale
+damage, measured at the same parameters:
+
+| injected defect | worst tile | vs the 2% cutoff |
 | --- | --- | --- |
-| none | 219 px | 0.04% |
-| 150x150 garbled | 974 px | 0.77% |
-| 300x300 garbled | 2116 px | 2.27% |
-| 450x450 garbled | 2425 px | 2.35% |
-| 300x300 noise | 38729 px | 24.08% |
-| 300x300 solid | 19819 px | 19.99% |
+| none | 0.656% | passes |
+| 150x150 garbled | 1.472% | passes |
+| 300x300 garbled | 5.621% | flagged |
+| 450x450 garbled | 11.260% | flagged |
+| 300x300 noise | 13.208% | flagged |
 
-## Why the upscayl check is regional and not whole-page
+Against the p99 of 1.803% that is about 3.1x separation for a 300x300 fault. A
+whole-page AE cutoff cannot do this at all: measured on volume 1, a correctly
+restored page scored 3896 while a page carrying a 450x450 garbled blob scored
+2425. The defect ranks *below* the legitimate change, because a local fault
+averages away over 6.5 million pixels. No threshold fixes that.
 
-Compare the legitimate outlier against a real defect:
+Note the 150x150 fault escapes even the regional check. That is the floor.
 
-- Whole-page AE ranks them **inverted**: the correctly restored page scores
-  3896 while a page with a 450x450 garbled blob scores 2425. No cutoff can
-  separate them, because the defect sits *below* the legitimate change. This
-  is not a matter of picking a better number - the metric averages a local
-  fault away over 6.5 million pixels, and cannot do this job at all.
-- Worst-tile ranks them correctly: 1.715% legitimate against 2.27-2.35% for
-  the defects.
-
-So `check-for-upscayl-errors` uses `--tile-size 256 --tile-cutoff-pct 0.5`.
-
-The margin between legitimate and defective is only about 1.3x, so treat the
-result as a shortlist to look at rather than a pass/fail gate. At 0.5% that is
-roughly one page per volume; 0.2% gives about three.
-
-## Why the old cutoffs flagged nothing
-
-`check-for-upscayl-errors` used `--ae_cutoff 10000` and `compare-restored-orig`
-used `5000`. Against the distribution above, both are far beyond anything a
-page actually produces: **0 of 254 pages** exceed either. `compare-restored-orig`
-is now `--ae_cutoff 1000`, which keeps 2.2x headroom over the p99 of 461 and
-flags one page per volume.
+`compare-restored-orig` keeps the whole-page metric, for gross change only, at
+`--ae_cutoff 1000` - 2.2x above the volume-1 p99 of 461. It is not an
+upscale-fault detector and should not be treated as one.
 
 ## Caveats
 
-Measured on volume 1 only, whose scans are Salem-Empire. Other volumes are
-different sources and may sit elsewhere; re-run `--calibrate` before trusting
-these numbers on a volume that behaves oddly.
+Calibrated 2026-07-29, after waifu2x became the default upscaler, after the
+palette snap and after the line-art thinning. Any change to those steps moves
+these numbers - re-run `--calibrate` rather than trusting the table.
 
-The injected defects are a stand-in for upscayl damage, not samples of it. If a
-genuine upscayl error turns up, measure it and record it here - one real
-example is worth more than the synthetic ones.
+An earlier calibration of the same parameters was made in June 2026 against the
+pre-waifu2x pipeline and also arrived at 2%, so the figure has now survived one
+pipeline change. That is reassuring, not a guarantee.
+
+The injected defects are a stand-in for upscale damage, not samples of it. If a
+genuine one turns up, measure it and record it here - one real example is worth
+more than all the synthetic ones.

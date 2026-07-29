@@ -38,6 +38,14 @@ class UpscalePageState(StrEnum):
     MISSING = "missing"
     """The output does not exist."""
 
+    LINKED = "linked"
+    """The output is a symlink to a page of another volume, which owns it.
+
+    Collection titles borrow pages this way - volume 1 carries a hundred of them - and
+    the page they point at is upscayled as part of its own volume. Writing here would
+    follow the link and overwrite that volume's page, with an upscale of a different
+    source image, so a linked page is never this run's to make."""
+
     NO_SRCE = "no-srce"
     """The original page is not there, so it cannot be upscayled at all."""
 
@@ -77,6 +85,12 @@ def get_upscale_page_status(
         has them.
 
     """
+    # Before anything else: a symlink is another volume's page, and the question of
+    # whether it is up to date belongs to that volume. Asked here it would be answered by
+    # writing through the link.
+    if dest_upscayl_file.is_symlink():
+        return UpscalePageStatus(UpscalePageState.LINKED, "", "")
+
     if not srce_file.is_file():
         return UpscalePageStatus(UpscalePageState.NO_SRCE, "", "")
 

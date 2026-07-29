@@ -206,12 +206,24 @@ def upscale_image_file(
 
     Raises:
         FileNotFoundError: If the backend's binary is not installed.
-        ValueError: If the backend cannot handle the requested scale.
+        ValueError: If the backend cannot handle the requested scale, or if the output
+            path is a symlink.
         RuntimeError: If the backend fails, or returns an image that does not
             match the source. The unusable output file is deleted first.
 
     """
     assert out_file.suffix == OUTPUT_EXTENSION
+
+    # Collection titles carry pages that are symlinks to another volume's, and writing
+    # to one of those paths follows the link: the other volume's page would be replaced
+    # by an upscale of a different source image, and neither end would say so. Refused
+    # here as well as in the page state, because there is no caller for whom it is right.
+    if out_file.is_symlink():
+        msg = (
+            f'Refusing to upscale onto a symlink: "{out_file}"'
+            f' points at "{out_file.resolve()}", which belongs to another volume.'
+        )
+        raise ValueError(msg)
 
     _check_upscaler_is_usable(upscaler, scale)
 

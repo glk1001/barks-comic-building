@@ -91,6 +91,12 @@ def get_title_jobs(
             logger.warning(f'No srce file - cannot upscayl: "{get_abbrev_path(srce_file)}".')
             continue
 
+        # Not even under --force: this page is a symlink to another volume's, and forcing
+        # it would write through the link over a page that is not this title's.
+        if status.state == UpscalePageState.LINKED:
+            logger.debug(f'Page belongs to another volume - skipping: "{dest_file}".')
+            continue
+
         if not status.needs_upscayling and not force:
             continue
 

@@ -13,6 +13,7 @@ import pytest
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
+from barks_comic_building.restore.upscale_image import upscale_image_file
 from barks_comic_building.restore.upscale_state import (
     RECIPE_ID_KEY,
     UPSCALE_DATE_KEY,
@@ -93,6 +94,25 @@ class TestUpscalePageState:
 
         assert page.state() is UpscalePageState.STALE
 
+    def test_a_symlinked_output_belongs_to_another_volume(self, page: Page, tmp_path: Path) -> None:
+        """Collection titles borrow pages from other volumes by symlink.
+
+        Queueing one would upscale it through the link, replacing that volume's page with
+        an upscale of a different source image.
+        """
+        other_volume_page = write_png(tmp_path / "other" / "123.png")
+        write_png(page.srce)
+        page.upscayl.symlink_to(other_volume_page)
+
+        assert page.state() is UpscalePageState.LINKED
+
+    def test_a_symlink_is_linked_even_when_it_is_broken(self, page: Page, tmp_path: Path) -> None:
+        """Writing would create the missing file at the far end, in the other volume."""
+        write_png(page.srce)
+        page.upscayl.symlink_to(tmp_path / "other" / "gone.png")
+
+        assert page.state() is UpscalePageState.LINKED
+
     def test_the_date_is_read_back(self, page: Page) -> None:
         page.write_all(CURRENT_RECIPE_ID)
 
@@ -108,6 +128,7 @@ class TestNeedsUpscayling:
         [
             (UpscalePageState.CURRENT, False),
             (UpscalePageState.NO_SRCE, False),
+            (UpscalePageState.LINKED, False),
             (UpscalePageState.STALE, True),
             (UpscalePageState.MISSING, True),
         ],
@@ -121,3 +142,23 @@ class TestNeedsUpscayling:
         it would fail the page on every attempt forever.
         """
         assert state.needs_upscayling is expected
+
+
+class TestTheWriterRefusesToo:
+    """The page state keeps linked pages out of a run; this keeps them safe anyway.
+
+    A guard in only one of the two places would leave `single_upscayl` and
+    `directory_upscayl` able to do the damage.
+    """
+
+    def test_upscaling_onto_a_symlink_is_refused(self, tmp_path: Path) -> None:
+        other_volume_page = write_png(tmp_path / "other" / "123.png")
+        before = other_volume_page.read_bytes()
+
+        out_file = tmp_path / "500.png"
+        out_file.symlink_to(other_volume_page)
+
+        with pytest.raises(ValueError, match="symlink"):
+            upscale_image_file(write_png(tmp_path / "srce.png"), out_file, 4)
+
+        assert other_volume_page.read_bytes() == before

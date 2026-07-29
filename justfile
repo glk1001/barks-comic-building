@@ -256,8 +256,6 @@ backup-from-2tb-external:
 # Not sustainable - almost reached limit.
 [group('rsync')]
 backup-to-750-external:
-    {{rsync_dirs}} "{{barks_dir}}/"          "{{external_750}}/barks-backup/Carl Barks/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"     "{{external_750}}/barks-backup/barks-wiki/"
     {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_750}}/Books/"
 
 # Rsync fast_data and fast_external to '500_backup_1' external backup drive

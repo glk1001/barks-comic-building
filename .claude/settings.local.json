@@ -1,24 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(uv run:*)",
-      "Bash(grep -l \"^cover\" /home/greg/Prj/github/barks-compleat-digital/barks-compleat-reader/src/barks-fantagraphics/data/story-titles/*.ini)",
-      "Bash(find /home/greg/Prj/github/barks-compleat-digital/barks-comic-building -path *test* -name *.py)",
-      "Bash(python3 -c \"import concurrent.futures; help\\(concurrent.futures.ProcessPoolExecutor.__exit__\\)\")",
-      "Bash(python3:*)",
-      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run ty:*)",
+      "Bash(uv run barks-*)",
+      "Bash(uv sync *)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
       "Bash(grep:*)",
       "Bash(wc:*)",
       "Bash(cd:*)",
-      "Bash(uv sync *)",
-      "Bash(git *)",
-      "Read(//home/greg/Prj/github/**)",
-      "Bash(awk '/^== Chronological:/,/^== aaa/' /tmp/dryrun.txt)",
-      "Bash(awk '/^== aaa/,/^== Chronological Years/' /tmp/dryrun.txt)",
-      "Bash(awk 'NR!=int\\($1\\){print \"GAP at\", $1; exit}')",
-      "Bash(awk '{n=int\\($1\\); if \\(last && n != last+1\\) print \"missing:\", last+1, \"to\", n-1; last=n}')",
-      "Bash(sed -i '464d' src/barks-fantagraphics/src/barks_fantagraphics/fanta_series_data.py)",
-      "Bash(sed -n '463,466p' src/barks-fantagraphics/src/barks_fantagraphics/fanta_series_data.py)"
+      "Read(//home/greg/Prj/github/**)"
     ]
   }
 }

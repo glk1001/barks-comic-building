@@ -77,8 +77,7 @@ uv run barks-batch-upscayl --title "The Pixilated Parrot"
 just upscayl 9
 ```
 
-Enlarges every restorable page 4x into `Fantagraphics-upscayled/`. Pages whose destination
-already exists are skipped, so an interrupted run resumes cheaply.
+Enlarges every restorable page 4x into `Fantagraphics-upscayled/`.
 
 ### Backends
 
@@ -89,7 +88,40 @@ Choose with `--upscaler`:
 | **`waifu2x`** (default) | cunet model, denoise level 1. Roughly 90s per page. Leaves flat colour fills alone, which matters because Fantagraphics pages are flat colour under line art. |
 | `upscayl` | `ultramix_balanced` model. Roughly 10 minutes per page, and it injects texture into flat fills. Kept for odd scales — waifu2x only handles 1, 2, 4, 8, 16 and 32. |
 
-The backend that ran is recorded in each output page's PNG metadata.
+### Knowing what is left to do
+
+The upscale keeps the same provenance the restore does, for the same reason: which backend and
+settings made a page is not recoverable from the page.
+
+Each output PNG carries the **upscale recipe** — backend, scale, model, and the denoise level or
+tile size — expanded as JSON beside a short `Upscale recipe id`, plus the date. **A page is
+skipped only when its recipe id matches the current one**, so changing `WAIFU2X_NOISE_LEVEL`, the
+model or the backend schedules the pages made under the old value without anything being deleted
+by hand. `--force` redoes pages that are already current.
+
+Settings belonging to the backend *not* in use are held at a sentinel, so tuning Upscayl does not
+invalidate pages made with waifu2x or the other way round.
+
+```bash
+uv run barks-upscale-status --volume 1-29     # per-volume table with an ETA
+uv run barks-upscale-status --failed          # pages that failed, and why
+uv run barks-upscale-status --json            # for scripting
+just upscale-status 9
+```
+
+```
+Vol  Title                         Pages  Current  Stale  Missing  Linked  No srce  Est. left
+  1  Donald Duck - Finds Pirate…     283             146       31     106                  --
+  2  Donald Duck - Frozen Gold       210             210                                   --
+```
+
+Note the report is **per backend**, because the recipe is: asking about waifu2x while a volume
+was made with Upscayl shows it as stale, which is the answer rather than a fault in the question.
+
+`Linked` pages are symlinks to another volume's page — collection titles borrow them, and volume
+1 carries over a hundred. They are upscayled as part of the volume they point at, and are never
+written here: doing so would follow the link and replace that volume's page from a different
+source image.
 
 ### Gotchas
 
@@ -102,6 +134,10 @@ The backend that ran is recorded in each output page's PNG metadata.
 - Because a broken run still exits 0, every result is checked against its source — the output
   must be source size x scale, and coarse thumbnails of the two must stay within a mean
   deviation of 25. A rejected file is deleted so a re-run retries it rather than skipping.
+- A failed page is recorded and the run carries on, since one bad page should not cost the rest
+  of a run measured in hours. But five failures **in a row** stop it: a GPU that has stopped
+  producing usable images fails every page the same way, and grinding through a volume to
+  record a thousand identical rejections helps nobody.
 
 ---
 
@@ -198,6 +234,11 @@ it did. Two places, for two different failure modes:
   flushed per page, so it survives a hard kill. The upscale keeps its own alongside it, in
   `upscale-ledger.jsonl`.
 
+  A page's outcome is `ok`, `failed`, `copied` (a non-comic page passed through unrestored)
+  or `present` (already there, so this run did nothing to it). Only `ok` pages count towards
+  the timings — a file copy takes a fraction of a second where a restore takes minutes, and
+  letting those in would shorten every estimate built afterwards.
+
 ```python
 from barks_comic_building.restore.restore_ledger import read_ledger
 
@@ -212,6 +253,11 @@ current one.** That is what makes a re-run after a tuning change automatic — c
 with nothing deleted by hand. It also catches pages missing their 4x or SVG output, which the
 old existence check skipped permanently. `--force` redoes pages that are already current.
 
+The exception is a page whose outputs are **symlinks to another volume's**, which collection
+titles use to borrow pages. Those are reported as `linked` and never written, here or by the
+upscale — following the link would replace that volume's page from a different source image.
+`--force` does not override it.
+
 ```bash
 uv run barks-restore-status --volume 1-29    # per-volume table with an ETA
 uv run barks-restore-status --steps          # where the time goes, per pipeline step
@@ -221,9 +267,10 @@ just restore-status
 ```
 
 ```
-Vol  Title                          Pages  Current  Stale  Incomplete  Missing  No srce  Est. left
-  9  Donald Duck - The Pixilated…     192      192                                              --
- 10  Donald Duck - Terror of the…     194               194                                 14h09m
+Vol  Title                         Pages  Current  Stale  Incomplete  Missing  Linked  No srce  Est. left
+  9  Donald Duck - The Pixilated…    192      192                                                      --
+ 10  Donald Duck - Terror of the…    194             194                                           14h09m
+  1  Donald Duck - Finds Pirate…     283             145                          107       31     10h57m
 ```
 
 The estimate comes from pages already measured on the current recipe, so it is empty until a
@@ -306,7 +353,9 @@ Carl Barks/
 ├── Fantagraphics-restored-ocr/                  OCR text
 ├── Fantagraphics-restored-panel-segments/       panel geometry
 ├── Fantagraphics-fixes-and-additions/           manually corrected or added pages
-└── Fantagraphics-upscayled-fixes-and-additions/ upscaled versions of those fixes
+├── Fantagraphics-upscayled-fixes-and-additions/ upscaled versions of those fixes
+├── upscale-ledger.jsonl                         what each upscale run did
+└── restore-ledger.jsonl                         what each restore run did
 ```
 
 The volume folder names carry the source release group — `(Salem-Empire)`, `(Digital-Empire)`
@@ -324,16 +373,17 @@ are registered under `[project.scripts]` in `pyproject.toml`.
 |---|---|---|
 | `query/` | 20 | querying and browsing comic metadata |
 | `build/` | 4 | comic assembly into `.cbz` |
-| `restore/` | 9 | restoration and upscaling |
+| `restore/` | 10 | restoration and upscaling |
 
 Shared bits:
 
 - `log_setup.py` — loguru globals used by every CLI script
 - `resources/log-config.yaml` — central log config
 
-Two directories sit outside the package: `scripts/` holds standalone helper scripts (directory
-comparisons, image diffs, the cspell hook) and is type checked, while `scraps/` is a holding pen
-for unfinished work and is excluded from both ruff and ty.
+Three directories sit outside the package: `scripts/` holds standalone helper scripts (directory
+comparisons, image diffs, the cspell hook) and is type checked; `docs/` holds notes too long for
+this file, currently how the image-comparison cutoffs were measured; and `scraps/` is a holding
+pen for unfinished work, excluded from both ruff and ty.
 
 ---
 

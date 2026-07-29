@@ -27,6 +27,16 @@ UpscalerArg = Annotated[Upscaler, typer.Option("--upscaler", help="Upscaling bac
 OUTPUT_FORMAT = "png"
 OUTPUT_EXTENSION = ".png"
 
+# The png metadata keys the upscale writes its provenance into. The per-backend model keys
+# are also how the backend is worked out for a page written before the "Upscaler" key
+# existed, so they are named here rather than spelled out where they are written.
+SRCE_FILE_KEY = "Srce file"
+SCALE_KEY = "Scale"
+UPSCALER_KEY = "Upscaler"
+UPSCAYL_MODEL_KEY = "Upscayl model"
+WAIFU2X_MODEL_KEY = "Waifu2x model"
+WAIFU2X_NOISE_LEVEL_KEY = "Waifu2x noise level"
+
 UPSCAYL_BIN = Path.home() / ".local/share/upscayl/bin/upscayl-bin"
 UPSCAYL_MODELS_DIR = Path.home() / ".local/share/upscayl/models"
 UPSCAYL_MODEL = "ultramix_balanced"
@@ -119,17 +129,17 @@ def _get_metadata(upscaler: Upscaler, in_file: Path, scale: int) -> dict[str, st
     )
 
     metadata = {
-        "Srce file": f'"{get_clean_path(in_file)}"',
-        "Scale": str(scale),
-        "Upscaler": str(upscaler),
+        SRCE_FILE_KEY: f'"{get_clean_path(in_file)}"',
+        SCALE_KEY: str(scale),
+        UPSCALER_KEY: str(upscaler),
     }
 
     if upscaler == Upscaler.UPSCAYL:
         # Kept under its old key so the metadata of previously upscayled pages still lines up.
-        metadata["Upscayl model"] = UPSCAYL_MODEL
+        metadata[UPSCAYL_MODEL_KEY] = UPSCAYL_MODEL
     else:
-        metadata["Waifu2x model"] = WAIFU2X_MODEL
-        metadata["Waifu2x noise level"] = str(WAIFU2X_NOISE_LEVEL)
+        metadata[WAIFU2X_MODEL_KEY] = WAIFU2X_MODEL
+        metadata[WAIFU2X_NOISE_LEVEL_KEY] = str(WAIFU2X_NOISE_LEVEL)
 
     # The recipe travels with the page, expanded as well as hashed, so that what this page
     # was made with can be read off the file itself rather than having to be looked up

@@ -17,15 +17,28 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, NamedTuple
 
 from barks_comic_building.restore.image_io import read_png_metadata
+from barks_comic_building.restore.upscale_image import (
+    UPSCALER_KEY,
+    UPSCAYL_MODEL_KEY,
+    WAIFU2X_MODEL_KEY,
+    Upscaler,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+__all__ = [
+    "UPSCALER_KEY",
+    "PageState",
+    "PageStatus",
+    "get_page_status",
+    "get_upscaler_used",
+]
 
 # The png metadata keys the restore stamps its provenance into.
 RECIPE_ID_KEY = "Restore recipe id"
 RECIPE_KEY = "Restore recipe"
 RESTORE_DATE_KEY = "Restore date"
-UPSCALER_KEY = "Upscaler"
 
 
 class PageState(StrEnum):
@@ -132,11 +145,27 @@ def get_upscaler_used(srce_upscayl_file: Path) -> str:
     Upstream provenance rather than part of the restore recipe: it describes the input
     the restore was handed, not what the restore did with it.
 
+    Pages upscayled before the "Upscaler" key existed - which is the whole library as it
+    stands - carry only their backend's model key. That names the backend just as
+    definitely, so it is read as a fallback rather than leaving the field blank on every
+    page until the library has been through the upscale again.
+
     Args:
         srce_upscayl_file: The upscayled page.
 
     Returns:
-        The upscaler name, or an empty string if the file predates that metadata.
+        The upscaler name, or an empty string if the file has no metadata at all.
 
     """
-    return read_png_metadata(srce_upscayl_file).get(UPSCALER_KEY, "")
+    metadata = read_png_metadata(srce_upscayl_file)
+
+    upscaler = metadata.get(UPSCALER_KEY, "")
+    if upscaler:
+        return upscaler
+
+    if UPSCAYL_MODEL_KEY in metadata:
+        return str(Upscaler.UPSCAYL)
+    if WAIFU2X_MODEL_KEY in metadata:
+        return str(Upscaler.WAIFU2X)
+
+    return ""

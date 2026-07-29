@@ -16,8 +16,10 @@ from PIL.PngImagePlugin import PngInfo
 
 from barks_comic_building.restore.page_state import (
     RECIPE_ID_KEY,
+    UPSCALER_KEY,
     PageState,
     get_page_status,
+    get_upscaler_used,
 )
 from barks_comic_building.restore.restore_pipeline import RestorePipeline
 
@@ -194,3 +196,43 @@ class TestThePipelineRefusesToo:
             )
 
         assert other_volume_page.read_bytes() == before
+
+
+class TestUpscalerUsed:
+    """Which backend produced the page the restore was handed.
+
+    Recorded in the ledger as upstream provenance. The whole library predates the
+    "Upscaler" key, so reading only that key would leave the field blank on every page
+    until the library has been through the upscale again.
+    """
+
+    def test_the_key_is_used_when_it_is_there(self, tmp_path: Path) -> None:
+        page = write_png(tmp_path / "u.png", {UPSCALER_KEY: "waifu2x"})
+
+        assert get_upscaler_used(page) == "waifu2x"
+
+    def test_upscayl_is_inferred_from_its_model_key(self, tmp_path: Path) -> None:
+        """The form every page in the library is in today."""
+        page = write_png(tmp_path / "u.png", {"Scale": "4", "Upscayl model": "ultramix_balanced"})
+
+        assert get_upscaler_used(page) == "upscayl"
+
+    def test_waifu2x_is_inferred_from_its_model_key(self, tmp_path: Path) -> None:
+        page = write_png(tmp_path / "u.png", {"Scale": "4", "Waifu2x model": "cunet"})
+
+        assert get_upscaler_used(page) == "waifu2x"
+
+    def test_the_key_wins_over_the_inference(self, tmp_path: Path) -> None:
+        """A page carrying both is describing itself; the inference is only a fallback."""
+        page = write_png(tmp_path / "u.png", {UPSCALER_KEY: "waifu2x", "Upscayl model": "old"})
+
+        assert get_upscaler_used(page) == "waifu2x"
+
+    def test_no_metadata_at_all_gives_nothing(self, tmp_path: Path) -> None:
+        """Better blank than guessed - there is nothing here to infer from."""
+        page = write_png(tmp_path / "u.png")
+
+        assert get_upscaler_used(page) == ""
+
+    def test_a_missing_file_gives_nothing(self, tmp_path: Path) -> None:
+        assert get_upscaler_used(tmp_path / "gone.png") == ""

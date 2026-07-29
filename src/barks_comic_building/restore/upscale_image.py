@@ -1,4 +1,5 @@
 import subprocess
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -107,6 +108,16 @@ def _get_run_args(upscaler: Upscaler, in_file: Path, out_file: Path, scale: int)
 
 
 def _get_metadata(upscaler: Upscaler, in_file: Path, scale: int) -> dict[str, str]:
+    # Deferred: upscale_recipe reads this module's constants, so importing it at module
+    # level would be a cycle. Every path that writes an upscayled page comes through here,
+    # which is what keeps a page made by the single-file tool from reading as stale.
+    from barks_comic_building.restore.upscale_recipe import get_current_recipe  # noqa: PLC0415
+    from barks_comic_building.restore.upscale_state import (  # noqa: PLC0415
+        RECIPE_ID_KEY,
+        RECIPE_KEY,
+        UPSCALE_DATE_KEY,
+    )
+
     metadata = {
         "Srce file": f'"{get_clean_path(in_file)}"',
         "Scale": str(scale),
@@ -119,6 +130,14 @@ def _get_metadata(upscaler: Upscaler, in_file: Path, scale: int) -> dict[str, st
     else:
         metadata["Waifu2x model"] = WAIFU2X_MODEL
         metadata["Waifu2x noise level"] = str(WAIFU2X_NOISE_LEVEL)
+
+    # The recipe travels with the page, expanded as well as hashed, so that what this page
+    # was made with can be read off the file itself rather than having to be looked up
+    # somewhere that might not have survived alongside it.
+    recipe = get_current_recipe(upscaler, scale)
+    metadata[RECIPE_ID_KEY] = recipe.recipe_id
+    metadata[RECIPE_KEY] = recipe.as_json()
+    metadata[UPSCALE_DATE_KEY] = datetime.now().astimezone().isoformat(timespec="seconds")
 
     return metadata
 

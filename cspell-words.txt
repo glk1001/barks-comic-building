@@ -104,6 +104,7 @@ scancode
 scnt
 sdif
 sdim
+serialisable
 serialise
 set_xlabel
 sfil

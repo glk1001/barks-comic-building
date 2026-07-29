@@ -26,6 +26,12 @@ TEMP_DIR = Path("/tmp/compare-fanta-image-files")  # noqa: S108
 DEFAULT_DIFF_DIR = TEMP_DIR / "diffs"
 DOWNSCALED_DIR = TEMP_DIR / "downscaled"
 
+# Guards on emptying the diff dir, whose path comes straight from --diff-dir.
+UNSAFE_DIFF_DIRS = frozenset(
+    {Path("/"), Path("/tmp"), Path("/var/tmp"), Path.home()}  # noqa: S108
+)
+MIN_DIFF_DIR_PARTS = 2
+
 app = typer.Typer()
 log_level = ""
 
@@ -104,6 +110,44 @@ def _delete_diff_dir_if_empty(diff_dir: Path) -> None:
         diff_dir.rmdir()
 
 
+def _clear_diff_dir(diff_dir: Path) -> None:
+    """Empty the diff dir so that it ends up holding only this run's diffs.
+
+    Clearing per title is not enough: a previous run over different volumes
+    named different titles, and those subdirectories survive to be read as
+    current findings.
+
+    The path comes straight from `--diff-dir`, and the bash-era recipes used to
+    pass "/tmp", so anything that does not look like a diff dir is left alone.
+    The per-title clearing in the run still applies then; it just cannot reach
+    titles this run does not visit.
+
+    Args:
+        diff_dir: The directory the run will write its per-title diffs into.
+
+    """
+    resolved = diff_dir.resolve()
+
+    # A shared or top-level directory is never ours to empty.
+    if resolved in UNSAFE_DIFF_DIRS or len(resolved.parts) <= MIN_DIFF_DIR_PARTS:
+        logger.warning(
+            f'Not clearing diff dir "{resolved}": it is a shared or top-level directory.'
+            f" Diffs from previous runs over other titles may still be there."
+        )
+        return
+
+    # This tool only ever puts per-title directories at the top level, so loose
+    # files mean the dir is being used for something else as well.
+    if resolved.is_dir() and any(child.is_file() for child in resolved.iterdir()):
+        logger.warning(
+            f'Not clearing diff dir "{resolved}": it holds loose files, so it is probably'
+            f" not only a diff dir. Diffs from previous runs may still be there."
+        )
+        return
+
+    shutil.rmtree(resolved, ignore_errors=True)
+
+
 @app.command(
     help="Compares the images in Fantagraphics original and restored directories by title or volume"
 )
@@ -168,6 +212,7 @@ def main(  # noqa: PLR0913
     LoguruConfig.load(Path(__file__).parent / "log-config.yaml")
 
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    _clear_diff_dir(diff_dir)
     diff_dir.mkdir(parents=True, exist_ok=True)
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
@@ -180,9 +225,8 @@ def main(  # noqa: PLR0913
         title_downscaled_dir = DOWNSCALED_DIR / title
         title_downscaled_dir.mkdir(parents=True, exist_ok=True)
 
-        # Start each title from an empty diff dir. Diffs left by an earlier run
-        # would otherwise be read as this run's findings, and would stop the
-        # dir being tidied away when this run finds nothing.
+        # Normally already empty, the whole diff dir having been cleared above.
+        # This is what still holds when that had to be refused.
         image_diff_dir = diff_dir / title
         shutil.rmtree(image_diff_dir, ignore_errors=True)
         image_diff_dir.mkdir(parents=True, exist_ok=True)

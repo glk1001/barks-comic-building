@@ -192,10 +192,11 @@ it did. Two places, for two different failure modes:
 - **In each restored PNG** — the settings it was made with, expanded as JSON plus a short
   `Restore recipe id`, and the date. Travels with the file; readable with `exiftool` or
   `restore.image_io.read_png_metadata`.
-- **In `Fantagraphics-restored-ledger.jsonl`** (a sibling of the stage directories, so the
-  integrity checks don't walk it) — one line per run carrying the full recipe, then one per
-  page carrying its outcome, per-step timings and the step it failed at. Append-only and
-  flushed per page, so it survives a hard kill.
+- **In `restore-ledger.jsonl`** (a sibling of the stage directories, so the integrity
+  checks don't walk it) — one line per run carrying the full recipe, then one per page
+  carrying its outcome, per-step timings and the step it failed at. Append-only and
+  flushed per page, so it survives a hard kill. The upscale keeps its own alongside it, in
+  `upscale-ledger.jsonl`.
 
 ```python
 from barks_comic_building.restore.restore_ledger import read_ledger

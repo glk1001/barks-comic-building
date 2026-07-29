@@ -194,9 +194,16 @@ class Ledger:
         if not totals:
             return None
 
+        # The same pages the totals above were taken from, untimed ones included in
+        # neither. Counting a page's steps but not its total would put the two figures on
+        # different sets, and the step table reports itself as being over `count` pages.
         step_totals: dict[str, list[float]] = {}
         for record in self.pages:
-            if not record.is_ok or (recipe_id is not None and record.recipe_id != recipe_id):
+            if (
+                not record.is_ok
+                or record.total_seconds <= 0
+                or (recipe_id is not None and record.recipe_id != recipe_id)
+            ):
                 continue
             for step, seconds in record.step_seconds.items():
                 step_totals.setdefault(step, []).append(seconds)

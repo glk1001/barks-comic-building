@@ -215,3 +215,19 @@ class TestWriterLifecycle:
             )
 
             assert len(read_ledger(ledger_file).pages) == 1
+
+
+class TestStatsAreOverOneSetOfPages:
+    def test_an_untimed_page_is_left_out_of_the_step_means_too(self, ledger_file: Path) -> None:
+        """The step table reports itself as being over `count` pages, so it has to be.
+
+        A page with no total counts towards neither figure; counting its steps but not its
+        total would put the two on different sets of pages.
+        """
+        write_pages(ledger_file, [("110", OUTCOME_OK, 300.0), ("111", OUTCOME_OK, 0.0)])
+
+        stats = read_ledger(ledger_file).timing_stats()
+
+        assert stats is not None
+        assert stats.count == 1
+        assert stats.step_mean_seconds["smooth"] == pytest.approx(150.0)

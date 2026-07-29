@@ -132,6 +132,23 @@ class RestorePipeline:
             msg = f'Upscayl file not found: "{self.srce_upscale_file}".'
             raise FileNotFoundError(msg)
 
+        # Collection titles carry pages whose outputs are symlinks to another volume's,
+        # and writing to one of those paths follows the link: that volume's page would be
+        # replaced from a different source image, and neither end would say so. Refused
+        # here as well as in the page state, because there is no caller for whom it is
+        # right, and this is the last point before the writing starts.
+        for dest_file in (
+            self.dest_restored_file,
+            self.dest_upscayled_restored_file,
+            self.dest_svg_restored_file,
+        ):
+            if dest_file.is_symlink():
+                msg = (
+                    f'Refusing to restore onto a symlink: "{dest_file}"'
+                    f' points at "{dest_file.resolve()}", which belongs to another volume.'
+                )
+                raise ValueError(msg)
+
         self.srce_upscale_stem = f"{self.srce_upscale_file.stem}-upscayled"
 
         self.removed_artifacts_file = work_dir / f"{self.srce_upscale_stem}-median-filtered.png"

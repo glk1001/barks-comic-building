@@ -378,6 +378,15 @@ def get_title_jobs(  # noqa: PLR0913
             )
             continue
 
+        # Not even under --force: this page's outputs are symlinks to another volume's,
+        # and forcing it would write through them over pages that are not this title's.
+        if status.state is PageState.LINKED:
+            logger.debug(
+                f"Page belongs to another volume - skipping:"
+                f' "{get_abbrev_path(dest_restored_file)}".',
+            )
+            continue
+
         if not status.needs_restoring and not force:
             logger.debug(
                 f"Already restored on this recipe - skipping:"

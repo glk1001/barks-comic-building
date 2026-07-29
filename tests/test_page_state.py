@@ -19,6 +19,7 @@ from barks_comic_building.restore.page_state import (
     PageState,
     get_page_status,
 )
+from barks_comic_building.restore.restore_pipeline import RestorePipeline
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -113,6 +114,30 @@ class TestPageState:
 
         assert page.status() is PageState.STALE
 
+    @pytest.mark.parametrize("linked", ["restored", "restored_4x", "svg"])
+    def test_a_symlinked_output_belongs_to_another_volume(
+        self, page: Page, tmp_path: Path, linked: str
+    ) -> None:
+        """Collection titles borrow pages from other volumes by symlink.
+
+        Restoring one would write through the link, replacing that volume's page from a
+        different source image. Any one of the three outputs being a link is enough to
+        say the page is not this title's.
+        """
+        page.write_all(CURRENT_RECIPE_ID)
+        output = getattr(page, linked)
+        output.unlink()
+        output.symlink_to(write_png(tmp_path / "other" / "123.png"))
+
+        assert page.status() is PageState.LINKED
+
+    def test_a_symlink_wins_over_a_missing_input(self, page: Page, tmp_path: Path) -> None:
+        """Whether the input is there is beside the point when the page is not ours."""
+        page.restored.parent.mkdir(parents=True, exist_ok=True)
+        page.restored.symlink_to(write_png(tmp_path / "other" / "123.png"))
+
+        assert page.status() is PageState.LINKED
+
 
 class TestNeedsRestoring:
     @pytest.mark.parametrize(
@@ -120,6 +145,7 @@ class TestNeedsRestoring:
         [
             (PageState.CURRENT, False),
             (PageState.NO_SRCE, False),
+            (PageState.LINKED, False),
             (PageState.STALE, True),
             (PageState.INCOMPLETE, True),
             (PageState.MISSING, True),
@@ -132,3 +158,39 @@ class TestNeedsRestoring:
         it would fail the page on every attempt forever.
         """
         assert state.needs_restoring is expected
+
+
+class TestThePipelineRefusesToo:
+    """The page state keeps linked pages out of a run; this keeps them safe anyway.
+
+    A guard in only one place would leave any other caller of RestorePipeline able to do
+    the damage, and the constructor is the last point before the writing starts.
+    """
+
+    @pytest.mark.parametrize("linked", [0, 1, 2])
+    def test_restoring_onto_a_symlink_is_refused(self, tmp_path: Path, linked: int) -> None:
+        other_volume_page = write_png(tmp_path / "other" / "123.png")
+        before = other_volume_page.read_bytes()
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+
+        restored = out_dir / "500.png"
+        restored_4x = out_dir / "500-4x.png"
+        svg = out_dir / "500.svg"
+        (restored, restored_4x, svg)[linked].symlink_to(other_volume_page)
+
+        with pytest.raises(ValueError, match="symlink"):
+            RestorePipeline(
+                work_dir,
+                write_png(tmp_path / "srce.png"),
+                write_png(tmp_path / "srce-upscayl.png"),
+                4,
+                restored,
+                restored_4x,
+                svg,
+            )
+
+        assert other_volume_page.read_bytes() == before

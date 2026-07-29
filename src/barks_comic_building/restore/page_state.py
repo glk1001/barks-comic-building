@@ -46,6 +46,14 @@ class PageState(StrEnum):
     MISSING = "missing"
     """None of the outputs exist."""
 
+    LINKED = "linked"
+    """An output is a symlink to a page of another volume, which owns it.
+
+    Collection titles borrow pages this way - volume 1 carries a hundred of them - and
+    the page they point at is restored as part of its own volume. Writing here would
+    follow the link and overwrite that volume's page, from a different source image, so
+    a linked page is never this run's to make."""
+
     NO_SRCE = "no-srce"
     """The upscayled input is not there, so the page cannot be restored at all."""
 
@@ -89,10 +97,17 @@ def get_page_status(
         has them.
 
     """
+    outputs = [dest_restored_file, dest_upscayled_restored_file, dest_svg_restored_file]
+
+    # Before anything else: a symlink among the outputs means this page is another
+    # volume's, and whether it is up to date is that volume's question. Asked here it
+    # would be answered by writing through the link.
+    if any(file.is_symlink() for file in outputs):
+        return PageStatus(PageState.LINKED, "", "")
+
     if not srce_upscayl_file.is_file():
         return PageStatus(PageState.NO_SRCE, "", "")
 
-    outputs = [dest_restored_file, dest_upscayled_restored_file, dest_svg_restored_file]
     num_present = sum(1 for file in outputs if file.is_file())
 
     if num_present == 0:

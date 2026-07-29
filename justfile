@@ -103,6 +103,16 @@ restore volume:
 restore-title title:
     {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --title "{{title}}"
 
+# Show what the restore has done and what is left, per volume, with an estimate
+[group('comics')]
+restore-status volume *flags:
+    {{uv_run}} barks-restore-status --volume {{volume}} {{flags}}
+
+# List the pages whose last restore attempt failed, and the step they failed at
+[group('comics')]
+restore-failures:
+    {{uv_run}} barks-restore-status --failed
+
 # Generate panel bounds for all restoreable pages in a volume or volumes
 [group('comics')]
 panels volume:

@@ -112,13 +112,16 @@ def get_snap_palette(srce_image: cv.typing.MatLike) -> np.ndarray:
 
 
 def snap_to_palette(
-    image: cv.typing.MatLike, palette: np.ndarray
+    image: cv.typing.MatLike, palette: np.ndarray, *, in_place: bool = False
 ) -> tuple[cv.typing.MatLike, float]:
     """Replace near-palette pixels in an image's flat areas with the exact palette colour.
 
     Args:
         image: The BGR image to snap.
         palette: The colours to snap to, as BGR rows.
+        in_place: Write into ``image`` rather than a copy of it. The pages here are
+            hundreds of megabytes and several are snapped at once, so the caller that
+            has no further use for its input should pass this.
 
     Returns:
         The snapped image, and the fraction of its pixels that were changed.
@@ -128,25 +131,30 @@ def snap_to_palette(
         return image, 0.0
 
     is_flat = _get_flat_mask(image, DEST_FLAT_KERNEL, DEST_FLAT_MAX)
-    snapped = image.copy()
+    snapped = image if in_place else image.copy()
     num_snapped = 0
 
+    # Distances are compared squared, which keeps the nearest colour and the threshold
+    # test identical while saving a square root on every pixel of every palette plane -
+    # of the order of a billion of them on a 4x page.
     palette_f32 = palette.astype(np.float32)
+    max_snap_distance_squared = float(SNAP_DISTANCE**2)
+
     for start in range(0, image.shape[0], BLOCK_ROWS):
         stop = min(start + BLOCK_ROWS, image.shape[0])
         block = image[start:stop].astype(np.float32)
 
         # One distance plane per palette colour, keeping only the running best, so the
         # memory stays at a few planes rather than one per colour.
-        best_distance = np.full(block.shape[:2], np.inf, dtype=np.float32)
+        best_distance_squared = np.full(block.shape[:2], np.inf, dtype=np.float32)
         best_index = np.zeros(block.shape[:2], dtype=np.int16)
         for i, colour in enumerate(palette_f32):
-            distance = np.sqrt(((block - colour) ** 2).sum(axis=2))
-            is_closer = distance < best_distance
-            best_distance[is_closer] = distance[is_closer]
+            distance_squared = ((block - colour) ** 2).sum(axis=2)
+            is_closer = distance_squared < best_distance_squared
+            best_distance_squared[is_closer] = distance_squared[is_closer]
             best_index[is_closer] = i
 
-        mask = is_flat[start:stop] & (best_distance < SNAP_DISTANCE)
+        mask = is_flat[start:stop] & (best_distance_squared < max_snap_distance_squared)
         snapped[start:stop][mask] = palette[best_index[mask]]
         num_snapped += int(mask.sum())
 
@@ -181,7 +189,7 @@ def snap_image_file_to_srce_palette(srce_file: Path, in_file: Path, out_file: Pa
     palette = get_snap_palette(srce_image)
     del srce_image
 
-    snapped, fraction = snap_to_palette(in_image, palette)
+    snapped, fraction = snap_to_palette(in_image, palette, in_place=True)
     write_cv_image_file(out_file, snapped)
 
     return fraction

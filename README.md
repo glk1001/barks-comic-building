@@ -161,17 +161,87 @@ keying off it must work it out per page. `barks-ink-survey` reports what is actu
 | `SMOOTH_THRESHOLD` | `restore/smooth_image.py` | Weight of the line art. Smoothing puts weight on; lowering this takes it off. 100 came out 1.3% heavier than the source page, 60 lands within 0.2%, 30 sits a little under and keeps the most separation between fine hatching strokes. |
 | `do_palette_snap` | `RestorePipeline` | Whether flat colours are snapped back to the source palette. |
 | `UPSCAYL_TILE_SIZE` | `restore/upscale_image.py` | Works around the black-image failure described above. |
+| `--batch-size` | `barks-batch-restore` | Pages per phase batch. Larger keeps the throttled phases fuller; smaller bounds the work dir and the loss from an interrupted run. |
+
+Everything in that table except `UPSCAYL_TILE_SIZE` and `--batch-size` is part of the
+**restore recipe** in `restore/restore_recipe.py`, alongside the gmic smoothing and inpainting
+parameters, the vtracer settings and the palette-snap thresholds. Changing any of them changes
+the recipe id, which is what marks existing pages as stale and schedules them to be redone —
+so tune deliberately, and check `barks-restore-status` before starting a long run.
 
 ### Running and resuming
 
-Work runs in four phases across all pages, each phase finishing before the next starts. The
-memory-hungry phases are throttled — smoothing to 6 workers, inpaint/snap/overlay/resize to 5,
-and both to 1 on machines with under 16GB.
+Work runs in four phases over a batch of pages, each phase finishing before the next starts.
+The memory-hungry phases are throttled — smoothing to 6 workers, inpaint/snap/overlay/resize
+to 4, and both to 1 on machines with under 16GB.
 
-`--use-existing-work-files` resumes from whatever intermediates survive in the work dir. One
-trap: the resize step regenerates the SVG raster at source size as its last act, so **re-running
-only the final phase against a completed run overlays a 1x ink layer onto a 4x colour layer** and
-silently produces a page with almost no ink. Run the SVG phase first when resuming mid-pipeline.
+Pages are batched **across** titles, `--batch-size` at a time (default 64), because a title is
+only 8–14 pages and a 6-worker phase given 8 pages spends half its time running a half-empty
+round. Each batch is a checkpoint: its ledger records are flushed and its work files cleaned
+before the next starts, so an interrupted run loses at most one batch of unfinished work.
+
+Work files are deleted once a page succeeds; `--keep-work-files` leaves them. Pages that
+**fail** keep theirs, so a retry can resume from them. `--use-existing-work-files` reuses
+whatever survives.
+
+### Tracking a long run
+
+Restoring the library is 5,500 pages and several hundred hours, so the pipeline records what
+it did. Two places, for two different failure modes:
+
+- **In each restored PNG** — the settings it was made with, expanded as JSON plus a short
+  `Restore recipe id`, and the date. Travels with the file; readable with `exiftool` or
+  `restore.image_io.read_png_metadata`.
+- **In `Fantagraphics-restored-ledger.jsonl`** (a sibling of the stage directories, so the
+  integrity checks don't walk it) — one line per run carrying the full recipe, then one per
+  page carrying its outcome, per-step timings and the step it failed at. Append-only and
+  flushed per page, so it survives a hard kill.
+
+```python
+from barks_comic_building.restore.restore_ledger import read_ledger
+
+ledger = read_ledger()  # defaults to the path above
+stats = ledger.timing_stats()  # mean/median seconds per page
+ledger.recipe_for(ledger.pages[-1].recipe_id)  # the actual settings, not just a digest
+```
+
+**A page is skipped only when all three of its outputs exist and its recipe id matches the
+current one.** That is what makes a re-run after a tuning change automatic — change
+`SMOOTH_THRESHOLD`, and every page made under the old value reports as stale and gets redone,
+with nothing deleted by hand. It also catches pages missing their 4x or SVG output, which the
+old existence check skipped permanently. `--force` redoes pages that are already current.
+
+```bash
+uv run barks-restore-status --volume 1-29    # per-volume table with an ETA
+uv run barks-restore-status --steps          # where the time goes, per pipeline step
+uv run barks-restore-status --failed         # pages that failed, and where
+uv run barks-restore-status --json           # for scripting
+just restore-status
+```
+
+```
+Vol  Title                          Pages  Current  Stale  Incomplete  Missing  No srce  Est. left
+  9  Donald Duck - The Pixilated…     192      192                                              --
+ 10  Donald Duck - Terror of the…     194               194                                 14h09m
+```
+
+The estimate comes from pages already measured on the current recipe, so it is empty until a
+batch has run and sharpens as the run goes on.
+
+Measured over volume 9, a page costs about **272s of wall clock**, spent roughly:
+
+| step | mean s | share |
+|---|---:|---:|
+| smooth (gmic) | 621 | 48% |
+| inpaint (gmic) | 421 | 33% |
+| remove jpeg artifacts (numba) | 119 | 9% |
+| palette snap | 54 | 4% |
+| everything else | 72 | 6% |
+
+Those are per-page means under contention, so they add up to far more than the 272s of wall
+clock a page actually costs — several pages are in each step at once. They rank the steps;
+they do not sum to the total. The work dir holds about **155MB per page** until cleanup, so a
+64-page batch peaks near 10GB.
 
 ### Related commands
 
@@ -179,6 +249,7 @@ silently produces a page with almost no ink. Run the SVG phase first when resumi
 uv run barks-single-restore SRCE UPSCALED DEST DEST_4X DEST_SVG   # one page
 uv run barks-batch-panel-bounds --work-dir DIR --volume 9         # panel geometry
 uv run barks-ink-survey --volume 9-11                             # ink/paper colours
+uv run scripts/bench_restore_phases.py --work-file WORK.png       # tune worker counts
 ```
 
 ---
@@ -252,7 +323,7 @@ are registered under `[project.scripts]` in `pyproject.toml`.
 |---|---|---|
 | `query/` | 20 | querying and browsing comic metadata |
 | `build/` | 4 | comic assembly into `.cbz` |
-| `restore/` | 8 | restoration and upscaling |
+| `restore/` | 9 | restoration and upscaling |
 
 Shared bits:
 

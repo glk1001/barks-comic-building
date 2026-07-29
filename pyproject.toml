@@ -71,6 +71,7 @@ barks-batch-svg-to-png = "barks_comic_building.restore.batch_svg_to_png:app"
 barks-batch-upscayl = "barks_comic_building.restore.batch_upscayl:app"
 barks-directory-upscayl = "barks_comic_building.restore.directory_upscayl:app"
 barks-ink-survey = "barks_comic_building.restore.ink_survey:app"
+barks-restore-status = "barks_comic_building.restore.restore_status:app"
 barks-single-restore = "barks_comic_building.restore.single_restore_pipeline:app"
 barks-single-upscayl = "barks_comic_building.restore.single_upscayl:app"
 

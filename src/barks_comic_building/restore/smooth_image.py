@@ -3,7 +3,7 @@ from pathlib import Path
 from barks_comic_building.restore.gmic_exe import run_gmic
 
 # gmic 'fx_smooth_anisotropic' parameters (fixed).
-_GMIC_SMOOTH_ANISOTROPIC_PARAMS = (
+GMIC_SMOOTH_ANISOTROPIC_PARAMS = (
     "420,"  # amplitude
     "0.5,"  # sharpness
     "0.6,"  # anisotropy
@@ -31,7 +31,7 @@ def smooth_image_file(in_file: Path, out_file: Path) -> None:
     smooth_cmd = [
         str(in_file),
         "fx_smooth_anisotropic",
-        _GMIC_SMOOTH_ANISOTROPIC_PARAMS,
+        GMIC_SMOOTH_ANISOTROPIC_PARAMS,
         "-threshold[-1]",
         f"{SMOOTH_THRESHOLD},1",
         "normalize[-1]",

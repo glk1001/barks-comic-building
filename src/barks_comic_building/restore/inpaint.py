@@ -6,6 +6,10 @@ import numpy as np
 from barks_comic_building.restore.gmic_exe import run_gmic
 from barks_comic_building.restore.image_io import write_cv_image_file
 
+# gmic 'fx_inpaint_matchpatch' parameters (fixed). Named so that the restore recipe can
+# record what the colour layer was filled with.
+GMIC_INPAINT_MATCHPATCH_PARAMS = '"1","5","26","5","1","255","0","0","255","1","0"'
+
 
 def inpaint_image_file(
     work_dir: Path,
@@ -24,7 +28,7 @@ def inpaint_image_file(
     input_image = cv.imread(str(in_file))
     assert input_image is not None
     assert input_image.shape[2] == 3  # noqa: PLR2004
-    black_ink_mask = cv.imread(str(black_ink_mask_file), cv.COLOR_BGR2GRAY)
+    black_ink_mask = cv.imread(str(black_ink_mask_file), cv.IMREAD_COLOR)
     assert black_ink_mask is not None
     assert black_ink_mask.shape[2] == 3  # noqa: PLR2004
 
@@ -49,7 +53,7 @@ def inpaint_image_file(
     inpaint_cmd = [
         str(in_file_black_removed),
         "-fx_inpaint_matchpatch",
-        '"1","5","26","5","1","255","0","0","255","1","0"',
+        GMIC_INPAINT_MATCHPATCH_PARAMS,
         "output",
         str(out_file),
     ]

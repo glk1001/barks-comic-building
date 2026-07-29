@@ -1,6 +1,20 @@
 from pathlib import Path
+from typing import Any
 
 from vtracer import convert_image_to_svg_py
+
+# Named so that the restore recipe can record what the line art was traced with. See
+# image_file_to_svg for what each one means.
+VTRACER_PARAMS: dict[str, Any] = {
+    "colormode": "binary",
+    "path_precision": 3,
+    "mode": "spline",
+    "filter_speckle": 2,
+    "corner_threshold": 60,
+    "length_threshold": 10.0,
+    "max_iterations": 10,
+    "splice_threshold": 45,  # higher than this is not so good
+}
 
 
 def image_file_to_svg(in_file: Path, out_file: Path) -> None:
@@ -29,15 +43,4 @@ def image_file_to_svg(in_file: Path, out_file: Path) -> None:
         msg = f'Could not find file "{in_file}".'
         raise FileNotFoundError(msg)
 
-    convert_image_to_svg_py(
-        str(in_file),
-        str(out_file),
-        colormode="binary",
-        path_precision=3,
-        mode="spline",
-        filter_speckle=2,
-        corner_threshold=60,
-        length_threshold=10.0,
-        max_iterations=10,
-        splice_threshold=45,  # higher than this is not so good
-    )
+    convert_image_to_svg_py(str(in_file), str(out_file), **VTRACER_PARAMS)

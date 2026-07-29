@@ -24,12 +24,18 @@ if TYPE_CHECKING:
 
 Image.MAX_IMAGE_PIXELS = None
 
+# The traced line art rasterises to a huge, almost entirely flat rgba image, so the
+# cheapest compression setting still shrinks it enormously while barely costing anything.
+# Measured on a 4x page (8864x12224): level 0 wrote 433MB in 1.7s, level 1 wrote 8.1MB in
+# 2.0s. Storing it raw was costing fifty times the disk for a third of a second.
+_FAST_PNG_COMPRESSION = 1
+
 
 def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
     png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=None)
 
     pil_image = load_pil_image_from_bytes(png_image, ext=PNG_FILE_EXT)
-    pil_image.save(str(png_file), optimize=False, compress_level=0)
+    pil_image.save(str(png_file), optimize=False, compress_level=_FAST_PNG_COMPRESSION)
 
 
 def svg_file_to_optimized_png(
@@ -47,6 +53,33 @@ def svg_file_to_optimized_png(
     mask = ImageOps.invert(pil_image.getchannel("A"))
     mask.save(str(png_file), optimize=True, compress_level=SAVE_PNG_COMPRESSION)
     oxipng.optimize(str(png_file), level=6)
+
+
+def read_png_metadata(png_file: Path) -> dict[str, str]:
+    """Read back the metadata a png was written with, without its ``BARKS:`` prefix.
+
+    Only the header is touched - Pillow does not decode the pixels until they are asked
+    for - so this stays cheap enough to run over the whole library.
+
+    Args:
+        png_file: The png to read.
+
+    Returns:
+        The metadata, keyed without the group prefix. Empty if the file has none, or
+        cannot be read as a png.
+
+    """
+    prefix = f"{METADATA_PROPERTY_GROUP}:"
+
+    try:
+        with Image.open(str(png_file)) as pil_image:
+            text = dict(getattr(pil_image, "text", {}))
+    except (OSError, ValueError):
+        return {}
+
+    return {
+        key.removeprefix(prefix): value for key, value in text.items() if key.startswith(prefix)
+    }
 
 
 def write_cv_image_file(

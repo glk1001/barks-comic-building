@@ -178,19 +178,18 @@ compare-all:
                "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
-# Do a big image compare of restored to original looking for upscayl errors
+# Shortlist pages to eyeball for upscayl errors (regional compare, see docs/image-compare-cutoffs.md)
 [group('comics')]
 check-for-upscayl-errors volume:
-    {{uv_run}} scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
-                                                   "{{barks_dir}}/Fantagraphics-original" \
-                                                   "/tmp/upscayl-diffs" \
-                                                   --volume {{volume}} --fuzz 50% --ae_cutoff 10000
+    {{uv_run}} scripts/compare_fanta_image_dirs.py --volume "{{volume}}" \
+               --diff-dir "/tmp/upscayl-diffs" --fuzz 50% \
+               --tile-size 256 --tile-cutoff-pct 0.5 --log-level INFO
 
 # Do a big image compare of restored to original looking for obvious changes
 [group('comics')]
 compare-restored-orig volume:
-    {{uv_run}} scripts/compare_fanta_image_dirs.py "{{barks_dir}}/Fantagraphics-restored" \
-                                                   "{{barks_dir}}/Fantagraphics-original" 50% 5000 {{volume}}
+    {{uv_run}} scripts/compare_fanta_image_dirs.py --volume "{{volume}}" \
+               --fuzz 50% --ae_cutoff 1000 --log-level INFO
 
 # Rsync root drive to 'root' external drive
 [group('rsync')]

@@ -1,3 +1,4 @@
+import shutil
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -68,9 +69,9 @@ def _get_lists_to_compare(comic: ComicBook, downscaled_dir: Path) -> tuple[list[
 
 
 def _delete_any_downscaled_files(image_dir: Path) -> None:
-    for item in image_dir.iterdir():
-        item.unlink()
-    image_dir.rmdir()
+    # rmtree rather than unlink per item, so that a directory left behind by an
+    # interrupted run does not stop the cleanup.
+    shutil.rmtree(image_dir, ignore_errors=True)
 
 
 def print_error_summary(errors: list[tuple[str, CompareError]]) -> None:
@@ -178,7 +179,12 @@ def main(  # noqa: PLR0913
 
         title_downscaled_dir = DOWNSCALED_DIR / title
         title_downscaled_dir.mkdir(parents=True, exist_ok=True)
+
+        # Start each title from an empty diff dir. Diffs left by an earlier run
+        # would otherwise be read as this run's findings, and would stop the
+        # dir being tidied away when this run finds nothing.
         image_diff_dir = diff_dir / title
+        shutil.rmtree(image_diff_dir, ignore_errors=True)
         image_diff_dir.mkdir(parents=True, exist_ok=True)
 
         comic_book = comics_database.get_comic_book(title)
@@ -204,7 +210,14 @@ def main(  # noqa: PLR0913
         _delete_any_downscaled_files(title_downscaled_dir)
         _delete_diff_dir_if_empty(image_diff_dir)
 
-    DOWNSCALED_DIR.rmdir()
+    # Guarded: with no matching titles the loop never created this dir.
+    shutil.rmtree(DOWNSCALED_DIR, ignore_errors=True)
+
+    if not titles:
+        # Reported as a failure, not a success: asking for a volume that does
+        # not exist compares nothing, and "all equivalent" would read as a pass.
+        logger.error("Error: No titles matched. Nothing was compared.")
+        sys.exit(1)
 
     if calibrate:
         log_calibration_summary(calibration_results)
@@ -216,7 +229,9 @@ def main(  # noqa: PLR0913
     else:
         logger.success("Comparison successful. All directories are equivalent.")
 
-    sys.exit(len(errors))
+    # Exit with a plain pass/fail status: an error *count* would be truncated
+    # modulo 256 by the shell, so exactly 256 errors would look like success.
+    sys.exit(1 if errors else 0)
 
 
 if __name__ == "__main__":

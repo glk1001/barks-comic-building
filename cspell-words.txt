@@ -26,6 +26,7 @@ colorfmt
 colours
 dateutil
 denoise
+descreened
 docstrings
 fcmp
 dups

@@ -142,7 +142,10 @@ def compare_image_lists(  # noqa: PLR0913
         if error is not None:
             errors.append(error)
 
-    if not errors and diff_dir is not None:
+    # Nothing differed, so there are no diffs to keep. Only remove the dir if it
+    # really is empty: a caller that pointed us at a dir holding anything else
+    # should not have the comparison die on the way out.
+    if not errors and diff_dir is not None and diff_dir.is_dir() and not any(diff_dir.iterdir()):
         diff_dir.rmdir()
 
     return errors

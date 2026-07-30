@@ -47,6 +47,9 @@ NEWER = 1_900_000_000.0
 # `get_restored_srce_dependencies` uses -1 for a pipeline stage whose file is not on disk.
 MISSING_STAGE = -1.0
 
+# The prefix every finding in the report carries.
+ERROR_PREFIX = "ERROR: "
+
 
 def touch_at(path: Path, timestamp: float) -> Path:
     """Create a file with a known mtime, making its parents as needed.
@@ -312,15 +315,26 @@ class TestOutOfDateMessage:
         dest = touch_at(tmp_path / "dest.jpg", NEW)
         gone = tmp_path / "restored.png"
 
-        msg = get_file_out_of_date_with_other_file_msg(dest, gone, "ERROR: ")
+        msg = get_file_out_of_date_with_other_file_msg(dest, gone, ERROR_PREFIX)
 
-        assert msg == f'File "{gone}" is missing.'
+        assert msg == f'{ERROR_PREFIX}File "{gone}" is missing.'
+
+    def test_a_missing_input_message_still_carries_the_error_prefix(self, tmp_path: Path) -> None:
+        # This branch is reached in an ordinary run, via the missing-stage sentinel. An
+        # unprefixed line would flip the exit code while slipping past any filter that
+        # greps the report for the prefix - which is how every other finding is found.
+        dest = tmp_path / "dest.jpg"
+        srce = touch_at(tmp_path / "restored.png", NEW)
+
+        msg = get_file_out_of_date_with_other_file_msg(dest, srce, ERROR_PREFIX)
+
+        assert msg.startswith(ERROR_PREFIX)
 
     def test_a_real_inversion_names_both_files_and_both_times(self, tmp_path: Path) -> None:
         dest = touch_at(tmp_path / "dest.jpg", OLD)
         srce = touch_at(tmp_path / "restored.png", NEW)
 
-        msg = get_file_out_of_date_with_other_file_msg(dest, srce, "ERROR: ")
+        msg = get_file_out_of_date_with_other_file_msg(dest, srce, ERROR_PREFIX)
 
         assert "is out of date with" in msg
         assert "dest.jpg" in msg

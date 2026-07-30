@@ -21,6 +21,7 @@ from barks_fantagraphics.comic_book_info import (
 )
 from barks_fantagraphics.comics_consts import (
     BARKS_ROOT_DIR,
+    BOUNDED_SUBDIR,
     IMAGES_SUBDIR,
     PNG_FILE_EXT,
     THE_CHRONOLOGICAL_DIR,
@@ -176,6 +177,50 @@ FIXES_NOTE_SUFFIX = "-fix.txt"
 def _is_fixes_note(file: Path) -> bool:
     """Return whether a file is a `-fix.txt` note rather than a fixed image."""
     return file.name.endswith(FIXES_NOTE_SUFFIX)
+
+
+def is_expected_subdir(name: str, spec: FixesTreeSpec) -> bool:
+    """Return whether a subdirectory belongs in this fixes tree.
+
+    Only `bounded`, and only in the standard tree, whose panel-bounds files live there.
+    Every other directory is reported: a half-copied "042/" is not a fix, and neither is a
+    `bounded` under the upscayled tree, where nothing writes one.
+
+    Args:
+        name: The subdirectory's name.
+        spec: Which of the two trees it was found in.
+
+    Returns:
+        True if it belongs there and should be skipped rather than reported.
+
+    """
+    return spec is STANDARD_FIXES and name == BOUNDED_SUBDIR
+
+
+def explain_as_added_page(
+    fault: FixesFault, spec: FixesTreeSpec, added_fault: AddedFixesFault | None
+) -> bool:
+    """Return whether a fault should be worded as an invalid added page.
+
+    Only the standard tree has an added-pages band, so only its faults may be described in
+    terms of one. The upscayled tree decides whether a page may exist without an original
+    by `is_fixes_special_case_added` instead, so quoting a page num range at it would point
+    the reader at a rule that does not govern the file they are looking at.
+
+    Args:
+        fault: What is wrong with the file.
+        spec: Which tree it was found in.
+        added_fault: The standard tree's added-page verdict, if there is one.
+
+    Returns:
+        True to use the added-page wording, False for the plain missing-original wording.
+
+    """
+    return (
+        fault is FixesFault.ADDED_WITHOUT_ORIGINAL
+        and spec is STANDARD_FIXES
+        and added_fault is not None
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -521,6 +566,7 @@ def check_contiguous_page_numbers(stems: Sequence[str]) -> PageNumberFaults:
 @dataclass
 class HashErrors:
     metadata_file: Path | None = None
+    metadata_missing_hash: Path | None = None
     expected_hash: str = ""
     file_to_hash: Path | None = None
     file_hash: str = ""
@@ -749,8 +795,9 @@ class ComicsIntegrityChecker:
 
         for stem, expected_image_num in faults.out_of_order:
             print(
-                f"{ERROR_MSG_PREFIX}Expecting image num {expected_image_num}."
-                f' Original image file is out of order: "{stem}".'
+                f'{ERROR_MSG_PREFIX}For volume "{fanta_original_image_dir}",'
+                f" expecting image num {expected_image_num} but the original image file"
+                f' is out of order: "{stem}".'
             )
             ret_code = 1
 
@@ -825,10 +872,7 @@ class ComicsIntegrityChecker:
 
         ret_code = 0
         for file in sorted(images_dir.iterdir()):
-            # The `bounded` panel-bounds directory lives in here. Skipping every
-            # directory rather than that one name also keeps any future subdirectory from
-            # being reported as a malformed fix.
-            if file.is_dir():
+            if file.is_dir() and is_expected_subdir(file.name, spec):
                 continue
 
             is_note = _is_fixes_note(file)
@@ -860,7 +904,7 @@ class ComicsIntegrityChecker:
             if fault is None:
                 continue
 
-            if fault is FixesFault.ADDED_WITHOUT_ORIGINAL and added_fault is not None:
+            if explain_as_added_page(fault, spec, added_fault) and added_fault is not None:
                 print(_added_fixes_fault_msg(added_fault, spec, file, policy))
             else:
                 print(_fixes_fault_msg(fault, spec, file, original_file))
@@ -1199,8 +1243,12 @@ class ComicsIntegrityChecker:
 
         metadata = json.loads(metadata_file.read_text())
         if "ini_hash" not in metadata:
-            logger.warning(f'No metadata ini hash for "{comic.get_ini_title()}".')
-            return 0
+            # Reported, not warned past. This hash is now the *only* check on the ini -
+            # `dating_dependencies` drops its timestamp deliberately - so a comic whose
+            # metadata predates the hash being recorded would otherwise have its ini
+            # checked by nothing at all. Rebuilding records it.
+            errors.metadata_missing_hash = metadata_file
+            return 1
 
         metadata_hash = metadata["ini_hash"]
         if ini_hash != metadata_hash:
@@ -1217,6 +1265,13 @@ class ComicsIntegrityChecker:
             print(
                 f"{ERROR_MSG_PREFIX}Comic has not been built - there is no"
                 f' metadata file: "{errors.metadata_file}".',
+            )
+            return
+
+        if errors.metadata_missing_hash is not None:
+            print(
+                f"{ERROR_MSG_PREFIX}Comic metadata records no ini hash, so its ini file"
+                f' is unchecked - rebuild it: "{errors.metadata_missing_hash}".',
             )
             return
 

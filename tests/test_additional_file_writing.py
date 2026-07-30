@@ -424,6 +424,17 @@ class TestTheIniIsCheckedByHashNotByTimestamp:
         assert ComicsIntegrityChecker.check_hashes(as_comic(comic), errors) == 1
         assert errors.metadata_file == comic.get_metadata_filepath()
 
+    def test_metadata_with_no_recorded_hash_is_reported_not_skipped(self, comic: FakeComic) -> None:
+        # This used to return 0 with a log warning. Now that the ini's timestamp is
+        # deliberately ignored, the hash is its only check - so a comic built before the
+        # hash was recorded would otherwise have its ini verified by nothing at all.
+        comic.get_metadata_filepath().write_text(json.dumps({"title": "A Fake Title"}))
+
+        errors = HashErrors()
+
+        assert ComicsIntegrityChecker.check_hashes(as_comic(comic), errors) == 1
+        assert errors.metadata_missing_hash == comic.get_metadata_filepath()
+
 
 class TestTheReadme:
     def test_the_readme_names_the_three_titles_and_the_archived_ini(self, comic: FakeComic) -> None:

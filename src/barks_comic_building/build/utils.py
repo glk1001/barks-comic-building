@@ -290,10 +290,13 @@ def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_p
         The multi-line message.
 
     """
+    # Prefixed like every other finding. These two branches are the missing-stage
+    # sentinel's message, so they are reached in an ordinary run - an unprefixed line here
+    # would flip the exit code while slipping past any filter that greps for the prefix.
     if not other_file.is_file():
-        return f'File "{other_file}" is missing.'
+        return f'{msg_prefix}File "{other_file}" is missing.'
     if not file.is_file():
-        return f'File "{file}" is missing.'
+        return f'{msg_prefix}File "{file}" is missing.'
 
     blank_prefix = f"{' ':<{len(msg_prefix)}}"
 

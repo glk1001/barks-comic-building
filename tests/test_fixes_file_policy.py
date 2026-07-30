@@ -25,6 +25,7 @@ from barks_fantagraphics.comic_book_info import (
     ONE_PAGER_COLLECTION_VOLUME,
     get_collection_page_nums,
 )
+from barks_fantagraphics.comics_consts import BOUNDED_SUBDIR
 
 from barks_comic_building.build.comics_integrity import (
     MAX_EXTRA_FIXES_PAGE_NUM,
@@ -37,6 +38,8 @@ from barks_comic_building.build.comics_integrity import (
     FixesTreeSpec,
     check_contiguous_page_numbers,
     classify_fixes_file,
+    explain_as_added_page,
+    is_expected_subdir,
 )
 
 # A volume with 250 real scanned pages, so the ordinary extra-pages band is 251..300.
@@ -267,6 +270,59 @@ class TestOriginalPageNumbering:
         faults = check_contiguous_page_numbers([])
 
         assert faults.actual_count == 0
+
+
+class TestWhichFaultsAreWordedAsAddedPages:
+    """A fault must not be explained by a rule that does not govern the file.
+
+    Only the standard tree has an added-pages band. The upscayled tree decides whether a
+    page may exist without an original by `is_fixes_special_case_added`, so quoting it a
+    page num range sends the reader after a rule it does not have - which is what an
+    upscayled `042.png` with no original used to get, because the wording was chosen from
+    the *standard* tree's verdict.
+    """
+
+    def test_the_standard_tree_explains_the_band(self) -> None:
+        assert explain_as_added_page(
+            FixesFault.ADDED_WITHOUT_ORIGINAL, STANDARD_FIXES, AddedFixesFault.OUT_OF_RANGE
+        )
+
+    def test_the_upscayled_tree_never_does(self) -> None:
+        # The bug: `042.png` in the upscayled tree with no original scan classifies as
+        # OUT_OF_RANGE under the standard policy, which does not apply to it.
+        assert not explain_as_added_page(
+            FixesFault.ADDED_WITHOUT_ORIGINAL, UPSCAYLED_FIXES, AddedFixesFault.OUT_OF_RANGE
+        )
+
+    @pytest.mark.parametrize(
+        "fault",
+        [FixesFault.NOT_AN_IMAGE, FixesFault.NOTE_WITHOUT_IMAGE, FixesFault.IN_BOTH_TREES],
+    )
+    def test_no_other_fault_is_worded_as_an_added_page(self, fault: FixesFault) -> None:
+        assert not explain_as_added_page(fault, STANDARD_FIXES, AddedFixesFault.OUT_OF_RANGE)
+
+    def test_a_valid_page_num_falls_back_to_the_plain_wording(self) -> None:
+        # No added-page fault to describe, so the message is the missing-original one.
+        assert not explain_as_added_page(FixesFault.ADDED_WITHOUT_ORIGINAL, STANDARD_FIXES, None)
+
+
+class TestWhichSubdirectoriesBelong:
+    """A stray directory in a fixes tree is not a fix and must be reported.
+
+    Skipping every directory would silence a half-copied "042/", and a `bounded` under the
+    upscayled tree where nothing writes one.
+    """
+
+    def test_bounded_belongs_in_the_standard_tree(self) -> None:
+        assert is_expected_subdir(BOUNDED_SUBDIR, STANDARD_FIXES)
+
+    def test_bounded_does_not_belong_in_the_upscayled_tree(self) -> None:
+        assert not is_expected_subdir(BOUNDED_SUBDIR, UPSCAYLED_FIXES)
+
+    @pytest.mark.parametrize("name", ["042", "scraps", "tmp", "images"])
+    def test_no_other_directory_belongs_in_either_tree(self, name: str) -> None:
+        assert not is_expected_subdir(name, STANDARD_FIXES)
+        assert not is_expected_subdir(name, UPSCAYLED_FIXES)
 
 
 class TestTheTreesAreNamedApart:

@@ -17,7 +17,7 @@ from barks_comic_building.cli_setup import init_logging
 
 APP_LOGGING_NAME = "ettl"
 
-GIMP_EXE = ["/usr/bin/flatpak", "run", "org.gimp.GIMP"]
+GIMP_EXE = ["run-gimp.sh"]
 
 # RESTORED_ROOT_DIR = /home/greg/Books/Carl Barks/Fantagraphics-restored
 TARGET_ROOT_DIR = Path("/home/greg/Books/Carl Barks/Barks Panels Pngs")

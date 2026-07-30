@@ -46,6 +46,8 @@ getchannel
 gethostname
 getpid
 gmic
+graphify
+graphifyignore
 idempotency
 idempotent
 IEND

@@ -2,6 +2,13 @@
 __pycache__/
 logs/
 
+# Claude Code config. Git will not descend into an excluded directory, so each
+# parent level has to be re-included for a negation to reach the files below it.
+# Vendored skills (e.g. graphify, installed by `graphify install`) stay local.
+.claude/*
+!.claude/settings.json
+!.claude/settings.local.json
+
 # PyCharm / IntelliJ
 .idea/**/workspace.xml
 .idea/**/tasks.xml
@@ -33,3 +40,4 @@ logs/
 .idea_modules/
 *.iws
 out/
+graphify-out/

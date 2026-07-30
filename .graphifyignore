@@ -1,0 +1,6 @@
+# Extra exclusions for the graphify knowledge graph, on top of .gitignore.
+# Gitignore syntax; this file can only ever exclude more, never re-include.
+
+# The graphify skill's own reference docs. They are vendored tool documentation,
+# not this project's code or docs, so their headings are noise in the graph.
+.claude/skills/graphify/references/*.md

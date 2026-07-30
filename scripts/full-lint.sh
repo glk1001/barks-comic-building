@@ -4,7 +4,8 @@
 #
 # Checks: ruff check, ruff format (--check, so it reports rather than rewrites),
 #         ty (--error-on-warning, matching the pre-commit hook), pyrefly (0 errors,
-#         no baseline - see pyrefly.toml), cspell.
+#         no baseline - see pyrefly.toml), cspell, deptry (unused/missing/misplaced
+#         dependencies, configured under [tool.deptry] in pyproject.toml).
 # Non-gating: uv audit (dependency CVEs) warns but never fails the run.
 #
 # Static checks only - this does not run the test suite. For that: uv run pytest
@@ -46,6 +47,7 @@ run_check "ruff format"  uv run ruff format --check .
 run_check "ty"           uv run ty check . --error-on-warning
 run_check "pyrefly"      uv run pyrefly check --progress-bar=no
 run_check "cspell"       bunx cspell --no-progress --no-must-find-files
+run_check "deptry"       uv run deptry .
 run_warn  "uv audit"     uv audit --preview-features audit-command
 
 echo

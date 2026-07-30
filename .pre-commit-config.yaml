@@ -42,6 +42,14 @@ repos:
             language: system
             types: [python]
             stages: [pre-commit]
+          - id: deptry
+            name: deptry (unused/missing/misplaced dependencies)
+            entry: uv run deptry .
+            language: system
+            # Depends on both the source imports and the dependency declarations.
+            files: \.(py|toml)$
+            pass_filenames: false
+            stages: [pre-commit]
           - id: cspell-commit-msg
             name: cspell commit message
             entry: bunx cspell --no-must-find-files

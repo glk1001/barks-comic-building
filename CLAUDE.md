@@ -21,7 +21,7 @@ The shared packages from `barks-compleat-reader` are installed as editable **uv 
 
 Every gate runs the tool from the uv-synced venv, so the versions pinned in `pyproject.toml` are the single source of truth. All of them are wired into `.pre-commit-config.yaml`.
 
-**Run every static check at once** (ruff check + format, ty, pyrefly, cspell; plus `uv audit` as a non-gating warning):
+**Run every static check at once** (ruff check + format, ty, pyrefly, cspell, deptry; plus `uv audit` as a non-gating warning):
 
 ```bash
 bash scripts/full-lint.sh
@@ -40,6 +40,12 @@ bash scripts/pyrefly.sh --min-severity=warn  # also show the non-gating warnings
 The pyrefly gate is a plain **0 errors** with **no baseline file** — unlike the sibling `barks-compleat-reader`, this project has no Kivy-boundary noise worth grandfathering. Keep it that way: fix a new finding, or suppress it at the line with a `# pyrefly: ignore[<rule>]` comment saying why, rather than adding a baseline to hide it. Two suppressions exist today, both explained in place: the deliberately dynamic `dataclasses.replace(recipe, **{field: changed})` in the recipe tests, and a tuple-variance hit in `comics_integrity.py` that `ty` also ignores. `cv2` is treated as `Any` via config, matching ty's effective stance on its missing stubs.
 
 pyrefly also has a **warning** severity below the gated errors, hidden unless you pass `--min-severity=warn`. It is currently clean there too; `types-python-dateutil` and `types-psutil` are dev dependencies purely to keep it that way.
+
+**Dependencies (deptry).** `uv run deptry .` reports imports that are not declared, declarations that are not imported, and direct use of transitive dependencies. Config is under `[tool.deptry]` in `pyproject.toml`.
+
+The thing to know when triaging a DEP002 ("declared but not imported"): the shared `barks-*`/`comic-utils` path dependencies **under-declare their own requirements** — `comic-utils` declares none at all — so this project's `pyproject.toml` is what actually installs some of what they import at runtime. `distro`, `pyyaml` and `screeninfo` are all in that position and are ignored for DEP002 with the import chain written out.
+
+So a DEP002 is not automatically a dependency to delete. Check whether anything here **reaches** it first; if it does, ignore the rule and record the chain. `cryptography` was the counter-example — it was carried for `comic_utils.get_panel_bytes`, but that only decrypts images out of a cbz, which is the reader's job and unreachable from here, so it was removed rather than ignored.
 
 ## graphify
 

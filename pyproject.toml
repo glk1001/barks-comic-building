@@ -21,23 +21,28 @@ dependencies = [
     "bs4>=0.0.2",
     "cairosvg>=2.8.2",
     "cpi>=2.0.7",
-    "cryptography>=46.0.3",
     "distro>=1.9.0",
     "intspan>=1.6.1",
     "loguru>=0.7.3",
     "loguru-config>=0.1.0",
     "matplotlib>=3.10.5",
     "numba>=0.61.2",
+    # Imported directly by the restore and query code. It also arrives transitively via
+    # opencv/scikit-image/matplotlib, which is how it went undeclared until deptry said so.
+    "numpy>=2.4.4",
     "opencv-python>=4.12.0.88",
     "pillow>=12.1.1",
     "psutil>=7.0.0",
+    "pyoxipng>=9.1.1",
+    # Likewise: barks_chronological_titles imports dateutil directly, and it would
+    # otherwise ride in on matplotlib and cpi.
+    "python-dateutil>=2.9.0.post0",
     "pyyaml>=6.0.2",
     "rich>=14.2.0",
     "scikit-image>=0.25.2",
     "screeninfo>=0.8.1",
     "typer>=0.21.1",
     "vtracer>=0.6.11",
-    "pyoxipng>=9.1.1",
 ]
 
 [project.scripts]
@@ -87,6 +92,7 @@ comic-utils = { path = "../barks-compleat-reader/src/comic-utils", editable = tr
 
 [dependency-groups]
 dev = [
+    "deptry>=0.25.1",
     "prek>=0.3.8",
     "pyrefly>=1.1.1",
     "pytest>=8.4.1",
@@ -102,6 +108,47 @@ dev = [
     "ty==0.0.64",
     "types-psutil>=7.2.2.20260518",
     "types-python-dateutil>=2.9.0.20260716",
+]
+
+[tool.deptry]
+# `scraps` is excluded everywhere else too (ty.toml, pyrefly.toml, cspell.config.yaml);
+# it holds throwaway code that imports whatever it likes. Everything else is analysed,
+# including `scripts` - the justfile runs several of those against the dependency set
+# below, so they are worth checking. (The sibling excludes its scripts tree, which is
+# dev-only in a way this one is not.)
+extend_exclude = [
+    ".*scraps.*",
+]
+
+# Local modules, not distributions. `barks_comic_building` is this project itself, and
+# the two compare_* modules are scripts importing their siblings in `scripts/` by bare
+# name. Without this, every intra-project import reads as a transitive dependency.
+known_first_party = [
+    "barks_comic_building",
+    "compare_build_dirs",
+    "compare_images",
+]
+
+[tool.deptry.per_rule_ignores]
+# DEP002 (declared but not imported): all three are needed at runtime through a path
+# deptry cannot see, because the shared path dependencies under-declare their own
+# requirements - comic-utils in particular declares none at all, so this project's
+# pyproject is what actually installs them.
+#   - distro: comic_utils.sys_utils.get_hash_str, used by comics_integrity and
+#     additional_file_writing, imports it.
+#   - pyyaml: loguru-config declares only loguru, then lazily does `import yaml` inside
+#     load_yaml_config - which is exactly how every CLI here loads log-config.yaml.
+#   - screeninfo: show_panel_bounds -> barks_kivy_ui.page_viewer ->
+#     comic_utils.screen_utils imports it.
+# cryptography used to sit here for the same reason (comic_utils.get_panel_bytes decrypts
+# with Fernet), but nothing in this project reaches that module - it is only used to read
+# encrypted images out of a cbz, which is the reader's job - so it was dropped instead.
+# Check reachability before adding to this list; declaring another package's dependency is
+# only right when we actually pull it in.
+DEP002 = [
+    "distro",
+    "pyyaml",
+    "screeninfo",
 ]
 
 [tool.pytest.ini_options]

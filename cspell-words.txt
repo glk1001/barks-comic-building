@@ -28,6 +28,7 @@ colorfmt
 colours
 dateutil
 denoise
+deptry
 descreened
 docstrings
 exiftool
@@ -92,6 +93,7 @@ oversubscription
 oxipng
 panl
 parallelises
+pil
 pnginfo
 pngs
 popleft
@@ -109,6 +111,7 @@ RMSE
 rsta
 scancode
 scnt
+screeninfo
 sdif
 sdim
 serialisable

@@ -58,9 +58,14 @@ from barks_comic_building.build.utils import (
     get_file_out_of_date_with_other_file_msg,
     get_file_out_of_date_wrt_max_timestamp_msg,
 )
+from barks_comic_building.restore.restore_ledger import LEDGER_FILENAME as RESTORE_LEDGER_FILENAME
+from barks_comic_building.restore.upscale_ledger import LEDGER_FILENAME as UPSCALE_LEDGER_FILENAME
 
 ERROR_MSG_PREFIX = "ERROR: "
 BLANK_ERR_MSG_PREFIX = f"{' ':<{len(ERROR_MSG_PREFIX)}}"
+
+RESTORE_LEDGER_FILE = BARKS_ROOT_DIR / RESTORE_LEDGER_FILENAME
+UPSCALE_LEDGER_FILE = BARKS_ROOT_DIR / UPSCALE_LEDGER_FILENAME
 
 # Ceiling for *ordinary* added fixes pages - real pages appended past the end of a
 # volume (e.g. volume 1's 251-268). The synthetic collections' staged pages are not
@@ -816,6 +821,8 @@ class ComicsIntegrityChecker:
             self.comics_database.get_root_dir("Paintings"),
             self.comics_database.get_root_dir("Projects"),
             THE_COMICS_DIR,
+            RESTORE_LEDGER_FILE,
+            UPSCALE_LEDGER_FILE,
         ]
 
         srce_dirs = extra_srce_dirs

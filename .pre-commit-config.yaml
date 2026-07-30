@@ -29,6 +29,13 @@ repos:
             types: [python]
             pass_filenames: false
             stages: [pre-commit]
+          - id: pyrefly-check
+            name: pyrefly check
+            entry: uv run pyrefly check # gate is 0 errors, no baseline (see pyrefly.toml)
+            language: system
+            types: [python]
+            pass_filenames: false
+            stages: [pre-commit]
           - id: cspell
             name: cspell
             entry: bunx cspell --no-must-find-files

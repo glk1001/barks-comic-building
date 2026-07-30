@@ -226,7 +226,7 @@ def main(
             issue_title,
         ]
         if display_volumes:
-            row.append(str(comic_book_info.fantagraphics_volume))
+            row.append(comic_book_info.fantagraphics_volume)
 
         row.extend(
             [

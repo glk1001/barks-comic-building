@@ -1,0 +1,43 @@
+# pyrefly.toml — second type checker, gated alongside `ty`.
+#
+# pyrefly runs in pre-commit and `scripts/full-lint.sh` (and on demand via
+# `scripts/pyrefly.sh` / `uv run pyrefly check`). It is stricter than ty on
+# nullability, which is most of what it earns us here. The gate is a plain
+# **0 errors** — unlike the sibling `barks-compleat-reader`, this project has no
+# Kivy-boundary noise to grandfather, so there is deliberately no baseline file.
+# Keep it that way: fix a new finding, or suppress it at the line with a comment
+# saying why, rather than reintroducing a baseline to hide it.
+
+# Mirror ty.toml: the same two import roots (`root` there), plus the tests, which
+# ty already covers. Listing the three explicitly keeps `scraps/`, `docs/` and
+# `graphify-out/` out of scope without needing to exclude them.
+project-includes = [
+    "src",
+    "scripts",
+    "tests",
+]
+
+search-path = [
+    "src",
+    "scripts",
+]
+
+project-excludes = [
+    # Matches ty.toml's `[src] exclude`. Redundant while nothing under the three
+    # includes above is named scraps, but it keeps the two configs saying the same
+    # thing if that ever changes.
+    "**/scraps/**",
+    "**/__pycache__/**",
+]
+
+python-interpreter = ".venv/bin/python"
+
+# OpenCV ships as compiled modules with no stubs (no py.typed, zero .pyi). ty
+# silently treats cv2 as Any; pyrefly instead reads its partial inline types and
+# then rejects every call, because `cv.imread` is typed `MatLike | None` and the
+# ndarray dtype unions never quite line up with the overloads. That produced 8
+# findings across the restore and diff code — all the stub gap, none real bugs.
+# Treating the module as Any matches ty's effective stance.
+replace-imports-with-any = [
+    "cv2",
+]

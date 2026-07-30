@@ -1050,6 +1050,7 @@ class ComicsIntegrityChecker:
                     if not dependency.independent and is_a_comic:
                         if (dependency_timestamp < 0) or (dependency_timestamp > prev_timestamp):
                             errors.srce_and_dest_files_out_of_date.append(
+                                # pyrefly: ignore[bad-argument-type]
                                 (dependency.file, prev_file)  # ty:ignore[invalid-argument-type]
                             )
                         prev_timestamp = dependency_timestamp

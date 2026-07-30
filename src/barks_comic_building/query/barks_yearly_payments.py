@@ -21,7 +21,9 @@ app = typer.Typer()
 def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    payments_by_year = defaultdict(int)
+    # Annotated float, defaulted int: a few payments are fractional, but the default
+    # stays 0 rather than 0.0 so the printed totals below read as they always have.
+    payments_by_year: defaultdict[int, float] = defaultdict(int)
     for title in BARKS_PAYMENTS:
         title_payment_info = BARKS_PAYMENTS[title]
 

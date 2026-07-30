@@ -409,9 +409,11 @@ for cols in titles_with_prelim_payment_info[1:]:
     if prelim_payment_info.title in KYLING_TITLE_MAP:
         title = KYLING_TITLE_MAP[prelim_payment_info.title]
     else:
-        title = title_dict.get(prelim_payment_info.title, -1)
+        # None rather than a -1 sentinel: 'is None' narrows the type for the lookups
+        # below, where '== -1' left it a 'Titles | int' that no longer indexes cleanly.
+        title = title_dict.get(prelim_payment_info.title)
 
-    if title == -1:
+    if title is None:
         print(f'Title "{prelim_payment_info.title}" not found.')
         continue
 

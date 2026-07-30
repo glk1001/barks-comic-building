@@ -60,6 +60,10 @@ class TestRecipeIdentity:
         """
         current = getattr(recipe, field)
         changed = f"{current}-changed" if isinstance(current, str) else current + 1
+        # The field name is only known at runtime, so pyrefly checks the unpacked dict
+        # against every field of the recipe and objects to all of them. Being dynamic is
+        # the point of the test - it is what makes it cover settings added later.
+        # pyrefly: ignore[bad-argument-type]
         altered = dataclasses.replace(recipe, **{field: changed})
 
         assert altered.recipe_id != recipe.recipe_id

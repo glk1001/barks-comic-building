@@ -53,6 +53,8 @@ class TestRecipeIdentity:
         """
         current = getattr(recipe, field)
         changed = f"{current}-changed" if isinstance(current, str) else current + 1
+        # Dynamic by design, as in test_restore_recipe.py - see the note there.
+        # pyrefly: ignore[bad-argument-type]
         altered = dataclasses.replace(recipe, **{field: changed})
 
         assert altered.recipe_id != recipe.recipe_id

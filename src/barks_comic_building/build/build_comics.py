@@ -194,9 +194,9 @@ class ComicBookBuilder:
 
         self._page_errors = []
 
+        assert self._srce_and_dest_pages
+
         if USE_CONCURRENT_PROCESSES:
-            assert self._srce_and_dest_pages
-            assert self._srce_and_dest_pages
             # max_workers = min(32, (os.cpu_count() or 1) + 4)
             max_workers = None
             # with concurrent.futures.ProcessPoolExecutor() as executor:

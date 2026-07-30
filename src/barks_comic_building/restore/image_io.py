@@ -38,6 +38,9 @@ _PNG_IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
 def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
     png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=None)
 
+    # svg2png returns the bytes unless it was handed a 'write_to' target, which it wasn't.
+    assert png_image is not None
+
     pil_image = load_pil_image_from_bytes(png_image, ext=PNG_FILE_EXT)
     pil_image.save(str(png_file), optimize=False, compress_level=_FAST_PNG_COMPRESSION)
 
@@ -52,6 +55,9 @@ def svg_file_to_optimized_png(
         output_width=output_width,
         output_height=output_height,
     )
+
+    # No 'write_to' target here either, so the bytes come back.
+    assert png_image is not None
 
     pil_image = load_pil_image_from_bytes(png_image, ext=PNG_FILE_EXT)
     mask = ImageOps.invert(pil_image.getchannel("A"))

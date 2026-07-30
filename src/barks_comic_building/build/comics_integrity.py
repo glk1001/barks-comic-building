@@ -1,13 +1,18 @@
-# ruff: noqa: C901, T201, TD002
+# This module reports its findings to stdout by design - they are the program's output,
+# not logging - so `print` is not a debugging leftover here. `artifact_renaming.py`
+# carries the same suppression for the same reason.
+# ruff: noqa: T201
 import json
 import stat
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
-from barks_fantagraphics.comic_book import ComicBook, get_page_num_str, get_total_num_pages
+from barks_fantagraphics.comic_book import ComicBook, get_total_num_pages
 from barks_fantagraphics.comic_book_info import (
     NON_COMIC_TITLES,
     SYNTHETIC_TITLES,
@@ -92,6 +97,293 @@ TITLES_WITHOUT_INSETS = frozenset(NON_COMIC_TITLES) | frozenset(SYNTHETIC_TITLES
 def _as_str(timestamp: float) -> str:
     """Render a timestamp for a finding, in the one format every finding uses."""
     return get_timestamp_as_str(timestamp, *TIMESTAMP_SEPS)
+
+
+class AddedFixesFault(StrEnum):
+    """Why an added fixes page - one with no original scan behind it - is not valid."""
+
+    NOT_NUMERIC = "not numeric"
+    OUT_OF_RANGE = "out of range"
+    UNUSED = "unused"
+
+
+class FixesFault(StrEnum):
+    """Why a file in a fixes tree does not belong there."""
+
+    NOT_AN_IMAGE = "not an image"
+    NOTE_WITHOUT_IMAGE = "note without image"
+    IN_BOTH_TREES = "in both trees"
+    ADDED_WITHOUT_ORIGINAL = "added without original"
+
+
+@dataclass(frozen=True, slots=True)
+class FixesTreeSpec:
+    """One fixes tree's naming and pairing policy.
+
+    The two trees differ only in these facts: what the tree is called in a message, which
+    extensions a fix may use, and which other tree must not hold a fix for the same page.
+    Everything else was duplicated - around 160 lines of it, which is how the two copies
+    came to disagree about whether the upscayled tree's own directory is checked at all.
+    """
+
+    # How the tree is named in a message: "Fixes file" / "fixes", and the other tree.
+    label: str
+    tree_label: str
+    conflicting_label: str
+    allowed_exts: tuple[str, ...]
+
+
+STANDARD_FIXES = FixesTreeSpec(
+    label="Fixes file",
+    tree_label="fixes",
+    conflicting_label="upscayled fixes",
+    allowed_exts=(JPG_FILE_EXT, PNG_FILE_EXT),
+)
+
+UPSCAYLED_FIXES = FixesTreeSpec(
+    label="Upscayled fixes file",
+    tree_label="upscayled fixes",
+    conflicting_label="fixes",
+    allowed_exts=(PNG_FILE_EXT,),
+)
+
+# A fixes note: a text file recording why the page beside it was fixed.
+FIXES_NOTE_SUFFIX = "-fix.txt"
+
+
+def _is_fixes_note(file: Path) -> bool:
+    """Return whether a file is a `-fix.txt` note rather than a fixed image."""
+    return file.name.endswith(FIXES_NOTE_SUFFIX)
+
+
+@dataclass(frozen=True, slots=True)
+class AddedPagePolicy:
+    """Where one volume may have fixes pages with no original scan behind them.
+
+    Built once per volume. An added page must be numbered either in the volume's
+    ordinary extra-pages band (`num_fanta_pages + 1` up to `MAX_EXTRA_FIXES_PAGE_NUM`)
+    or in its staged synthetic-collection range, and must be referenced by one of the
+    volume's ini files.
+    """
+
+    num_fanta_pages: int
+    collection_page_nums: frozenset[int]
+    used_page_nums: frozenset[str]
+
+    def classify(self, page_num_str: str) -> AddedFixesFault | None:
+        """Say why an added page is not valid, or None if it is.
+
+        Takes the stem rather than the path, so the policy can be checked with no
+        filesystem at all.
+
+        Args:
+            page_num_str: The fixes file's stem.
+
+        Returns:
+            The fault, or None if the added page is valid.
+
+        """
+        if not page_num_str.isnumeric():
+            return AddedFixesFault.NOT_NUMERIC
+
+        page_num = int(page_num_str)
+        in_extra_band = self.num_fanta_pages < page_num <= MAX_EXTRA_FIXES_PAGE_NUM
+        if page_num not in self.collection_page_nums and not in_extra_band:
+            return AddedFixesFault.OUT_OF_RANGE
+
+        if page_num_str not in self.used_page_nums:
+            return AddedFixesFault.UNUSED
+
+        return None
+
+    def collection_range_msg(self) -> str:
+        """Return the staged-collection part of the page num range error message."""
+        if not self.collection_page_nums:
+            return ""
+
+        return (
+            f" or staged collection range"
+            f" [{min(self.collection_page_nums)}..{max(self.collection_page_nums)}]"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FixesFileFacts:
+    """What the filesystem says about one fixes file.
+
+    Every I/O question the policy needs, answered by the caller. Bundling them is what
+    lets `classify_fixes_file` be a pure function of the facts, so the ordering of the
+    checks is visible in one place and testable as a table.
+    """
+
+    is_note: bool
+    note_pair_present: bool
+    original_exists: bool
+    present_in_other_tree: bool
+    added_page_allowed: bool
+
+
+def classify_fixes_file(
+    suffix: str, spec: FixesTreeSpec, facts: FixesFileFacts
+) -> FixesFault | None:
+    """Say why one file in a fixes tree does not belong there, or None if it does.
+
+    Args:
+        suffix: The file's extension.
+        spec: The tree's policy.
+        facts: What the filesystem says about the file.
+
+    Returns:
+        The fault, or None if the file is valid.
+
+    """
+    if facts.is_note:
+        return None if facts.note_pair_present else FixesFault.NOTE_WITHOUT_IMAGE
+
+    if suffix not in spec.allowed_exts:
+        return FixesFault.NOT_AN_IMAGE
+
+    if facts.present_in_other_tree:
+        return FixesFault.IN_BOTH_TREES
+
+    if not facts.original_exists and not facts.added_page_allowed:
+        return FixesFault.ADDED_WITHOUT_ORIGINAL
+
+    return None
+
+
+def _fixes_fault_msg(fault: FixesFault, spec: FixesTreeSpec, file: Path, original: Path) -> str:
+    """Word one fixes-tree fault.
+
+    Args:
+        fault: What is wrong with the file.
+        spec: The tree's naming.
+        file: The offending file.
+        original: The original scan the page would have replaced.
+
+    Returns:
+        The message, ready to print.
+
+    """
+    exts = " or ".join(spec.allowed_exts)
+
+    if fault is FixesFault.NOTE_WITHOUT_IMAGE:
+        return f'{ERROR_MSG_PREFIX}{spec.label} note has no {exts} match: "{file}".'
+
+    if fault is FixesFault.NOT_AN_IMAGE:
+        return f'{ERROR_MSG_PREFIX}{spec.label} must be {exts}: "{file}".'
+
+    if fault is FixesFault.IN_BOTH_TREES:
+        return (
+            f'{ERROR_MSG_PREFIX}{spec.label} "{file}" should not also have a'
+            f" matching {spec.conflicting_label} file."
+        )
+
+    return (
+        f'{ERROR_MSG_PREFIX}{spec.label} "{file}" does not have a matching'
+        f' original file: "{original}".'
+    )
+
+
+def _added_fixes_fault_msg(
+    added_fault: AddedFixesFault,
+    spec: FixesTreeSpec,
+    file: Path,
+    policy: AddedPagePolicy,
+) -> str:
+    """Word the reason a page with no original scan is not a valid addition.
+
+    Args:
+        added_fault: Why the added page is not valid.
+        spec: The tree's naming.
+        file: The offending file.
+        policy: The volume's added-page policy, for the range in the message.
+
+    Returns:
+        The message, ready to print.
+
+    """
+    if added_fault is AddedFixesFault.NOT_NUMERIC:
+        return f'{ERROR_MSG_PREFIX}Invalid {spec.tree_label} file: "{file}".'
+
+    if added_fault is AddedFixesFault.UNUSED:
+        return f'{ERROR_MSG_PREFIX}{spec.label} is not used in any ini files: "{file}".'
+
+    return (
+        f"{ERROR_MSG_PREFIX}{spec.label} is outside page num range"
+        f" [{policy.num_fanta_pages + 1}..{MAX_EXTRA_FIXES_PAGE_NUM}]"
+        f'{policy.collection_range_msg()}: "{file}".'
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PageNumberFaults:
+    """What is wrong with a volume's original-scan filenames."""
+
+    non_numeric: list[str]
+    out_of_order: list[tuple[str, int]]  # (stem, the number expected in that slot)
+    actual_count: int
+
+
+def unexpected_entries(dir_path: Path, allowed: Iterable[Path]) -> list[Path] | None:
+    """Return a directory's entries that are not in the allowed set.
+
+    Set-based. The former `in` against a list was O(entries x allowed), and one caller
+    passes every zip symlink in the library - some hundreds - once per series directory.
+
+    Sorted, so a long run of unexpected files reads in filename order rather than in
+    whatever order the filesystem hands back.
+
+    Args:
+        dir_path: The directory to sweep.
+        allowed: The paths that belong there.
+
+    Returns:
+        The unexpected entries, or None if the directory is missing - which the two
+        callers report differently, one as a finding of its own.
+
+    """
+    if not dir_path.is_dir():
+        return None
+
+    allowed_paths = set(allowed)
+
+    return sorted(entry for entry in dir_path.iterdir() if entry not in allowed_paths)
+
+
+def check_contiguous_page_numbers(stems: Sequence[str]) -> PageNumberFaults:
+    """Verify a volume's original scans are numbered 1..n with no gaps.
+
+    Takes stems rather than paths, so it needs no filesystem, and reports every fault
+    rather than the first: one gap misnumbers every later page, and seeing the whole run
+    is what says whether a file is missing or the numbering restarts.
+
+    A non-numeric stem is collected, not raised. `int(file.stem)` used to be unguarded,
+    so one stray "notes.txt" aborted the check for all thirty volumes with a ValueError
+    out of a function whose contract is to return 0 or 1. It also counted toward the
+    expected page number, shifting every page after it.
+
+    Args:
+        stems: The filename stems, in directory order.
+
+    Returns:
+        Every fault found, and the number of pages actually seen.
+
+    """
+    non_numeric: list[str] = []
+    out_of_order: list[tuple[str, int]] = []
+    expected_page_num = 0
+
+    for stem in stems:
+        if not stem.isnumeric():
+            non_numeric.append(stem)
+            continue
+
+        expected_page_num += 1
+        if int(stem) != expected_page_num:
+            out_of_order.append((stem, expected_page_num))
+
+    return PageNumberFaults(non_numeric, out_of_order, expected_page_num)
 
 
 @dataclass
@@ -303,25 +595,31 @@ class ComicsIntegrityChecker:
             self.comics_database.get_fantagraphics_volume_image_dir(volume)
         )
 
-        images = sorted(fanta_original_image_dir.iterdir())
+        num_pages = self.comics_database.get_num_pages_in_fantagraphics_volume(volume)
+        faults = check_contiguous_page_numbers(
+            [file.stem for file in sorted(fanta_original_image_dir.iterdir())]
+        )
 
         ret_code = 0
-        expected_image_num = 0
-        for file in images:
-            expected_image_num += 1
-            image_num = int(file.stem)
-            if image_num != expected_image_num:
-                print(
-                    f"{ERROR_MSG_PREFIX}Expecting image num {expected_image_num}."
-                    f' Original image file is out of order: "{file}".'
-                )
-                ret_code = 1
 
-        num_pages = self.comics_database.get_num_pages_in_fantagraphics_volume(volume)
-        if num_pages != expected_image_num:
+        for stem in faults.non_numeric:
             print(
                 f'{ERROR_MSG_PREFIX}For volume "{fanta_original_image_dir}",'
-                f" expecting {num_pages} images but got {expected_image_num} images."
+                f' original image file is not a page number: "{stem}".'
+            )
+            ret_code = 1
+
+        for stem, expected_image_num in faults.out_of_order:
+            print(
+                f"{ERROR_MSG_PREFIX}Expecting image num {expected_image_num}."
+                f' Original image file is out of order: "{stem}".'
+            )
+            ret_code = 1
+
+        if num_pages != faults.actual_count:
+            print(
+                f'{ERROR_MSG_PREFIX}For volume "{fanta_original_image_dir}",'
+                f" expecting {num_pages} images but got {faults.actual_count} images."
             )
             ret_code = 1
 
@@ -331,253 +629,134 @@ class ComicsIntegrityChecker:
         ret_code = 0
 
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
-            if self.check_standard_fixes_and_additions_files(volume) != 0:
+            if self.check_fixes_tree(volume, STANDARD_FIXES) != 0:
                 ret_code = 1
-            if self.check_upscayled_fixes_and_additions_files(volume) != 0:
+            if self.check_fixes_tree(volume, UPSCAYLED_FIXES) != 0:
                 ret_code = 1
 
         return ret_code
 
-    def check_standard_fixes_and_additions_files(self, volume: int) -> int:
-        fanta_original_image_dir = self.comics_database.get_fantagraphics_volume_image_dir(volume)
-        num_fanta_pages = self.comics_database.get_num_pages_in_fantagraphics_volume(volume)
-
-        fixes_root_dir = self.comics_database.get_fantagraphics_fixes_volume_dir(volume)
-        fixes_dir = self.comics_database.get_fantagraphics_fixes_volume_image_dir(volume)
-        upscayled_fixes_dir = (
-            self.comics_database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume)
-        )
-
-        if self.check_basic_fixes(fixes_root_dir, fixes_dir, upscayled_fixes_dir) != 0:
-            return 1
-
-        # Both are per-volume, so build them once rather than per fixes file.
-        collection_page_nums = get_collection_page_nums(volume)
-        used_page_nums = self._get_used_page_nums(volume)
-
-        # Standard fixes files.
-        ret_code = 0
-        for file in sorted(fixes_dir.iterdir()):
-            # TODO: Should 'bounded' be here?
-            if file.name == "bounded":
-                continue
-
-            file_stem = Path(file).stem
-            original_file = fanta_original_image_dir / (file_stem + JPG_FILE_EXT)
-
-            # TODO: Another special case. Needed?
-            if str(file).endswith("-fix.txt"):
-                jpg_file = fixes_dir / (str(file)[: -len("-fix.txt")] + JPG_FILE_EXT)
-                png_file = fixes_dir / (str(file)[: -len("-fix.txt")] + PNG_FILE_EXT)
-                if not jpg_file.is_file() and not png_file.is_file():
-                    print(
-                        f"{ERROR_MSG_PREFIX}Fixes text file has no"
-                        f' {JPG_FILE_EXT} or {PNG_FILE_EXT} match: "{file}".'
-                    )
-                    ret_code = 1
-                continue
-
-            jpg_fixes_file = fixes_dir / (file_stem + JPG_FILE_EXT)
-            png_fixes_file = fixes_dir / (file_stem + PNG_FILE_EXT)
-            if not jpg_fixes_file.is_file() and not png_fixes_file.is_file():
-                print(
-                    f"{ERROR_MSG_PREFIX}Fixes file must be a .jpg or .png file:"
-                    f' "{jpg_fixes_file}".',
-                )
-                ret_code = 1
-                continue
-
-            # Must be a jpg or png file.
-            if file.suffix not in [JPG_FILE_EXT, PNG_FILE_EXT]:
-                print(f'{ERROR_MSG_PREFIX}Fixes file must be a .jpg or .png: "{jpg_fixes_file}".')
-                ret_code = 1
-                continue
-
-            # Must not also be matching upscayl fixes file.
-            upscayl_fixes_file = upscayled_fixes_dir / (file_stem + PNG_FILE_EXT)
-            if upscayl_fixes_file.is_file():
-                print(
-                    f'{ERROR_MSG_PREFIX}Fixes file "{file}" should not have a'
-                    f' matching upscayled fixes file: "{upscayl_fixes_file}".',
-                )
-                ret_code = 1
-                continue
-
-            fixes_file = jpg_fixes_file if jpg_fixes_file.is_file() else png_fixes_file
-
-            if not original_file.is_file() and (
-                self.check_added_fixes_file(
-                    fixes_file, num_fanta_pages, collection_page_nums, used_page_nums
-                )
-                != 0
-            ):
-                ret_code = 1
-                continue
-
-        return ret_code
-
-    def check_added_fixes_file(
-        self,
-        fixes_file: Path,
-        num_fanta_pages: int,
-        collection_page_nums: frozenset[int],
-        used_page_nums: frozenset[str],
-    ) -> int:
-        """Check a fixes file that adds a page rather than replacing an original one.
-
-        An added page must be numbered either in the volume's ordinary extra-pages
-        band or in its staged synthetic-collection range, and must be referenced by
-        one of the volume's ini files.
+    def _fixes_tree_dirs(self, volume: int, spec: FixesTreeSpec) -> tuple[Path, Path, Path]:
+        """Return one tree's `(root, images, other tree's images)` directories.
 
         Args:
-            fixes_file: The added fixes file.
-            num_fanta_pages: Page count of the volume's real Fantagraphics scan.
-            collection_page_nums: Staged collection page nums for this volume.
-            used_page_nums: Page nums referenced by this volume's ini files.
+            volume: The Fantagraphics volume.
+            spec: Which of the two trees.
 
         Returns:
-            0 if the added page is valid, 1 otherwise.
+            The tree's root and image dirs, and the conflicting tree's image dir.
 
         """
-        page_num_str = fixes_file.stem
-        if not page_num_str.isnumeric():
-            print(f'{ERROR_MSG_PREFIX}Invalid fixes file: "{fixes_file}".')
-            return 1
-
-        page_num = int(page_num_str)
-        if page_num not in collection_page_nums and not (
-            num_fanta_pages < page_num <= MAX_EXTRA_FIXES_PAGE_NUM
-        ):
-            print(
-                f"{ERROR_MSG_PREFIX}Fixes file is outside page num range"
-                f" [{num_fanta_pages + 1}..{MAX_EXTRA_FIXES_PAGE_NUM}]"
-                f"{self._get_collection_range_msg(collection_page_nums)}:"
-                f' "{fixes_file}".',
+        database = self.comics_database
+        if spec is UPSCAYLED_FIXES:
+            return (
+                database.get_fantagraphics_upscayled_fixes_volume_dir(volume),
+                database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume),
+                database.get_fantagraphics_fixes_volume_image_dir(volume),
             )
-            return 1
-
-        if self._not_used(page_num_str, used_page_nums):
-            print(
-                f'{ERROR_MSG_PREFIX}Fixes file is not used in any ini files: "{fixes_file}".',
-            )
-            return 1
-
-        return 0
-
-    @staticmethod
-    def _get_collection_range_msg(collection_page_nums: frozenset[int]) -> str:
-        """Return the staged-collection part of the page num range error message."""
-        if not collection_page_nums:
-            return ""
 
         return (
-            f" or staged collection range"
-            f" [{min(collection_page_nums)}..{max(collection_page_nums)}]"
+            database.get_fantagraphics_fixes_volume_dir(volume),
+            database.get_fantagraphics_fixes_volume_image_dir(volume),
+            database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume),
         )
 
-    def check_basic_fixes(
-        self, fixes_root_dir: Path, fixes_dir: Path, upscayled_fixes_dir: Path
-    ) -> int:
-        if self._get_num_files_in_dir(fixes_root_dir) != 1:
-            print(f'{ERROR_MSG_PREFIX}Directory "{fixes_root_dir}" has too many files.')
+    def check_fixes_tree(self, volume: int, spec: FixesTreeSpec) -> int:
+        """Check one volume's fixes tree against that tree's policy.
+
+        Args:
+            volume: The Fantagraphics volume.
+            spec: Which of the two trees, and its naming and pairing rules.
+
+        Returns:
+            0 if every file in the tree belongs there, 1 otherwise.
+
+        """
+        original_image_dir = self.comics_database.get_fantagraphics_volume_image_dir(volume)
+        root_dir, images_dir, other_tree_dir = self._fixes_tree_dirs(volume, spec)
+
+        if self.check_basic_fixes(spec, root_dir, images_dir) != 0:
             return 1
 
-        if not fixes_dir.is_dir():
-            print(f'{ERROR_MSG_PREFIX}Could not find fixes directory "{fixes_dir}".')
+        # Per-volume, so built once rather than per fixes file.
+        policy = AddedPagePolicy(
+            self.comics_database.get_num_pages_in_fantagraphics_volume(volume),
+            get_collection_page_nums(volume),
+            self._get_used_page_nums(volume),
+        )
+
+        ret_code = 0
+        for file in sorted(images_dir.iterdir()):
+            # The `bounded` panel-bounds directory lives in here. Skipping every
+            # directory rather than that one name also keeps any future subdirectory from
+            # being reported as a malformed fix.
+            if file.is_dir():
+                continue
+
+            is_note = _is_fixes_note(file)
+            stem = file.name[: -len(FIXES_NOTE_SUFFIX)] if is_note else file.stem
+            original_file = original_image_dir / (stem + JPG_FILE_EXT)
+
+            added_fault = policy.classify(stem)
+            if spec is UPSCAYLED_FIXES:
+                # The upscayled tree has no added-pages band of its own: a page with no
+                # original is allowed only where the database says one was added.
+                added_page_allowed = ComicBook.is_fixes_special_case_added(volume, stem)
+            else:
+                added_page_allowed = added_fault is None
+
+            facts = FixesFileFacts(
+                is_note=is_note,
+                note_pair_present=any(
+                    (images_dir / (stem + ext)).is_file() for ext in spec.allowed_exts
+                ),
+                original_exists=original_file.is_file(),
+                present_in_other_tree=any(
+                    (other_tree_dir / (stem + ext)).is_file()
+                    for ext in (JPG_FILE_EXT, PNG_FILE_EXT)
+                ),
+                added_page_allowed=added_page_allowed,
+            )
+
+            fault = classify_fixes_file(file.suffix, spec, facts)
+            if fault is None:
+                continue
+
+            if fault is FixesFault.ADDED_WITHOUT_ORIGINAL and added_fault is not None:
+                print(_added_fixes_fault_msg(added_fault, spec, file, policy))
+            else:
+                print(_fixes_fault_msg(fault, spec, file, original_file))
+            ret_code = 1
+
+        return ret_code
+
+    def check_basic_fixes(self, spec: FixesTreeSpec, root_dir: Path, images_dir: Path) -> int:
+        """Check a fixes tree's own shape before looking at what is in it.
+
+        Each tree checks its own directories. The upscayled check used to test the
+        *standard* fixes dir while naming the upscayled one in the message, so the
+        upscayled tree's own existence was never actually checked.
+
+        Args:
+            spec: Which of the two trees.
+            root_dir: The tree's volume root, which should hold only the images dir.
+            images_dir: The tree's images dir.
+
+        Returns:
+            0 if the tree is shaped correctly, 1 otherwise.
+
+        """
+        if self._get_num_files_in_dir(root_dir) != 1:
+            print(f'{ERROR_MSG_PREFIX}Directory "{root_dir}" has too many files.')
             return 1
 
-        if not upscayled_fixes_dir.is_dir():
+        if not images_dir.is_dir():
             print(
-                f"{ERROR_MSG_PREFIX}Could not find upscayled fixes directory:"
-                f' "{upscayled_fixes_dir}".',
+                f'{ERROR_MSG_PREFIX}Could not find {spec.tree_label} directory: "{images_dir}".',
             )
             return 1
 
         return 0
-
-    def check_upscayled_fixes_and_additions_files(self, volume: int) -> int:
-        fanta_original_image_dir = self.comics_database.get_fantagraphics_volume_image_dir(volume)
-        fixes_dir = self.comics_database.get_fantagraphics_fixes_volume_image_dir(volume)
-
-        ret_code = 0
-
-        # Basic 'upscayled fixes' check.
-        upscayled_fixes_root_dir = (
-            self.comics_database.get_fantagraphics_upscayled_fixes_volume_dir(volume)
-        )
-        if self._get_num_files_in_dir(upscayled_fixes_root_dir) != 1:
-            print(f'{ERROR_MSG_PREFIX}Directory "{upscayled_fixes_root_dir}" has too many files.')
-            return 1
-
-        upscayled_fixes_dir = (
-            self.comics_database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume)
-        )
-        if not fixes_dir.is_dir():
-            print(
-                f"{ERROR_MSG_PREFIX}Could not find upscayled fixes directory:"
-                f' "{upscayled_fixes_dir}".',
-            )
-            return 1
-
-        # Upscayled fixes files.
-        for file in sorted(upscayled_fixes_dir.iterdir()):
-            file_stem = file.stem
-            original_file = fanta_original_image_dir / (file_stem + JPG_FILE_EXT)
-            fixes_file = fixes_dir / file.name
-            upscayled_fixes_file = file
-
-            if not upscayled_fixes_file.is_file():
-                print(
-                    f"{ERROR_MSG_PREFIX}Upscayled fixes file must be a file:"
-                    f' "{upscayled_fixes_file}".',
-                )
-                ret_code = 1
-                continue
-
-            # TODO: Another special case. Needed?
-            if str(file).endswith("-fix.txt"):
-                matching_fixes_file = upscayled_fixes_dir / (
-                    str(file)[: -len("-fix.txt")] + PNG_FILE_EXT
-                )
-                if not matching_fixes_file.is_file():
-                    print(
-                        f"{ERROR_MSG_PREFIX}Upscayled fixes text file has no match:"
-                        f' "{upscayled_fixes_file}".',
-                    )
-                    ret_code = 1
-                continue
-
-            # Must be a png file.
-            if file.suffix != PNG_FILE_EXT:
-                print(
-                    f"{ERROR_MSG_PREFIX}Upscayled fixes file must be {PNG_FILE_EXT}:"
-                    f' "{upscayled_fixes_file}".',
-                )
-                ret_code = 1
-                continue
-
-            # Upscayled fixes cannot be additions?
-            # TODO: Will need comic object here to get censored titles
-            if not original_file.is_file() and not ComicBook.is_fixes_special_case_added(
-                volume,
-                get_page_num_str(original_file),
-            ):
-                print(
-                    f'{ERROR_MSG_PREFIX}Upscayled fixes file "{upscayled_fixes_file}" does not'
-                    f' have a matching original file: "{original_file}".',
-                )
-                ret_code = 1
-                continue
-
-            if fixes_file.is_file():
-                print(
-                    f'{ERROR_MSG_PREFIX}Upscayled fixes file "{upscayled_fixes_file}"'
-                    f' cannot have a matching fixes file: "{fixes_file}".',
-                )
-                ret_code = 1
-                continue
-
-        return ret_code
 
     def _get_used_page_nums(self, volume: int) -> frozenset[str]:
         """Return every original page num referenced by an ini file in this volume.
@@ -627,52 +806,24 @@ class ComicsIntegrityChecker:
     def check_directory_structure(self) -> int:
         logger.info("Check complete directory structure.")
 
+        database = self.comics_database
+        volume_dir_getters = [
+            database.get_fantagraphics_upscayled_volume_image_dir,
+            database.get_fantagraphics_restored_volume_image_dir,
+            database.get_fantagraphics_restored_upscayled_volume_image_dir,
+            database.get_fantagraphics_restored_svg_volume_image_dir,
+            database.get_fantagraphics_restored_ocr_raw_volume_dir,
+            database.get_fantagraphics_fixes_volume_image_dir,
+            database.get_fantagraphics_upscayled_fixes_volume_image_dir,
+            database.get_fantagraphics_fixes_scraps_volume_image_dir,
+            database.get_fantagraphics_panel_segments_volume_dir,
+        ]
+
         ret_code = 0
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_upscayled_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_restored_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_restored_upscayled_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_restored_svg_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_restored_ocr_raw_volume_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_fixes_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_fixes_scraps_volume_image_dir(volume)
-            ):
-                ret_code = 1
-
-            if not self._found_dir(
-                self.comics_database.get_fantagraphics_panel_segments_volume_dir(volume)
-            ):
-                ret_code = 1
+            for get_dir in volume_dir_getters:
+                if not self._found_dir(get_dir(volume)):
+                    ret_code = 1
 
         if ret_code == 0:
             logger.info("The directory structure is correct.")
@@ -853,18 +1004,24 @@ class ComicsIntegrityChecker:
             UPSCALE_LEDGER_FILE,
         ]
 
-        srce_dirs = extra_srce_dirs
-        for _volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
-            srce_dirs.append(self.comics_database.get_fantagraphics_original_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_upscayled_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_restored_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_restored_upscayled_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_restored_svg_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_restored_ocr_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_fixes_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_upscayled_fixes_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_fixes_scraps_root_dir())
-            srce_dirs.append(self.comics_database.get_fantagraphics_panel_segments_root_dir())
+        # These are the artifact tree roots, not per-volume directories: every one of
+        # these getters takes no volume argument. They used to be appended inside a loop
+        # over all thirty volumes - and into `extra_srce_dirs` itself rather than a copy
+        # - so the list held thirty identical runs of the same ten paths.
+        database = self.comics_database
+        srce_dirs = [
+            *extra_srce_dirs,
+            database.get_fantagraphics_original_root_dir(),
+            database.get_fantagraphics_upscayled_root_dir(),
+            database.get_fantagraphics_restored_root_dir(),
+            database.get_fantagraphics_restored_upscayled_root_dir(),
+            database.get_fantagraphics_restored_svg_root_dir(),
+            database.get_fantagraphics_restored_ocr_root_dir(),
+            database.get_fantagraphics_fixes_root_dir(),
+            database.get_fantagraphics_upscayled_fixes_root_dir(),
+            database.get_fantagraphics_fixes_scraps_root_dir(),
+            database.get_fantagraphics_panel_segments_root_dir(),
+        ]
 
         dest_dirs = []
         zip_files = []
@@ -1080,18 +1237,47 @@ class ComicsIntegrityChecker:
         srce_and_dest_pages: SrceAndDestPages,
         errors: OutOfDateErrors,
     ) -> None:
-        allowed_dest_image_files = [f.page_filename for f in srce_and_dest_pages.dest_pages]
         dest_image_dir = comic.get_dest_image_dir()
-        if not dest_image_dir.is_dir():
+        unexpected = unexpected_entries(
+            dest_image_dir, (Path(page.page_filename) for page in srce_and_dest_pages.dest_pages)
+        )
+
+        if unexpected is None:
             errors.dest_dir_files_missing.append(dest_image_dir)
             return
 
-        for file in sorted(dest_image_dir.iterdir()):
-            dest_image_file = dest_image_dir / file
-            if str(dest_image_file) not in allowed_dest_image_files:
-                errors.unexpected_dest_image_files.append(dest_image_file)
+        errors.unexpected_dest_image_files.extend(unexpected)
 
-    def check_unexpected_files(  # noqa: PLR0912,PLR0913
+    def _check_dest_dir_info_files(self, dest_dirs_info_list: list[tuple[Path, Path]]) -> int:
+        """Check each built comic's directory holds only its images, ini and info files.
+
+        Args:
+            dest_dirs_info_list: Each title's `(ini file, dest dir)`.
+
+        Returns:
+            0 if every dest directory holds only what it should, 1 otherwise.
+
+        """
+        ret_code = 0
+
+        for ini_file, dest_dir in dest_dirs_info_list:
+            allowed = {dest_dir / IMAGES_SUBDIR, dest_dir / ini_file.name} | {
+                dest_dir / name for name in DEST_NON_IMAGE_FILES
+            }
+            unexpected = unexpected_entries(dest_dir, allowed)
+
+            if unexpected is None:
+                print(f'{ERROR_MSG_PREFIX}The dest directory "{dest_dir}" is missing.')
+                ret_code = 1
+                continue
+
+            for file in unexpected:
+                print(f'{ERROR_MSG_PREFIX}The info file "{file}" was unexpected.')
+                ret_code = 1
+
+        return ret_code
+
+    def check_unexpected_files(  # noqa: PLR0913
         self,
         srce_dirs_list: list[Path],
         dest_dirs_info_list: list[tuple[Path, Path]],
@@ -1101,70 +1287,47 @@ class ComicsIntegrityChecker:
         allowed_zip_year_symlink_dirs: set[Path],
         allowed_zip_year_symlinks: list[Path],
     ) -> int:
-        ret_code = 0
-
-        if self.check_files_in_dir("main", BARKS_ROOT_DIR, srce_dirs_list) != 0:
-            ret_code = 1
-
         allowed_main_dir_files = [
             THE_CHRONOLOGICAL_DIRS_DIR,
             THE_CHRONOLOGICAL_DIR,
             THE_YEARS_COMICS_DIR,
-            *list(allowed_zip_series_symlink_dirs),
+            *allowed_zip_series_symlink_dirs,
         ]
 
-        if self.check_files_in_dir("main", THE_COMICS_DIR, allowed_main_dir_files) != 0:
-            ret_code = 1
-
-        for dest_dir_info in dest_dirs_info_list:
-            ini_file = dest_dir_info[0].name
-            dest_dir = dest_dir_info[1]
-
-            if not dest_dir.is_dir():
-                print(f'{ERROR_MSG_PREFIX}The dest directory "{dest_dir}" is missing.')
-                ret_code = 1
-                continue
-
-            for file in sorted(dest_dir.iterdir()):
-                if file.name in [IMAGES_SUBDIR, ini_file]:
-                    continue
-                if file.name not in DEST_NON_IMAGE_FILES:
-                    print(f'{ERROR_MSG_PREFIX}The info file "{file}" was unexpected.')
-                    ret_code = 1
+        # Each namespace to sweep, as (what to call it, where, what belongs there).
+        sweeps: list[tuple[str, Path, Iterable[Path]]] = [
+            ("main", BARKS_ROOT_DIR, srce_dirs_list),
+            ("main", THE_COMICS_DIR, allowed_main_dir_files),
+        ]
 
         if dest_dirs_info_list:
-            allowed_dest_dirs = [d[1] for d in dest_dirs_info_list]
-            dest_dir = allowed_dest_dirs[0].parent
-            if self.check_files_in_dir("dest", dest_dir, allowed_dest_dirs) != 0:
-                ret_code = 1
+            allowed_dest_dirs = [dest_dir for _ini_file, dest_dir in dest_dirs_info_list]
+            sweeps.append(("dest", allowed_dest_dirs[0].parent, allowed_dest_dirs))
 
         if allowed_zip_files:
-            dest_dir = allowed_zip_files[0].parent
-            if self.check_files_in_dir("zip", dest_dir, allowed_zip_files) != 0:
-                ret_code = 1
+            sweeps.append(("zip", allowed_zip_files[0].parent, allowed_zip_files))
 
+        # Sorted: these dirs come from a set, so the report would otherwise jump between
+        # series - and between years - at random.
         if allowed_zip_series_symlinks:
-            # Sorted: these dirs come from a set, so the report would otherwise jump
-            # between series at random.
-            for dest_dir in sorted(allowed_zip_series_symlink_dirs):
-                if self.check_files_in_dir("series", dest_dir, list(allowed_zip_series_symlinks)):
-                    ret_code = 1
+            sweeps.extend(
+                ("series", symlink_dir, allowed_zip_series_symlinks)
+                for symlink_dir in sorted(allowed_zip_series_symlink_dirs)
+            )
 
         if allowed_zip_year_symlinks:
-            year_symlink_parent_dir = next(iter(allowed_zip_year_symlink_dirs)).parent
-            if (
-                self.check_files_in_dir(
-                    "year dir",
-                    year_symlink_parent_dir,
-                    list(allowed_zip_year_symlink_dirs),
-                )
-                != 0
-            ):
-                ret_code = 1
+            year_parent_dir = next(iter(allowed_zip_year_symlink_dirs)).parent
+            sweeps.append(("year dir", year_parent_dir, allowed_zip_year_symlink_dirs))
+            sweeps.extend(
+                ("year", symlink_dir, allowed_zip_year_symlinks)
+                for symlink_dir in sorted(allowed_zip_year_symlink_dirs)
+            )
 
-            for dest_dir in sorted(allowed_zip_year_symlink_dirs):
-                if self.check_files_in_dir("year", dest_dir, list(allowed_zip_year_symlinks)):
-                    ret_code = 1
+        ret_code = self._check_dest_dir_info_files(dest_dirs_info_list)
+
+        for label, directory, allowed in sweeps:
+            if self.check_files_in_dir(label, directory, allowed) != 0:
+                ret_code = 1
 
         if ret_code != 0:
             print()
@@ -1172,21 +1335,17 @@ class ComicsIntegrityChecker:
         return ret_code
 
     @staticmethod
-    def check_files_in_dir(file_type: str, dir_path: Path, allowed_files: list[Path]) -> int:
-        ret_code = 0
+    def check_files_in_dir(file_type: str, dir_path: Path, allowed_files: Iterable[Path]) -> int:
+        unexpected = unexpected_entries(dir_path, allowed_files)
 
-        if not dir_path.is_dir():
+        if unexpected is None:
             print(f'{ERROR_MSG_PREFIX}The directory "{dir_path}" is missing.')
             return 1
 
-        # Sorted so a long run of unexpected files reads in filename order rather than
-        # whatever order the filesystem hands back.
-        for file in sorted(dir_path.iterdir()):
-            if file not in allowed_files:
-                print(f'{ERROR_MSG_PREFIX}The {file_type} directory file "{file}" was unexpected.')
-                ret_code = 1
+        for file in unexpected:
+            print(f'{ERROR_MSG_PREFIX}The {file_type} directory file "{file}" was unexpected.')
 
-        return ret_code
+        return 1 if unexpected else 0
 
     def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
         errors.zip_errors = check_zip_freshness(
@@ -1311,21 +1470,9 @@ class ComicsIntegrityChecker:
             print(f'{ERROR_MSG_PREFIX} The dest image file "{get_relpath(file)}" was unexpected.')
 
     @staticmethod
-    def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:  # noqa: PLR0912
-        for srce_dest in errors.srce_and_dest_files_missing:
-            srce_file = Path(srce_dest[0])
-            dest_file = Path(srce_dest[1])
-            print(
-                f'{ERROR_MSG_PREFIX} There is no dest file "{dest_file}"'
-                f' matching srce file "{srce_file}".',
-            )
-        for srce_file, dest_file in errors.srce_and_dest_files_out_of_date:
-            print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))
-
-        if errors.file_findings:
-            print()
-
-        if len(errors.dest_dir_files_missing) > 0:
+    def _print_dest_dir_findings(errors: OutOfDateErrors) -> None:
+        """Report the title's info files: the missing ones, then the stale ones."""
+        if errors.dest_dir_files_missing:
             for missing_file in errors.dest_dir_files_missing:
                 print(f'{ERROR_MSG_PREFIX}The dest file "{missing_file}" is missing.')
             print()
@@ -1344,32 +1491,40 @@ class ComicsIntegrityChecker:
                 )
             print()
 
-        if len(errors.exception_errors) > 0:
+        if errors.exception_errors:
             for err_msg in errors.exception_errors:
                 print(f'{ERROR_MSG_PREFIX} For "{errors.title}", there was an error: {err_msg}.')
             print()
 
-        if (
-            len(errors.srce_and_dest_files_missing) > 0
-            and len(errors.srce_and_dest_files_out_of_date) > 0
-        ):
-            print(
-                f'{ERROR_MSG_PREFIX} For "{errors.title}",'
-                f" there were {len(errors.srce_and_dest_files_missing)} missing dest files"
-                f" and {len(errors.srce_and_dest_files_out_of_date)} out of date"
-                f" dest files.\n",
+    @staticmethod
+    def _print_page_tally(errors: OutOfDateErrors) -> None:
+        """Report one tally line naming whichever kinds of page finding occurred."""
+        counted = [
+            f"{len(findings)} {noun}"
+            for findings, noun in (
+                (errors.srce_and_dest_files_missing, "missing dest files"),
+                (errors.srce_and_dest_files_out_of_date, "out of date dest files"),
             )
-        else:
-            if len(errors.srce_and_dest_files_missing) > 0:
-                print(
-                    f'{ERROR_MSG_PREFIX} For "{errors.title}",'
-                    f" there were {len(errors.srce_and_dest_files_missing)} missing"
-                    f" dest files.\n",
-                )
+            if findings
+        ]
 
-            if len(errors.srce_and_dest_files_out_of_date) > 0:
-                print(
-                    f'{ERROR_MSG_PREFIX} For "{errors.title}",'
-                    f" there were {len(errors.srce_and_dest_files_out_of_date)} out of"
-                    f" date dest files.\n",
-                )
+        if counted:
+            print(
+                f'{ERROR_MSG_PREFIX} For "{errors.title}", there were {" and ".join(counted)}.\n',
+            )
+
+    @staticmethod
+    def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:
+        for srce_file, dest_file in errors.srce_and_dest_files_missing:
+            print(
+                f'{ERROR_MSG_PREFIX} There is no dest file "{dest_file}"'
+                f' matching srce file "{srce_file}".',
+            )
+        for srce_file, dest_file in errors.srce_and_dest_files_out_of_date:
+            print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))
+
+        if errors.file_findings:
+            print()
+
+        ComicsIntegrityChecker._print_dest_dir_findings(errors)
+        ComicsIntegrityChecker._print_page_tally(errors)

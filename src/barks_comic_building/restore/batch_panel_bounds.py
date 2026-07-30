@@ -99,6 +99,21 @@ def get_page_panel_bounds(
     """
     # noinspection PyBroadException
     try:
+        # Before anything else, and deliberately ahead of the force check: a symlinked
+        # dest means this page belongs to another volume, staged into a synthetic
+        # collection. Writing it here would follow the link and overwrite that volume's
+        # file - and worse, compute it against *this* comic's `bounded/` directory, keyed
+        # by the collection page number, so the page's real hand-drawn override is not
+        # found and is silently dropped. `barks-batch-restore` and `barks-batch-upscayl`
+        # refuse the same way (`PageState.LINKED`); this one used to write through.
+        if dest_file.is_symlink():
+            logger.info(
+                f"Dest file is linked from another volume - skipping:"
+                f' "{get_abbrev_path(dest_file)}".'
+                f" Run the panel bounds for the volume it lives in instead."
+            )
+            return
+
         if not srce_file.is_file():
             msg = f'Could not find srce file: "{srce_file}".'
             raise FileNotFoundError(msg)  # noqa: TRY301

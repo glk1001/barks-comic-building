@@ -144,6 +144,51 @@ class TestAPageThatAlreadyHasBounds:
         assert json.loads(page.dest_file.read_text()) == SEGMENT_INFO
 
 
+class TestAPageStagedFromAnotherVolume:
+    """A one-pager staged into a synthetic collection, whose dest file is a symlink.
+
+    The page's real files live in its home volume; the collection only borrows them. So
+    the bounds are that volume's to make, and computing them here writes through the link.
+    Worse than a duplicated effort: the override directory used would be the collection's,
+    keyed by the collection page number (508) rather than the home volume's (176), so a
+    hand-drawn override that exists is not found and the page is silently rewritten
+    without it. That is not hypothetical - it happened to five pages.
+    """
+
+    def test_it_is_skipped_even_under_force(self, page: Page) -> None:
+        home_file = page.dest_file.with_name("176.json")
+        home_file.parent.mkdir(parents=True, exist_ok=True)
+        home_file.write_text("the home volume's bounds, made with its own override")
+        page.dest_file.symlink_to(home_file)
+        processor = FakeBoundingBoxProcessor()
+
+        run(page, processor, force=True)
+
+        assert processor.kumiko_calls == []
+        assert processor.saved == []
+
+    def test_the_home_volumes_file_is_not_written_through(self, page: Page) -> None:
+        home_file = page.dest_file.with_name("176.json")
+        home_file.parent.mkdir(parents=True, exist_ok=True)
+        home_file.write_text("do not write through me")
+        page.dest_file.symlink_to(home_file)
+
+        run(page, FakeBoundingBoxProcessor(), force=True)
+
+        assert home_file.read_text() == "do not write through me"
+
+    def test_a_dangling_link_is_not_written_through_either(self, page: Page) -> None:
+        # Restaged since, or the home volume's file removed. Either way it is not this
+        # run's page to make, and creating it here would populate another volume's tree.
+        page.dest_file.parent.mkdir(parents=True, exist_ok=True)
+        page.dest_file.symlink_to(page.dest_file.with_name("gone.json"))
+        processor = FakeBoundingBoxProcessor()
+
+        run(page, processor, force=True)
+
+        assert processor.kumiko_calls == []
+
+
 class TestAPageWithNoSourceScan:
     def test_nothing_is_computed(self, page: Page) -> None:
         page.srce_file.unlink()

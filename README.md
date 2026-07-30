@@ -194,6 +194,27 @@ read-only original tree, so no permission changes are needed. That also means ev
 page is an *added* page by the rule above, which is why the added-page band accepts a staged
 collection's range.
 
+**A staged page belongs to its home volume, and every stage is run there.** The collection only
+borrows the files. `barks-batch-restore` and `barks-batch-upscayl` enforce this by reporting a
+symlinked page as `linked` and never writing it, which `--force` does not override;
+`barks-batch-panel-bounds` skips a symlinked segments file the same way. So restore, upscale and
+panel-bound a one-pager by running its **home** volume — the collection picks the result up
+through the link.
+
+Panel bounds is the one where getting this wrong was quiet, which is why it is enforced rather
+than left to habit. The override directory is always the *processed comic's* `bounded/`, keyed by
+that comic's page number: run page 176 of volume 6 through the collection and it looks for a
+`508.jpg` override that does not exist, misses the real `176.jpg` one, and — before the guard —
+wrote the result computed without it back through the link into volume 6's own file.
+
+`barks-check-build` does catch the aftermath, though not the cause. Rewriting a segments file
+bumps its mtime above every page built from it, so each comic containing that page reports as out
+of date — which is how a write-through in a volume you never ran becomes visible. But it says
+*rebuild this page*, not *an override was dropped*, and rebuilding on that signal alone bakes the
+wrong bounds in. **Panel segments going stale in volumes you did not touch is the symptom to read
+as a `--force` that reached them through a link**; regenerate those pages from their home volume
+before rebuilding.
+
 ### What the integrity check verifies
 
 `barks-check-build` walks the same trail backwards. Per page it checks each artifact exists and
@@ -260,6 +281,11 @@ Worth knowing, because a clean run does not mean all of these are true:
   the file it names and re-run before trusting the title.
 - **A `SERIES_INFO` title with no `.ini`** is not reported. The `.ini` files are written per story
   as each is worked on, so the difference is outstanding work, not an inconsistency.
+- **Why something went stale.** A finding names a file to remake, never the reason it needs
+  remaking — a legitimately regenerated input and a corrupted one both read simply as *newer*. So
+  a stale page in a volume you did not work on is worth understanding before rebuilding, not just
+  rebuilding: the rebuild would faithfully bake in whatever the input now says. The panel bounds
+  case above is exactly that, and it is the reason the write-through is now blocked at source.
 
 ---
 

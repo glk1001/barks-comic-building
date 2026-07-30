@@ -150,13 +150,13 @@ restore-failures:
 
 # Generate panel bounds for all restoreable pages in a volume or volumes
 [group('comics')]
-panels volume:
-    {{uv_run}} barks-batch-panel-bounds --work-dir {{restore_work_dir}}/panel-bounds --volume {{volume}}
+panels volume *flags:
+    {{uv_run}} barks-batch-panel-bounds --work-dir {{restore_work_dir}}/panel-bounds --volume {{volume}} {{flags}}
 
 # Generate panel bounds for all restoreable pages in a title
 [group('comics')]
-panels-title title:
-    {{uv_run}} barks-batch-panel-bounds --work-dir {{restore_work_dir}}/panel-bounds --title "{{title}}"
+panels-title title *flags:
+    {{uv_run}} barks-batch-panel-bounds --work-dir {{restore_work_dir}}/panel-bounds --title "{{title}}" {{flags}}
 
 # Quickly browse a volume page
 [group('utils')]

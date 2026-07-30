@@ -17,7 +17,22 @@ APP_LOGGING_NAME = "bpan"
 COMIC_BUILDING_DIR = Path(__file__).parent.parent.parent.parent
 
 
-def panel_bounds(comics_database: ComicsDatabase, title_list: list[str], work_dir: Path) -> None:
+def panel_bounds(
+    comics_database: ComicsDatabase,
+    title_list: list[str],
+    work_dir: Path,
+    *,
+    force: bool,
+) -> None:
+    """Make the panel bounds file for every restorable page of each title.
+
+    Args:
+        comics_database: The comics database.
+        title_list: The titles to process.
+        work_dir: Where Kumiko's intermediate files go.
+        force: Remake panel bounds files that already exist.
+
+    """
     start = time.time()
 
     num_page_files = 0
@@ -56,6 +71,7 @@ def panel_bounds(comics_database: ComicsDatabase, title_list: list[str], work_di
                     srce_panels_bounds_override_dir,
                     srce_file,
                     dest_file,
+                    force=force,
                 )
 
         num_page_files += len(srce_files)
@@ -68,15 +84,29 @@ def get_page_panel_bounds(
     srce_panels_bounds_override_dir: Path,
     srce_file: Path,
     dest_file: Path,
+    *,
+    force: bool,
 ) -> None:
+    """Make one page's panel bounds file.
+
+    Args:
+        bounding_box_processor: The Kumiko wrapper.
+        srce_panels_bounds_override_dir: Where hand-drawn panel bounds fixes live.
+        srce_file: The page to find panels in.
+        dest_file: Where to write the panel segments.
+        force: Remake the panel bounds file if it already exists.
+
+    """
     # noinspection PyBroadException
     try:
         if not srce_file.is_file():
             msg = f'Could not find srce file: "{srce_file}".'
             raise FileNotFoundError(msg)  # noqa: TRY301
         if dest_file.is_file():
-            logger.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
-            return
+            if not force:
+                logger.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
+                return
+            logger.info(f'Dest file exists - remaking: "{get_abbrev_path(dest_file)}".')
 
         logger.info(
             f'Using Kumiko to get page panel bounds for "{get_abbrev_path(srce_file)}"'
@@ -103,6 +133,10 @@ def main(
     work_dir: Path = typer.Option(...),  # noqa: B008
     volumes_str: VolumesArg = "",
     title_str: TitleArg = "",
+    force: bool = typer.Option(
+        default=False,
+        help="Make panel bounds files even when they already exist, overwriting them.",
+    ),
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
     init_logging(APP_LOGGING_NAME, "batch-panel-bounds.log", log_level_str)
@@ -111,7 +145,7 @@ def main(
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    panel_bounds(comics_database, titles, work_dir)
+    panel_bounds(comics_database, titles, work_dir, force=force)
 
 
 if __name__ == "__main__":

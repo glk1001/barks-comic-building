@@ -114,9 +114,47 @@ class OutOfDateErrors:
     zip_errors: ZipOutOfDateErrors
     series_zip_symlink_errors: ZipSymlinkOutOfDateErrors
     year_zip_symlink_errors: ZipSymlinkOutOfDateErrors
-    is_error: bool = False
     max_srce: MaxTimestamp | None = None
     max_dest: MaxTimestamp | None = None
+
+    @property
+    def file_findings(self) -> bool:
+        """Whether any per-file finding was recorded - missing, stale, or an exception."""
+        return bool(
+            self.srce_and_dest_files_missing
+            or self.srce_and_dest_files_out_of_date
+            or self.dest_dir_files_missing
+            or self.dest_dir_files_out_of_date
+            or self.exception_errors
+        )
+
+    @property
+    def zip_findings(self) -> bool:
+        """Whether the zip or either of its symlinks is missing or out of date."""
+        zip_flags = (
+            self.zip_errors.missing,
+            self.zip_errors.out_of_date_wrt_srce,
+            self.zip_errors.out_of_date_wrt_dest,
+        )
+        symlink_flags = (
+            (symlink.missing, symlink.out_of_date_wrt_zip, symlink.out_of_date_wrt_dest)
+            for symlink in (self.series_zip_symlink_errors, self.year_zip_symlink_errors)
+        )
+
+        return any(zip_flags) or any(any(flags) for flags in symlink_flags)
+
+    @property
+    def is_error(self) -> bool:
+        """Whether this title has anything to report - the exit code, and nothing else.
+
+        Derived, so that every field the report can print is reachable from here by
+        construction. This used to be a separately-maintained assignment, and it had
+        drifted: it omitted `dest_dir_files_out_of_date` and both symlinks'
+        out-of-date-versus-dest flags, so those three findings printed as errors and the
+        run still exited 0. Nothing enforced the correspondence, because there was
+        nothing to enforce it against - a stored field can always be one term short.
+        """
+        return self.file_findings or self.zip_findings or bool(self.unexpected_dest_image_files)
 
 
 class ComicsIntegrityChecker:
@@ -975,21 +1013,6 @@ class ComicsIntegrityChecker:
         self.check_zip_files(comic, out_of_date_errors)
         self.check_additional_files(comic, out_of_date_errors)
 
-        out_of_date_errors.is_error = (
-            len(out_of_date_errors.srce_and_dest_files_missing) > 0
-            or len(out_of_date_errors.srce_and_dest_files_out_of_date) > 0
-            or len(out_of_date_errors.dest_dir_files_missing) > 0
-            or len(out_of_date_errors.unexpected_dest_image_files) > 0
-            or len(out_of_date_errors.exception_errors) > 0
-            or out_of_date_errors.zip_errors.missing
-            or out_of_date_errors.series_zip_symlink_errors.missing
-            or out_of_date_errors.year_zip_symlink_errors.missing
-            or out_of_date_errors.zip_errors.out_of_date_wrt_srce
-            or out_of_date_errors.zip_errors.out_of_date_wrt_dest
-            or out_of_date_errors.series_zip_symlink_errors.out_of_date_wrt_zip
-            or out_of_date_errors.year_zip_symlink_errors.out_of_date_wrt_zip
-        )
-
         self.print_check_errors(out_of_date_errors)
 
         ret_code = 1 if out_of_date_errors.is_error else 0
@@ -1202,13 +1225,7 @@ class ComicsIntegrityChecker:
                 errors.dest_dir_files_out_of_date.append(file_path)
 
     def print_check_errors(self, errors: OutOfDateErrors) -> None:
-        if (
-            len(errors.srce_and_dest_files_missing) > 0
-            or len(errors.srce_and_dest_files_out_of_date) > 0
-            or len(errors.dest_dir_files_missing) > 0
-            or len(errors.dest_dir_files_out_of_date) > 0
-            or len(errors.exception_errors) > 0
-        ):
+        if errors.file_findings:
             self.print_out_of_date_or_missing_errors(errors)
 
         if errors.zip_errors.missing:
@@ -1305,12 +1322,7 @@ class ComicsIntegrityChecker:
         for srce_file, dest_file in errors.srce_and_dest_files_out_of_date:
             print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))
 
-        if (
-            len(errors.srce_and_dest_files_missing) > 0
-            or len(errors.srce_and_dest_files_out_of_date) > 0
-            or len(errors.dest_dir_files_missing) > 0
-            or len(errors.dest_dir_files_out_of_date) > 0
-        ):
+        if errors.file_findings:
             print()
 
         if len(errors.dest_dir_files_missing) > 0:

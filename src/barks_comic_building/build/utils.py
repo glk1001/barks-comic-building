@@ -1,90 +1,295 @@
+"""Staleness verdicts for the build integrity checks.
+
+The question these answer is always the same: was this artifact built before one of the
+things it was built *from*? Two rules keep the answers consistent.
+
+**Existence and staleness are separate findings.** A missing zip is reported missing and
+nothing else - there is no timestamp to compare it against, and also flagging it out of
+date would double-count one fault. This module used to disagree with its caller on
+exactly that point: it called a missing zip not-stale while the caller called it missing,
+and one predicate would `stat()` a symlink that was not there and raise.
+
+**These functions report nothing.** They return verdicts; the caller owns all output. A
+predicate that logged its own finding at DEBUG while its caller printed the same finding
+at ERROR - in different words - is how one fault came to be described two ways.
+"""
+
+from __future__ import annotations
+
 import zipfile
-from pathlib import Path
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from barks_fantagraphics.comics_utils import (
-    dest_file_is_older_than_srce,
-    file_is_older_than_timestamp,
     get_abbrev_path,
+    get_timestamp,
     get_timestamp_as_str,
     get_timestamp_str,
 )
-from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+    from barks_fantagraphics.pages import SrceDependency
 
 DATE_SEP = "-"
 DATE_TIME_SEP = " "
 HOUR_SEP = ":"
 
-
-def get_shorter_ini_filename(ini_file: Path) -> str:
-    return ini_file.name
-
-
-def get_list_of_numbers(list_str: str) -> list[int]:
-    if not list_str:
-        return []
-    if "-" not in list_str:
-        return [int(list_str)]
-
-    p_start, p_end = list_str.split("-")
-    return list(range(int(p_start), int(p_end) + 1))
+# One tuple, so no call site can format a timestamp without separators. One of the eleven
+# used to, and rendered its timestamp in a different format from the other ten.
+TIMESTAMP_SEPS = (DATE_SEP, DATE_TIME_SEP, HOUR_SEP)
 
 
-def dest_file_is_out_of_date_wrt_srce(srce_file: Path, dest_file: Path) -> bool:
-    if not dest_file.is_file():
-        logger.debug(f'Dest file "{dest_file}" not found.')
-        return True
+@dataclass(frozen=True, slots=True)
+class MaxTimestamp:
+    """The newest file of a set, paired with its timestamp.
 
-    if dest_file_is_older_than_srce(srce_file, dest_file, include_missing_dest=False):
-        logger.debug(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ""))
-        return True
+    Bundled rather than kept as two loose fields so a caller cannot report a staleness
+    against a timestamp it is unable to name the file for. That pairing used to be
+    maintained by hand across two fields assigned 380 lines apart, and guarded at the
+    read end by a bare `assert`.
+    """
 
-    return False
+    file: Path | zipfile.Path
+    timestamp: float
 
 
-def zip_file_is_out_of_date_wrt_dest(
+@dataclass(frozen=True, slots=True)
+class ZipOutOfDateErrors:
+    """The verdict on a comic's zip file."""
+
+    file: Path | None = None
+    missing: bool = False
+    out_of_date_wrt_srce: bool = False
+    out_of_date_wrt_dest: bool = False
+    timestamp: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class ZipSymlinkOutOfDateErrors:
+    """The verdict on one of a comic's two zip symlinks."""
+
+    symlink: Path | None = None
+    missing: bool = False
+    out_of_date_wrt_zip: bool = False
+    out_of_date_wrt_dest: bool = False
+    timestamp: float = 0.0
+
+
+def fold_max(
+    current: MaxTimestamp | None,
+    file: Path | zipfile.Path,
+    timestamp: float,
+) -> MaxTimestamp | None:
+    """Fold one file into a running maximum, returning the newer of the two.
+
+    Args:
+        current: The maximum so far, or None if nothing has been folded in yet.
+        file: The candidate file.
+        timestamp: The candidate's timestamp.
+
+    Returns:
+        Whichever of the two is newer.
+
+    """
+    if timestamp < 0:
+        # `get_restored_srce_dependencies` uses -1 for a stage whose file is not on disk.
+        # A file that is not there is a finding of its own, never the newest input.
+        return current
+
+    if current is not None and timestamp <= current.timestamp:
+        return current
+
+    return MaxTimestamp(file, timestamp)
+
+
+def is_stale(timestamp: float, reference: MaxTimestamp | None) -> bool:
+    """Return whether something of this timestamp predates `reference`.
+
+    Pure arithmetic - the caller has already stat'ed once and passes the result, so no
+    check here stats the same file twice.
+
+    A None reference is not stale. A check that could not work out what its inputs were
+    reports nothing rather than reporting everything, which is the failure to avoid in
+    both directions: a dead check and a check that fires on everything are equally
+    useless.
+
+    Args:
+        timestamp: The artifact's timestamp.
+        reference: The newest input it was built from, or None if unknown.
+
+    Returns:
+        True if the artifact is older than its newest input.
+
+    """
+    if reference is None:
+        return False
+
+    return timestamp < reference.timestamp
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStaleness:
+    """The verdict on one dest page's restore chain."""
+
+    # (the newer dependency, the older thing that was built from it)
+    stale_pairs: list[tuple[Path, Path]]
+    max_srce: MaxTimestamp | None
+
+
+def walk_srce_dependency_chain(
+    dependencies: Sequence[SrceDependency],
+    dest_file: Path,
+    dest_timestamp: float,
+    max_srce: MaxTimestamp | None,
+    *,
+    is_a_comic: bool,
+) -> ChainStaleness:
+    """Walk a dest page's restore chain newest-first and report any inversion.
+
+    `get_restored_srce_dependencies` returns the chain in pipeline order, latest stage
+    first: panel segments, restored, restored-upscayled, restored-svg, upscayled,
+    original. Each stage was produced *from* the next, so timestamps must decrease along
+    the walk; a stage newer than the thing derived from it means that thing needs
+    rebuilding. The dest page is the head of the chain.
+
+    A timestamp of -1 is the sentinel for a stage whose file is not on disk, and is always
+    an inversion - that is what the sign test is for. It also poisons the rest of the walk
+    deliberately: nothing downstream of a missing stage can be rebuilt until it is back,
+    and the reported pair names the missing file rather than a timestamp comparison.
+
+    Independent dependencies - the ini file, the intro inset, a hand-drawn panel bounds
+    fix - are not part of the chain, because nothing was derived from them. They only
+    raise the maximum.
+
+    Args:
+        dependencies: The dest page's restore chain, latest stage first.
+        dest_file: The dest page at the head of the chain.
+        dest_timestamp: The dest page's timestamp.
+        max_srce: The running newest-source maximum to fold into.
+        is_a_comic: False for the non-comic titles, whose pages have no restore chain to
+            be inconsistent - they still raise the maximum.
+
+    Returns:
+        The inversions found, and the updated maximum.
+
+    """
+    stale_pairs: list[tuple[Path, Path]] = []
+    prev_timestamp = dest_timestamp
+    prev_file = dest_file
+
+    for dependency in dependencies:
+        timestamp = dependency.timestamp
+
+        if isinstance(dependency.file, zipfile.Path):
+            # Only the intro inset can live inside a zip, and it is always independent, so
+            # it never enters the chain. Fold it into the maximum and move on. Narrowing
+            # here rather than at the reporting end is what keeps `stale_pairs` plain
+            # `Path`s; it used to be asserted 380 lines away, and held only by luck.
+            max_srce = fold_max(max_srce, dependency.file, timestamp)
+            continue
+
+        if not dependency.independent and is_a_comic:
+            if timestamp < 0 or timestamp > prev_timestamp:
+                stale_pairs.append((dependency.file, prev_file))
+            prev_timestamp = timestamp
+            prev_file = dependency.file
+
+        max_srce = fold_max(max_srce, dependency.file, timestamp)
+
+    return ChainStaleness(stale_pairs, max_srce)
+
+
+def check_zip_freshness(
     zip_file: Path,
-    max_dest_file: Path,
-    max_dest_timestamp: float,
-) -> bool:
+    max_srce: MaxTimestamp | None,
+    max_dest: MaxTimestamp | None,
+) -> ZipOutOfDateErrors:
+    """Grade a comic's zip against the sources and the dest pages it was built from.
+
+    Args:
+        zip_file: The comic's zip.
+        max_srce: The newest source file the comic was built from, if known.
+        max_dest: The newest dest page, if known.
+
+    Returns:
+        The verdict. A missing zip is reported missing and nothing else.
+
+    """
     if not zip_file.is_file():
-        logger.debug(f'Dest zip file "{zip_file}" not found.')
-        return False
+        return ZipOutOfDateErrors(file=zip_file, missing=True)
 
-    if file_is_older_than_timestamp(zip_file, max_dest_timestamp):
-        logger.debug(
-            get_file_out_of_date_wrt_max_timestamp_msg(
-                zip_file,
-                max_dest_file,
-                max_dest_timestamp,
-                "",
-            ),
-        )
-        return True
+    timestamp = get_timestamp(zip_file)
 
-    return False
+    return ZipOutOfDateErrors(
+        file=zip_file,
+        timestamp=timestamp,
+        out_of_date_wrt_srce=is_stale(timestamp, max_srce),
+        out_of_date_wrt_dest=is_stale(timestamp, max_dest),
+    )
 
 
-def symlink_is_out_of_date_wrt_dest(symlink: Path, max_dest_timestamp: float) -> bool:
-    if file_is_older_than_timestamp(symlink, max_dest_timestamp):
-        logger.debug(get_symlink_out_of_date_wrt_max_dest_msg(symlink, max_dest_timestamp))
-        return True
+def check_zip_symlink_freshness(
+    symlink: Path,
+    zip_errors: ZipOutOfDateErrors,
+    max_dest: MaxTimestamp | None,
+) -> ZipSymlinkOutOfDateErrors:
+    """Grade one of a comic's zip symlinks against the zip and the dest pages.
 
-    return False
+    Each symlink is graded independently of the other. `check_zip_files` used to
+    `return` at the first missing one, so a missing series symlink hid the year
+    symlink's state entirely and two runs were needed to see both faults.
 
+    `get_timestamp` uses lstat for a symlink, so a *dangling* link still grades rather
+    than raising - it is the link's own age that matters here, not its target's.
 
-def symlink_is_out_of_date_wrt_zip(symlink: Path, zip_file: Path) -> bool:
+    Args:
+        symlink: The symlink to grade.
+        zip_errors: The zip's verdict, which supplies the reference to compare against.
+        max_dest: The newest dest page, if known.
+
+    Returns:
+        The verdict. A missing symlink is reported missing and nothing else.
+
+    """
     if not symlink.is_symlink():
-        logger.debug(f'Dest file "{symlink}" not found.')
-        return False
+        return ZipSymlinkOutOfDateErrors(symlink=symlink, missing=True)
 
-    if dest_file_is_older_than_srce(zip_file, symlink, include_missing_dest=False):
-        logger.debug(get_symlink_out_of_date_wrt_zip_msg(symlink, zip_file))
-        return True
+    timestamp = get_timestamp(symlink)
 
-    return False
+    # A missing zip is no reference to compare against - its absence is already reported.
+    zip_reference = (
+        None
+        if zip_errors.missing or zip_errors.file is None
+        else MaxTimestamp(zip_errors.file, zip_errors.timestamp)
+    )
+
+    return ZipSymlinkOutOfDateErrors(
+        symlink=symlink,
+        timestamp=timestamp,
+        out_of_date_wrt_zip=is_stale(timestamp, zip_reference),
+        out_of_date_wrt_dest=is_stale(timestamp, max_dest),
+    )
 
 
 def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_prefix: str) -> str:
+    """Describe a file being older than one specific other file.
+
+    The two missing-file branches are not dead defensiveness: a dependency carrying the
+    missing-stage sentinel is reported through here, and naming the absent file is the
+    whole message in that case.
+
+    Args:
+        file: The out-of-date file.
+        other_file: The newer file it should have been built from.
+        msg_prefix: Prefix for the first line; later lines are indented to match.
+
+    Returns:
+        The multi-line message.
+
+    """
     if not other_file.is_file():
         return f'File "{other_file}" is missing.'
     if not file.is_file():
@@ -96,46 +301,32 @@ def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_p
         f'{msg_prefix}File "{get_abbrev_path(file)}"\n'
         f"{blank_prefix}is out of date with\n"
         f'{blank_prefix}file "{get_abbrev_path(other_file)}":\n'
-        f"{blank_prefix}'{get_timestamp_str(file, DATE_SEP, DATE_TIME_SEP, HOUR_SEP)}'"
-        f" < '{get_timestamp_str(other_file, DATE_SEP, DATE_TIME_SEP, HOUR_SEP)}'."
+        f"{blank_prefix}'{get_timestamp_str(file, *TIMESTAMP_SEPS)}'"
+        f" < '{get_timestamp_str(other_file, *TIMESTAMP_SEPS)}'."
     )
 
 
 def get_file_out_of_date_wrt_max_timestamp_msg(
     file: Path,
-    max_file: Path | zipfile.Path,
-    max_timestamp: float,
+    max_reference: MaxTimestamp,
     msg_prefix: str,
 ) -> str:
+    """Describe a file being older than the newest of a set of files.
+
+    Args:
+        file: The out-of-date file.
+        max_reference: The newest input, and its timestamp.
+        msg_prefix: Prefix for the first line; later lines are indented to match.
+
+    Returns:
+        The multi-line message.
+
+    """
     blank_prefix = f"{' ':<{len(msg_prefix)}}"
 
     return (
         f'{msg_prefix}File "{get_abbrev_path(file)}"\n'
-        f'{blank_prefix}is out of date WRT max file: "{get_abbrev_path(max_file)}"\n'
-        f"{blank_prefix}'{get_timestamp_str(file, DATE_SEP, DATE_TIME_SEP, HOUR_SEP)}'"
-        f" < '{get_timestamp_as_str(max_timestamp, DATE_SEP, DATE_TIME_SEP, HOUR_SEP)}'."
-    )
-
-
-def get_zip_file_out_of_date_wrt_max_dest_msg(zip_file: Path, max_dest_timestamp: float) -> str:
-    return (
-        f"Zip file \"{get_abbrev_path(zip_file)}\" timestamp '{get_timestamp_str(zip_file)}',"
-        f" is out of date WRT"
-        f" max dest page timestamp '{get_timestamp_as_str(max_dest_timestamp)}'."
-    )
-
-
-def get_symlink_out_of_date_wrt_zip_msg(symlink: Path, zip_file: Path) -> str:
-    return (
-        f"Symlink \"{get_abbrev_path(symlink)}\" timestamp '{get_timestamp_str(symlink)}',"
-        f" is out of date WRT"
-        f' zip file "{zip_file}" ({get_timestamp_str(zip_file)}).'
-    )
-
-
-def get_symlink_out_of_date_wrt_max_dest_msg(symlink: Path, max_dest_timestamp: float) -> str:
-    return (
-        f"Symlink \"{get_abbrev_path(symlink)}\" timestamp '{get_timestamp_str(symlink)}',"
-        f" is out of date WRT"
-        f" max dest image timestamp '{get_timestamp_as_str(max_dest_timestamp)}'."
+        f'{blank_prefix}is out of date WRT max file: "{get_abbrev_path(max_reference.file)}"\n'
+        f"{blank_prefix}'{get_timestamp_str(file, *TIMESTAMP_SEPS)}'"
+        f" < '{get_timestamp_as_str(max_reference.timestamp, *TIMESTAMP_SEPS)}'."
     )

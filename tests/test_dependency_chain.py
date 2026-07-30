@@ -1,0 +1,252 @@
+"""Tests for the restore chain walk - the check that spent this repo's history dead.
+
+A dest page is the end of a pipeline: original scan, upscayled, restored-svg, restored,
+panel segments. Each stage is produced *from* the one after it, so timestamps must
+decrease along the chain. An inversion means the thing derived from that stage is stale
+and needs rebuilding.
+
+The walk existed and was called, but the timestamp it compared was pinned to `0.0`, so
+no inversion could ever be reported and the running source maximum stayed at zero for
+every title - which silently killed two further checks downstream that compared against
+it. Nothing failed; the report simply said the tree was clean.
+
+So the assertion that matters most here is the one that would have caught that: a chain
+carrying the missing-stage sentinel must report an inversion, whatever else is true. The
+rest pins the ordering rules a reader would otherwise have to infer from the walk.
+"""
+
+from __future__ import annotations
+
+import zipfile
+from pathlib import Path
+
+import pytest
+from barks_fantagraphics.pages import SrceDependency
+
+from barks_comic_building.build.utils import MaxTimestamp, walk_srce_dependency_chain
+
+# Fixed epoch seconds. No file is ever created - the walk reads `dependency.timestamp`
+# and never stats, which is the whole point of having it take the dependencies.
+OLDEST = 1_600_000_000.0
+OLD = 1_700_000_000.0
+NEW = 1_800_000_000.0
+NEWER = 1_900_000_000.0
+
+# `get_restored_srce_dependencies` uses -1 for a pipeline stage whose file is not on disk.
+MISSING_STAGE = -1.0
+
+DEST = Path("/comics/dest/001.jpg")
+SEGMENTS = Path("/fanta/panel-segments/001.json")
+RESTORED = Path("/fanta/restored/001.png")
+UPSCAYLED = Path("/fanta/upscayled/001.png")
+ORIGINAL = Path("/fanta/original/001.jpg")
+INI_FILE = Path("/comics/story-titles/A Title.ini")
+
+
+def chained(*stages: tuple[Path, float]) -> list[SrceDependency]:
+    """Build a restore chain, latest pipeline stage first.
+
+    Args:
+        stages: The `(file, timestamp)` pairs, in the order the pipeline produced them
+            reversed - as `get_restored_srce_dependencies` returns them.
+
+    Returns:
+        The chain, every entry marked as derived from the next.
+
+    """
+    return [SrceDependency(file, timestamp, independent=False) for file, timestamp in stages]
+
+
+class TestAConsistentChain:
+    def test_a_chain_older_than_its_dest_page_reports_nothing(self) -> None:
+        # Each stage older than the thing built from it, and the dest page newest of all.
+        chain = chained((SEGMENTS, NEW), (RESTORED, OLD), (UPSCAYLED, OLDEST))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == []
+
+    def test_an_empty_chain_reports_nothing(self) -> None:
+        # A blank page has no dependencies at all.
+        result = walk_srce_dependency_chain([], DEST, NEW, None, is_a_comic=True)
+
+        assert result.stale_pairs == []
+        assert result.max_srce is None
+
+    def test_the_newest_dependency_becomes_the_maximum(self) -> None:
+        chain = chained((SEGMENTS, OLD), (RESTORED, NEW), (UPSCAYLED, OLDEST))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.max_srce == MaxTimestamp(RESTORED, NEW)
+
+
+class TestAnInvertedChain:
+    def test_a_stage_newer_than_the_dest_page_is_reported_against_it(self) -> None:
+        # Panel segments regenerated after the page was built: the page needs rebuilding.
+        chain = chained((SEGMENTS, NEWER), (RESTORED, OLD))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEW, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(SEGMENTS, DEST)]
+
+    def test_a_stage_newer_than_the_stage_built_from_it_is_reported_mid_chain(self) -> None:
+        # The dest page is fine and so is the original end of the chain; it is the panel
+        # segments that predate the restored image they were computed from, so it is the
+        # segments that need regenerating. Reported as the pair, so the message names
+        # both halves rather than just the file that is too old.
+        chain = chained((SEGMENTS, OLD), (RESTORED, NEW), (UPSCAYLED, OLDEST))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(RESTORED, SEGMENTS)]
+
+    def test_every_inversion_in_one_chain_is_reported(self) -> None:
+        chain = chained((SEGMENTS, NEWER), (RESTORED, OLDEST), (UPSCAYLED, NEW))
+
+        result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(SEGMENTS, DEST), (UPSCAYLED, RESTORED)]
+
+
+class TestTheMissingStageSentinel:
+    """A stage that is not on disk is always an inversion.
+
+    This is the assertion that would have caught the dead check: with the timestamp
+    pinned to `0.0`, the sign test could never be true, so a missing restored image
+    reported nothing at all.
+    """
+
+    def test_a_missing_stage_is_an_inversion_however_new_the_dest_page_is(self) -> None:
+        chain = chained((SEGMENTS, MISSING_STAGE))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(SEGMENTS, DEST)]
+
+    def test_a_missing_stage_never_becomes_the_maximum(self) -> None:
+        chain = chained((SEGMENTS, MISSING_STAGE), (RESTORED, OLD))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.max_srce == MaxTimestamp(RESTORED, OLD)
+
+    def test_a_missing_stage_poisons_the_rest_of_the_walk(self) -> None:
+        # Deliberate: nothing downstream of a stage that is not there can be rebuilt, so
+        # the stage after it is reported too rather than being compared against -1 and
+        # silently passing.
+        chain = chained((SEGMENTS, MISSING_STAGE), (RESTORED, OLD))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(SEGMENTS, DEST), (RESTORED, SEGMENTS)]
+
+
+class TestIndependentDependencies:
+    """The ini file, the intro inset and a hand-drawn panel bounds fix.
+
+    Nothing is derived from these, so they cannot be chain inversions - but they are
+    still inputs, and an edited ini is the ordinary reason a built comic goes stale.
+    """
+
+    def test_an_independent_dependency_is_never_an_inversion(self) -> None:
+        chain = [SrceDependency(INI_FILE, NEWER, independent=True)]
+
+        result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=True)
+
+        assert result.stale_pairs == []
+
+    def test_an_independent_dependency_still_raises_the_maximum(self) -> None:
+        # This is what makes a title's info files stale after an ini edit.
+        chain = [SrceDependency(INI_FILE, NEWER, independent=True)]
+
+        result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=True)
+
+        assert result.max_srce == MaxTimestamp(INI_FILE, NEWER)
+
+    def test_an_independent_dependency_does_not_break_the_chain_around_it(self) -> None:
+        # It is skipped for chaining purposes, so the stages either side still compare
+        # against each other rather than against the ini file.
+        chain = [
+            SrceDependency(SEGMENTS, OLDEST, independent=False),
+            SrceDependency(INI_FILE, NEWER, independent=True),
+            SrceDependency(RESTORED, NEW, independent=False),
+        ]
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(RESTORED, SEGMENTS)]
+
+
+class TestNonComicTitles:
+    def test_a_non_comic_reports_no_inversions(self) -> None:
+        # The articles have no restore pipeline for their pages to be inconsistent with.
+        chain = chained((SEGMENTS, NEWER), (RESTORED, MISSING_STAGE))
+
+        result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=False)
+
+        assert result.stale_pairs == []
+
+    def test_a_non_comic_still_raises_the_maximum(self) -> None:
+        chain = chained((SEGMENTS, NEWER))
+
+        result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=False)
+
+        assert result.max_srce == MaxTimestamp(SEGMENTS, NEWER)
+
+
+class TestADependencyInsideAZip:
+    """Only the intro inset can live in a zip, and it is always independent.
+
+    That fact used to be relied on without being stated: the chain's tuple type admitted
+    `zipfile.Path`, two type-checker suppressions papered over it, and a bare `assert`
+    380 lines away caught the case that could not happen. Narrowing here says it once.
+    """
+
+    @staticmethod
+    def _inset(tmp_path: Path) -> zipfile.Path:
+        """Make a real `zipfile.Path` to an inset image inside an archive."""
+        archive = tmp_path / "insets.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("inset.png", b"")
+
+        return zipfile.Path(archive, "inset.png")
+
+    def test_a_zipped_dependency_never_enters_the_chain(self, tmp_path: Path) -> None:
+        chain = [SrceDependency(self._inset(tmp_path), NEWER, independent=True)]
+
+        result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=True)
+
+        assert result.stale_pairs == []
+
+    def test_a_zipped_dependency_still_raises_the_maximum(self, tmp_path: Path) -> None:
+        inset = self._inset(tmp_path)
+
+        result = walk_srce_dependency_chain(
+            [SrceDependency(inset, NEWER, independent=True)], DEST, OLD, None, is_a_comic=True
+        )
+
+        assert result.max_srce == MaxTimestamp(inset, NEWER)
+
+
+class TestTheRunningMaximum:
+    def test_a_maximum_from_an_earlier_page_is_carried_in(self) -> None:
+        # The maximum accumulates across every page of a title, so a later page must not
+        # lower it.
+        carried = MaxTimestamp(ORIGINAL, NEWER)
+
+        result = walk_srce_dependency_chain(
+            chained((SEGMENTS, OLD)), DEST, NEW, carried, is_a_comic=True
+        )
+
+        assert result.max_srce == carried
+
+    @pytest.mark.parametrize("dest_timestamp", [OLDEST, OLD, NEW, NEWER])
+    def test_the_dest_page_never_enters_the_maximum(self, dest_timestamp: float) -> None:
+        # `max_srce` is the newest *input*. Folding the dest page into it would compare
+        # the page against itself and never report anything.
+        result = walk_srce_dependency_chain(
+            chained((SEGMENTS, OLDEST)), DEST, dest_timestamp, None, is_a_comic=True
+        )
+
+        assert result.max_srce == MaxTimestamp(SEGMENTS, OLDEST)

@@ -2,7 +2,7 @@ import itertools
 import json
 
 import typer
-from barks_fantagraphics.comic_book_info import COVERS_SET
+from barks_fantagraphics.comic_book_info import COVERS_SET, ONE_PAGERS
 from barks_fantagraphics.comics_consts import INTERNAL_DATA_DIR
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_helpers import get_issue_titles, get_titles_and_info
@@ -94,6 +94,15 @@ def main(
             # below would not find them.
             if comic_book_info.title in COVERS_SET:
                 logger.info(f'Title: "{title}" is a cover - skipping.')
+                continue
+
+            # One-pagers get no ini file either, for the same reason: they are
+            # pre-baked into "All One-Pagers" from ONE_PAGER_LOCATIONS, and nothing
+            # reads a per-one-pager config - the reader opens a one-pager as a page
+            # of that collection (see navigation_coordinator.read_comic). Writing
+            # one here would only produce a file that never gets used.
+            if comic_book_info.title in ONE_PAGERS:
+                logger.info(f'Title: "{title}" is a one-pager - skipping.')
                 continue
 
             if title_is_configured:

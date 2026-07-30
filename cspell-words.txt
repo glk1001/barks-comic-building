@@ -146,6 +146,7 @@ upscayl
 upscayled
 upscayling
 upscayls
+usefixtures
 vectorise
 vectorised
 vectorising

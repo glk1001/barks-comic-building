@@ -329,6 +329,18 @@ class TestProblemCodes:
         assert "copy(1)" in problems
         assert not any(p.startswith("link") for p in problems)
 
+    def test_an_artifact_produced_in_the_collection_is_not_a_copy(self, tmp_path: Path) -> None:
+        # Running the pipeline on the collection itself (barks-batch-upscayl --title
+        # "All One-Pagers") writes a real file for a stage the one-pager's own volume
+        # never had. There is no upstream file to have diverged from, so it is normal
+        # output, not an anomaly - every one of the 44 real files on disk is this case.
+        absent_source = tmp_path / "never-made.png"
+        link = touch(tmp_path / "staged" / "500.png")
+
+        problems = get_one_pager_problems(ONE_PAGERS[0], [(link, absent_source)])
+
+        assert not any(p.startswith("copy") for p in problems)
+
     def test_fully_symlinked_staging_reports_neither(self, tmp_path: Path) -> None:
         links = self._links(tmp_path, ["500.jpg", "500.png"])
         for link, source in links:

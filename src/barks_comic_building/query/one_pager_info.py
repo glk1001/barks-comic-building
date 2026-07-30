@@ -77,7 +77,7 @@ DONE_FLAG = RESTORED_FLAG
 # Problem codes. Independent of the ladder - each is reported whenever it holds,
 # whatever the row's state, so nothing is masked by an earlier unmet rung.
 LINK_PROBLEM = "link"  # a FANTA_01 staged artifact is absent
-COPY_PROBLEM = "copy"  # a staged artifact is a real file, not a symlink
+COPY_PROBLEM = "copy"  # a staged artifact has diverged from an upstream file that exists
 PAGE_PROBLEM = "page"  # located, but no original-issue page recorded
 INSET_PROBLEM = "inset"  # no inset file, so the reader shows its emergency placeholder
 
@@ -197,9 +197,17 @@ def get_one_pager_problems(
         missing = [link for link, _ in staged_links if not link.exists()]
         if missing:
             problems.append(f"{LINK_PROBLEM}({len(missing)})")
-        # `barks-stage-one-pagers` only ever symlinks, so a real file here was not
-        # put there by the stager and has stopped tracking its source volume.
-        copied = [link for link, _ in staged_links if link.exists() and not link.is_symlink()]
+        # A real file here is only a problem when the same artifact also exists in
+        # the one-pager's own volume: the staged copy has diverged from it and will
+        # not pick up a re-restore upstream. A real file with no upstream source is
+        # the normal result of running the pipeline on the collection itself
+        # (`barks-batch-upscayl --title "All One-Pagers"` and friends fill missing
+        # stages in place), so it is not reported.
+        copied = [
+            link
+            for link, source in staged_links
+            if link.exists() and not link.is_symlink() and source.is_file()
+        ]
         if copied:
             problems.append(f"{COPY_PROBLEM}({len(copied)})")
         if get_one_pager_issue_page(title) is None:

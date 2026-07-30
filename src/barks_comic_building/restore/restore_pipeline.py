@@ -12,7 +12,7 @@ from comic_utils.pil_image_utils import get_image_size
 from loguru import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Generator
+    from collections.abc import Callable, Collection, Generator
 
 from barks_comic_building.restore.image_io import (
     resize_image_file,
@@ -34,6 +34,7 @@ from barks_comic_building.restore.remove_colors import (
     remove_colors_from_image,
 )
 from barks_comic_building.restore.restore_recipe import get_current_recipe
+from barks_comic_building.restore.run_stop import read_stop_mode
 from barks_comic_building.restore.smooth_image import smooth_image_file
 from barks_comic_building.restore.vtracer_to_svg import image_file_to_svg
 
@@ -100,6 +101,7 @@ class RestorePipeline:
         use_existing_work_files: bool = USE_EXISTING_WORK_FILES,
         debug_color_counts: bool = DEBUG_WRITE_COLOR_COUNTS,
         do_palette_snap: bool = True,
+        stop_file: Path | None = None,
     ) -> None:
         self.work_dir = work_dir
         self.out_dir = dest_restored_file.parent
@@ -118,9 +120,20 @@ class RestorePipeline:
         # constants, so it follows any of them being changed.
         self.recipe = get_current_recipe(scale, do_palette_snap=do_palette_snap)
 
+        # Where a request to stop the run would be written. Read between steps rather
+        # than during one, so a step always finishes what it is writing. None means this
+        # pipeline is not part of a run that can be stopped, as when it is driven
+        # directly by the single-page CLI.
+        self.stop_file = stop_file
+
         self.errors_occurred = False
         self.failed_step: str | None = None
         self.step_seconds: dict[str, float] = {}
+
+        # Set when the pipeline gave up part way through a phase because a stop was
+        # asked for. Not a failure: the page is unfinished but everything it wrote is
+        # intact, and the next run picks it up.
+        self.stopped_early = False
 
         if not self.work_dir.is_dir():
             msg = f'Work directory not found: "{self.work_dir}".'
@@ -227,25 +240,44 @@ class RestorePipeline:
             return self.palette_snapped_file
         return self.inpainted_file
 
+    def _run_steps(self, *steps: Callable[[], None]) -> None:
+        """Run steps in order, giving up early on an error or a stop request.
+
+        The stop is looked for between steps and never during one, so whatever a worker
+        is in the middle of always finishes. That is what keeps a stopped run resumable:
+        every intermediate left on disk is a whole file, not a truncated one.
+        """
+        for step in steps:
+            step()
+
+            if self.errors_occurred:
+                return
+
+            if read_stop_mode(self.stop_file).stops_pages_that_have_started:
+                self.stopped_early = True
+                # The step that just ran is the last one the timer recorded.
+                last_step = next(reversed(self.step_seconds), "the current step")
+                logger.warning(
+                    f'Stop requested - "{self.srce_upscale_file.name}" stopping after {last_step}.',
+                )
+                return
+
     def do_part1(self) -> None:
-        self._do_remove_jpg_artifacts()
-        if not self.errors_occurred:
-            self._do_remove_colors()
+        self._run_steps(self._do_remove_jpg_artifacts, self._do_remove_colors)
 
     def do_part2_memory_hungry(self) -> None:
-        self._do_smooth_removed_colors()
+        self._run_steps(self._do_smooth_removed_colors)
 
     def do_part3(self) -> None:
-        self._do_generate_svg()
+        self._run_steps(self._do_generate_svg)
 
     def do_part4_memory_hungry(self) -> None:
-        self._do_inpaint()
-        if not self.errors_occurred:
-            self._do_snap_palette()
-        if not self.errors_occurred:
-            self._do_overlay_inpaint_with_black_ink()
-        if not self.errors_occurred:
-            self._do_resize_restored_file()
+        self._run_steps(
+            self._do_inpaint,
+            self._do_snap_palette,
+            self._do_overlay_inpaint_with_black_ink,
+            self._do_resize_restored_file,
+        )
 
     def _do_remove_jpg_artifacts(self) -> None:
         if self.use_existing_work_files and self.removed_artifacts_file.is_file():

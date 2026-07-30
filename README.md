@@ -220,6 +220,61 @@ Work files are deleted once a page succeeds; `--keep-work-files` leaves them. Pa
 **fail** keep theirs, so a retry can resume from them. `--use-existing-work-files` reuses
 whatever survives.
 
+### Stopping a run
+
+A run is days long and spread over a pool of worker processes, each driving gmic
+subprocesses that take minutes. Interrupting that from the terminal kills the whole
+process group at once and leaves half-written intermediates behind, so instead a stop is
+**asked for** by writing a file into the work dir. Any terminal can write it, the run does
+not have to be in the foreground, and the workers see it directly — a flag set in the
+parent would never reach them.
+
+```bash
+just restore-stop         # let pages already under way finish, start nothing new
+just restore-stop-now     # or: finish the current step only, sooner
+just restore-stop-cancel  # changed your mind
+```
+
+Two levels, because what a clean stop costs depends on where the run has got to:
+
+| | what finishes | pages left |
+|---|---|---|
+| `restore-stop` | every remaining step of pages already started | complete and recorded |
+| `restore-stop-now` | only the step each worker is in | part-done, resume next run |
+
+**How long `restore-stop` takes depends entirely on when you ask.** Part 1 is quick and
+runs sixteen at a time, so within a few minutes of a batch starting, every page in it
+counts as started — and a graceful stop then has to see the whole batch through. At the
+default batch size of 64 that is up to about five hours. Ask during part 1 and only the
+pages that had begun are carried, which is more like an hour.
+
+So `restore-stop` is the one to use when you want the work banked and can leave it
+running; `restore-stop-now` is the one to use when you want the machine back, and it
+costs about ten minutes whenever you ask. If you expect to interrupt often, a smaller
+`--batch-size` shrinks the graceful stop's worst case in proportion.
+
+**Asking twice escalates** from the first to the second, so you can decide to stop, then
+decide you meant sooner, without remembering a flag. It never goes the other way — a
+gentle ask after an urgent one leaves the urgent one in force.
+
+Nothing is ever cut mid-step, so every intermediate left on disk is a whole file. Pages
+that were part way through keep their work files and are picked up by the next run with
+`--use-existing-work-files`; pages the stop reached before they had begun were never
+touched at all. Re-running the same command carries on — finished pages are skipped by
+the recipe check.
+
+For an unattended run that has to be over by morning:
+
+```bash
+uv run barks-batch-restore --work-dir DIR --volume 1-29 --stop-after 8h
+```
+
+`--stop-after` accepts `8h`, `90m`, `1h30m`. It asks for the same graceful stop rather
+than being a second mechanism, and it is checked as pages come back — so with a long
+phase in progress it can overshoot by up to the length of one step, around ten minutes.
+A leftover stop request is cleared when a run starts, so it can never stop the next one
+before it has done anything.
+
 ### Tracking a long run
 
 Restoring the library is 5,500 pages and several hundred hours, so the pipeline records what
@@ -373,7 +428,7 @@ are registered under `[project.scripts]` in `pyproject.toml`.
 |---|---|---|
 | `query/` | 20 | querying and browsing comic metadata |
 | `build/` | 4 | comic assembly into `.cbz` |
-| `restore/` | 10 | restoration and upscaling |
+| `restore/` | 11 | restoration and upscaling |
 
 Shared bits:
 

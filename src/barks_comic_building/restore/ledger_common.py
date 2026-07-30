@@ -32,6 +32,11 @@ RECORD_TYPE_PAGE = "page"
 OUTCOME_OK = "ok"
 OUTCOME_FAILED = "failed"
 OUTCOME_COPIED = "copied"
+
+# Started, and left unfinished because the run was asked to stop. Not a failure: what
+# the page wrote is intact and the next run carries on from it, so reports that list
+# what went wrong should leave these out.
+OUTCOME_STOPPED = "stopped"
 # A page that was already there, so this run did nothing to it. Recorded rather than
 # passed over so that the ledger accounts for every page a run looked at.
 OUTCOME_PRESENT = "present"

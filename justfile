@@ -123,6 +123,21 @@ upscale-status volume *flags:
 upscale-failures:
     {{uv_run}} barks-upscale-status --failed
 
+# Ask a running restore to stop once the pages already under way have finished
+[group('comics')]
+restore-stop:
+    {{uv_run}} barks-restore-stop --work-dir {{restore_work_dir}}/restore
+
+# Ask a running restore to stop sooner, after each worker finishes its current step
+[group('comics')]
+restore-stop-now:
+    {{uv_run}} barks-restore-stop --work-dir {{restore_work_dir}}/restore --now
+
+# Take back a stop request and let the run carry on
+[group('comics')]
+restore-stop-cancel:
+    {{uv_run}} barks-restore-stop --work-dir {{restore_work_dir}}/restore --withdraw
+
 # Show what the restore has done and what is left, per volume, with an estimate
 [group('comics')]
 restore-status volume *flags:

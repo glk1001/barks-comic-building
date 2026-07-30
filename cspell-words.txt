@@ -30,6 +30,7 @@ dateutil
 denoise
 descreened
 docstrings
+exiftool
 fcmp
 dups
 ettl

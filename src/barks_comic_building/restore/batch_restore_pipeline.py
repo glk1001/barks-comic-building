@@ -15,7 +15,9 @@ its time running a half empty round.
 import concurrent.futures
 import os
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, NamedTuple
 
@@ -41,12 +43,21 @@ from barks_comic_building.restore.restore_ledger import (
     OUTCOME_FAILED,
     OUTCOME_OK,
     OUTCOME_PRESENT,
+    OUTCOME_STOPPED,
     LedgerWriter,
     get_default_ledger_file,
     read_ledger,
 )
 from barks_comic_building.restore.restore_pipeline import RestorePipeline, check_for_errors
 from barks_comic_building.restore.restore_recipe import RestoreRecipe, get_current_recipe
+from barks_comic_building.restore.run_stop import (
+    StopMode,
+    clear_stop,
+    get_stop_file,
+    parse_duration,
+    read_stop_mode,
+    request_stop,
+)
 
 APP_LOGGING_NAME = "bres"
 
@@ -91,6 +102,7 @@ def restore(  # noqa: PLR0913
     work_dir: Path,
     ledger_file: Path,
     batch_size: int,
+    stop_after_seconds: float | None = None,
     *,
     use_existing_work_files: bool,
     debug_color_counts: bool,
@@ -105,6 +117,8 @@ def restore(  # noqa: PLR0913
         work_dir: Where intermediates go. A subdirectory per title.
         ledger_file: Where to append the record of what was done.
         batch_size: How many pages go through the phases together.
+        stop_after_seconds: Ask the run to stop cleanly once it has been going this
+            long. None lets it run to the end.
         use_existing_work_files: Reuse surviving intermediates rather than regenerating.
         debug_color_counts: Write the slow colour-count debug files.
         keep_work_files: Leave intermediates behind instead of cleaning up after a page.
@@ -112,6 +126,21 @@ def restore(  # noqa: PLR0913
 
     """
     start = time.time()
+
+    # A request left over from the last run would otherwise stop this one before it had
+    # done anything, which would look exactly like the run refusing to start.
+    if clear_stop(work_dir):
+        logger.warning("Cleared a stop request left over from an earlier run.")
+
+    stop_file = get_stop_file(work_dir)
+    deadline: float | None = None
+    if stop_after_seconds:
+        deadline = start + stop_after_seconds
+        logger.info(
+            f"Will stop cleanly after {format_duration(stop_after_seconds)}"
+            f" - pages under way at that point will still be finished.",
+        )
+    logger.info(f'To stop sooner: "just restore-stop", or touch "{stop_file}".')
 
     recipe = get_current_recipe(SCALE, do_palette_snap=True)
     logger.info(f"Restore recipe {recipe.recipe_id}: {recipe.as_json()}")
@@ -161,14 +190,35 @@ def restore(  # noqa: PLR0913
                 num_done,
                 len(jobs),
                 start,
+                deadline,
                 keep_work_files=keep_work_files,
             )
 
+            stop_mode = read_stop_mode(stop_file)
+            if stop_mode is not StopMode.NONE:
+                logger.warning(
+                    f"\nStopping after {num_done} of {len(jobs)} page(s): {stop_mode.describe}."
+                    f"\nRe-run the same command to carry on"
+                    f" - finished pages are skipped, and part-finished ones"
+                    f" resume with --use-existing-work-files.",
+                )
+                break
+
     num_copied = sum(1 for page in non_comic if page.outcome == OUTCOME_COPIED)
-    logger.info(
-        f"\nTime taken to restore {len(jobs)} page(s)"
-        f" and copy {num_copied}: {format_duration(time.time() - start)}.",
-    )
+    elapsed = format_duration(time.time() - start)
+
+    # A run that stopped early got through only some of what it queued, and saying it
+    # restored all of them - in a fraction of the time that would have taken - would be
+    # the most misleading line in the log.
+    if num_done < len(jobs):
+        logger.info(
+            f"\nStopped after {elapsed}, having worked on {num_done} of {len(jobs)}"
+            f" queued page(s) and copied {num_copied}.",
+        )
+    else:
+        logger.info(
+            f"\nTime taken to restore {len(jobs)} page(s) and copy {num_copied}: {elapsed}.",
+        )
 
 
 def _write_non_comic_records(ledger: LedgerWriter, non_comic: list[_NonComicPage]) -> None:
@@ -212,36 +262,54 @@ def _run_batch(  # noqa: PLR0913
     num_done_before: int,
     num_jobs: int,
     run_start: float,
+    deadline: float | None,
     *,
     keep_work_files: bool,
 ) -> int:
     """Run one batch through all phases, then record and clean up after it.
 
     Returns:
-        How many pages of the batch were attempted.
+        How many pages of the batch were attempted. Pages the stop reached before they
+        had begun do not count, since nothing was done to them.
 
     """
     started = datetime.now().astimezone().isoformat(timespec="seconds")
     batch_start_time = time.time()
 
     pipelines = [job.pipeline for job in batch]
-    failed = run_restore(pipelines)
-    check_for_errors(pipelines, failed)
+    result = run_restore(pipelines, deadline)
+    check_for_errors(
+        [p for i, p in enumerate(pipelines) if i not in result.unfinished | result.untouched],
+        result.failed,
+    )
+
+    num_attempted = len(batch) - len(result.untouched)
 
     # A page's share of the batch's wall clock, which is the figure that multiplies out
     # to a useful estimate. Summing its step times would give the cpu cost of the page
     # instead, several times larger than the wall clock because the phases run many pages
     # at once - a per-page mean built from that would overstate a run by a factor of five.
     # The per-step breakdown is kept alongside it for anyone asking where the time went.
-    seconds_each = (time.time() - batch_start_time) / len(batch)
+    seconds_each = (time.time() - batch_start_time) / max(num_attempted, 1)
 
     for i, job in enumerate(batch):
-        ok = i not in failed and not job.pipeline.errors_occurred
+        if i in result.untouched:
+            # Never begun, so there is nothing to say about it and nothing to tidy. It
+            # is simply still to do, which the page state will work out on its own.
+            continue
+
+        if i in result.unfinished:
+            outcome = OUTCOME_STOPPED
+        elif i in result.failed or job.pipeline.errors_occurred:
+            outcome = OUTCOME_FAILED
+        else:
+            outcome = OUTCOME_OK
+
         ledger.write_page(
             title=job.title,
             volume=job.volume,
             page=job.page,
-            outcome=OUTCOME_OK if ok else OUTCOME_FAILED,
+            outcome=outcome,
             started=started,
             total_seconds=seconds_each,
             step_seconds=job.pipeline.step_seconds,
@@ -254,13 +322,15 @@ def _run_batch(  # noqa: PLR0913
             upscaler=get_upscaler_used(job.pipeline.srce_upscale_file),
         )
 
-        if ok and not keep_work_files:
+        # Only a page that finished has intermediates worth nothing. A stopped one keeps
+        # its own so that the next run can carry on from where it left off.
+        if outcome == OUTCOME_OK and not keep_work_files:
             _clean_up_work_files(job.pipeline)
 
-    num_done = num_done_before + len(batch)
+    num_done = num_done_before + num_attempted
     _log_progress(num_done, num_jobs, run_start)
 
-    return len(batch)
+    return num_attempted
 
 
 def _log_progress(num_done: int, num_jobs: int, run_start: float) -> None:
@@ -464,6 +534,9 @@ def get_title_jobs(  # noqa: PLR0913
                     Path(dest_svg_restored_file),
                     use_existing_work_files=use_existing_work_files,
                     debug_color_counts=debug_color_counts,
+                    # The run's work directory, not this title's, so every page of the
+                    # run looks at the same request.
+                    stop_file=get_stop_file(work_dir),
                 ),
                 title,
                 volume,
@@ -508,108 +581,245 @@ _PHASES: list[tuple[str, str, int | None, int | None]] = [
 ]
 
 
+class _PhaseOutcome(StrEnum):
+    """What became of a page in a phase."""
+
+    RAN = "ran"
+    """It ran the phase through, for good or ill."""
+
+    SKIPPED = "skipped"
+    """A stop was already in force when its turn came, so it was never begun.
+
+    Queued work, in other words. A page skipped in the first phase has had nothing done
+    to it at all; one skipped later has earlier phases behind it and work files to show
+    for them."""
+
+    STOPPED = "stopped"
+    """It began the phase and gave up between steps because a stop was asked for."""
+
+
 class _PhaseResult(NamedTuple):
     """What a worker sends back about the phase it just ran."""
 
     errors_occurred: bool
     failed_step: str | None
     step_seconds: dict[str, float]
+    outcome: _PhaseOutcome
 
 
 def _run_restore_phase(
-    proc: RestorePipeline, method_name: str, omp_threads: int | None
+    proc: RestorePipeline, method_name: str, omp_threads: int | None, *, is_first_phase: bool
 ) -> _PhaseResult:
     """Run a single restore phase on a process, returning what happened.
 
     Runs in a worker process, so any mutation of ``proc`` here does NOT propagate back to
-    the parent's copy. Everything the parent needs - whether it failed, where, and how
-    long each step took - therefore comes back in the return value.
+    the parent's copy. Everything the parent needs - whether it failed, where, how long
+    each step took, and whether a stop cut it short - therefore comes back in the return
+    value.
+
+    Every page of a batch is submitted to the pool up front, so most of them sit queued
+    behind the handful actually running. Reading the stop here, as each one starts, is
+    what lets those queued pages fall through untouched the moment a stop is asked for,
+    rather than the whole batch having to be seen through.
 
     Args:
         proc: The pipeline to run a phase of.
         method_name: The phase method to call.
         omp_threads: How many OpenMP threads the gmic subprocesses in this phase may use.
             None leaves it alone.
+        is_first_phase: Whether this is the phase that starts a page off. Only pages that
+            have not started yet are dropped by the gentler stop; one already under way
+            is seen through to the end so that it comes out finished.
 
     Returns:
         The phase's outcome and timings.
 
     """
+    stop_mode = read_stop_mode(proc.stop_file)
+    if stop_mode.stops_pages_that_have_started or (
+        stop_mode is not StopMode.NONE and is_first_phase
+    ):
+        return _PhaseResult(
+            errors_occurred=False,
+            failed_step=None,
+            step_seconds={},
+            outcome=_PhaseOutcome.SKIPPED,
+        )
+
     if omp_threads is not None:
         os.environ["OMP_NUM_THREADS"] = str(omp_threads)
 
     getattr(proc, method_name)()
 
-    return _PhaseResult(proc.errors_occurred, proc.failed_step, dict(proc.step_seconds))
+    return _PhaseResult(
+        proc.errors_occurred,
+        proc.failed_step,
+        dict(proc.step_seconds),
+        _PhaseOutcome.STOPPED if proc.stopped_early else _PhaseOutcome.RAN,
+    )
 
 
-def run_restore(restore_processes: list[RestorePipeline]) -> set[int]:
+@dataclass
+class RunResult:
+    """Which pages of a batch ended up where."""
+
+    failed: set[int] = field(default_factory=set)
+    """Pages that hit an error. The phases run in worker processes, so this is the only
+    way their failures reach the caller."""
+
+    unfinished: set[int] = field(default_factory=set)
+    """Pages left part way through because the run was asked to stop, having done at
+    least some work. Their intermediates are whole files and are kept for the next run."""
+
+    untouched: set[int] = field(default_factory=set)
+    """Pages the stop reached before they had begun. Nothing was written for them, so
+    there is nothing to record and nothing to clean up."""
+
+    started: set[int] = field(default_factory=set)
+    """Pages that have run at least one phase. What tells a page the stop found waiting
+    in the queue from one it found part way through."""
+
+    def is_settled(self, index: int) -> bool:
+        """Whether this page is done with, one way or another, and needs no more phases."""
+        return index in self.failed or index in self.unfinished or index in self.untouched
+
+
+def _record_phase_result(
+    result: _PhaseResult, index: int, process: RestorePipeline, phase_name: str, run: RunResult
+) -> None:
+    """Fold one page's phase result back into the parent's picture of the batch."""
+    # The worker mutated its own copy, so its timings only exist in what it sent back.
+    process.step_seconds.update(result.step_seconds)
+
+    if result.outcome is _PhaseOutcome.SKIPPED:
+        # Whether there is anything to keep depends on how far it had got before the
+        # stop arrived, which is what `started` remembers.
+        (run.unfinished if index in run.started else run.untouched).add(index)
+        return
+
+    run.started.add(index)
+
+    if result.outcome is _PhaseOutcome.STOPPED:
+        process.stopped_early = True
+        run.unfinished.add(index)
+
+    if result.errors_occurred:
+        process.errors_occurred = True
+        process.failed_step = result.failed_step
+        run.failed.add(index)
+        logger.error(
+            f'{phase_name} failed for "{process.srce_upscale_file.name}" at {result.failed_step}.',
+        )
+
+
+def _run_phase(
+    phase: tuple[str, str, int | None, int | None],
+    restore_processes: list[RestorePipeline],
+    run: RunResult,
+    deadline: float | None,
+    *,
+    is_first_phase: bool,
+) -> float | None:
+    """Put every page still in play through one phase.
+
+    Returns:
+        The deadline still to watch for, or None once it has passed and the stop it
+        asked for has been made.
+
+    """
+    phase_name, method_name, max_workers, omp_threads = phase
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers) as executor:
+        futures: dict[concurrent.futures.Future[_PhaseResult], int] = {}
+        for i, process in enumerate(restore_processes):
+            if run.is_settled(i):
+                continue
+            futures[
+                executor.submit(
+                    _run_restore_phase,
+                    process,
+                    method_name,
+                    omp_threads,
+                    is_first_phase=is_first_phase,
+                )
+            ] = i
+
+        # Consumed as they finish rather than after the pool drains, so a long phase
+        # reports progress while it is still running instead of going quiet.
+        for num_finished, future in enumerate(concurrent.futures.as_completed(futures), 1):
+            i = futures[future]
+            process = restore_processes[i]
+
+            # noinspection PyBroadException
+            try:
+                result = future.result()
+            except Exception:  # noqa: BLE001
+                result = _PhaseResult(
+                    errors_occurred=True,
+                    failed_step=phase_name,
+                    step_seconds={},
+                    outcome=_PhaseOutcome.RAN,
+                )
+                logger.exception(
+                    f'Unexpected exception in {phase_name} for "{process.srce_upscale_file.name}".',
+                )
+
+            _record_phase_result(result, i, process, phase_name, run)
+
+            logger.info(
+                f"{phase_name}: {num_finished}/{len(futures)}"
+                f' - "{process.srce_upscale_file.name}".',
+            )
+
+            if deadline is not None and time.time() > deadline:
+                deadline = None
+                if process.stop_file is not None:
+                    request_stop(process.stop_file.parent)
+                    logger.warning(
+                        "Reached the --stop-after time. Pages already started will"
+                        " finish; nothing new will begin.",
+                    )
+
+    return deadline
+
+
+def run_restore(
+    restore_processes: list[RestorePipeline], deadline: float | None = None
+) -> RunResult:
     """Run all restore phases across processes, skipping processes that fail.
 
     Args:
         restore_processes: The pipelines to run.
+        deadline: When to ask the run to stop of its own accord, as a `time.time()`
+            value. Checked as pages come back, so a bounded run ends on the same path as
+            one stopped by hand rather than on a second mechanism of its own.
 
     Returns:
-        The indexes of the pipelines that failed. The phases run in worker processes, so
-        this is the only way the failures reach the caller.
+        Which pages failed, which were left unfinished, and which were never begun.
 
     """
     logger.info(f"Starting restore for {len(restore_processes)} processes.")
 
-    failed: set[int] = set()
+    run = RunResult()
 
-    for phase_name, method_name, max_workers, omp_threads in _PHASES:
-        num_submitted = 0
-        with concurrent.futures.ProcessPoolExecutor(max_workers) as executor:
-            futures: dict[concurrent.futures.Future[_PhaseResult], int] = {}
-            for i, process in enumerate(restore_processes):
-                if i in failed:
-                    logger.warning(
-                        f'Skipping {phase_name} for "{process.srce_upscale_file.name}"'
-                        f" due to earlier failure.",
-                    )
-                    continue
-                futures[executor.submit(_run_restore_phase, process, method_name, omp_threads)] = i
-                num_submitted += 1
+    for phase_index, phase in enumerate(_PHASES):
+        deadline = _run_phase(
+            phase,
+            restore_processes,
+            run,
+            deadline,
+            is_first_phase=phase_index == 0,
+        )
 
-            # Consumed as they finish rather than after the pool drains, so a long phase
-            # reports progress while it is still running instead of going quiet.
-            for num_finished, future in enumerate(concurrent.futures.as_completed(futures), 1):
-                i = futures[future]
-                process = restore_processes[i]
+    if run.failed:
+        logger.error(f"{len(run.failed)} of {len(restore_processes)} processes had errors.")
+    if run.unfinished or run.untouched:
+        logger.warning(
+            f"Stopped: {len(run.unfinished)} page(s) left part way through,"
+            f" {len(run.untouched)} not begun.",
+        )
 
-                # noinspection PyBroadException
-                try:
-                    result = future.result()
-                except Exception:  # noqa: BLE001
-                    result = _PhaseResult(
-                        errors_occurred=True, failed_step=phase_name, step_seconds={}
-                    )
-                    logger.exception(
-                        f"Unexpected exception in {phase_name} for"
-                        f' "{process.srce_upscale_file.name}".',
-                    )
-
-                # The worker mutated its own copy, so fold its timings back into ours.
-                process.step_seconds.update(result.step_seconds)
-                if result.errors_occurred:
-                    process.errors_occurred = True
-                    process.failed_step = result.failed_step
-                    failed.add(i)
-                    logger.error(
-                        f'{phase_name} failed for "{process.srce_upscale_file.name}"'
-                        f" at {result.failed_step}.",
-                    )
-
-                logger.info(
-                    f"{phase_name}: {num_finished}/{num_submitted}"
-                    f' - "{process.srce_upscale_file.name}".',
-                )
-
-    if failed:
-        logger.error(f"{len(failed)} of {len(restore_processes)} processes had errors.")
-
-    return failed
+    return run
 
 
 app = typer.Typer()
@@ -641,12 +851,24 @@ def main(  # noqa: PLR0913
         default=False,
         help="Restore pages even when they are already up to date with the current recipe.",
     ),
+    stop_after: Annotated[
+        str | None,
+        typer.Option(
+            "--stop-after",
+            help="Stop cleanly once the run has been going this long, e.g. 8h, 90m, 1h30m.",
+        ),
+    ] = None,
     debug_color_counts: bool = typer.Option(
         default=False,
         help="Write debug colour-count text files during colour removal (slow).",
     ),
 ) -> None:
     init_logging(APP_LOGGING_NAME, "batch-restore.log", log_level_str)
+
+    try:
+        stop_after_seconds = parse_duration(stop_after) if stop_after else None
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
 
@@ -658,6 +880,7 @@ def main(  # noqa: PLR0913
         work_dir,
         ledger_file or get_default_ledger_file(),
         batch_size,
+        stop_after_seconds,
         use_existing_work_files=use_existing_work_files,
         debug_color_counts=debug_color_counts,
         keep_work_files=keep_work_files,

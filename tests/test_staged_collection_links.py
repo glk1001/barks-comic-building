@@ -9,28 +9,17 @@ here - a check that has never been shown to fire is not a check.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 from barks_fantagraphics.barks_titles import Titles
 
-from barks_comic_building.build.comics_integrity import ComicsIntegrityChecker
+from barks_comic_building.build.comics_integrity import check_collection_staged_links
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from barks_fantagraphics.comics_database import ComicsDatabase
-
 MEMBER = Titles.BIRD_WATCHING
-
-
-def make_checker() -> ComicsIntegrityChecker:
-    """Make a checker for the staged-link gate, which never touches the database."""
-    return ComicsIntegrityChecker(
-        cast("ComicsDatabase", object()),
-        no_check_for_unexpected_files=False,
-        no_check_symlinks=False,
-    )
 
 
 class StagedMember:
@@ -58,9 +47,7 @@ class StagedMember:
         self.link_jpg.symlink_to(self.srce_jpg)
 
     def check(self) -> int:
-        return make_checker()._check_collection_staged_links(  # noqa: SLF001
-            Titles.ALL_ONE_PAGERS, {MEMBER: self.links}
-        )
+        return check_collection_staged_links(Titles.ALL_ONE_PAGERS, {MEMBER: self.links})
 
 
 @pytest.fixture

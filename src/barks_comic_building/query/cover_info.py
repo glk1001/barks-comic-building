@@ -40,6 +40,7 @@ from barks_comic_building.query.build_state import (
     NOT_DONE_STYLE,
     PROBLEM_STYLE,
     get_build_blocker,
+    get_staged_link_stem,
     get_state_filter,
 )
 
@@ -71,6 +72,7 @@ class CoverRow:
     kind: str
     volume: int | None
     page: str
+    link: str
     state_flag: str
     has_issue_problem: bool
     problems: list[str]
@@ -211,6 +213,7 @@ def get_cover_row(cover: BarksCover, staged_links: list[tuple[Path, Path]] | Non
         kind=cover.kind.name,
         volume=volume,
         page=page_str,
+        link=get_staged_link_stem(staged_links),
         state_flag=state_flag,
         has_issue_problem=has_issue_problem(cover),
         problems=get_cover_problems(cover, staged_links),
@@ -284,6 +287,7 @@ def main(
     table.add_column("Kind")
     table.add_column("Vol", justify="right")
     table.add_column("Jpgs", justify="right")
+    table.add_column("Link", justify="right")
     table.add_column("State")
     table.add_column("Problem")
 
@@ -300,6 +304,7 @@ def main(
             row.kind,
             "" if row.volume is None else str(row.volume),
             row.page,
+            row.link,
             row.state_flag,
             Text(",".join(row.problems), style=PROBLEM_STYLE),
             style=style,

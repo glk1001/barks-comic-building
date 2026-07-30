@@ -326,6 +326,29 @@ def get_build_state_flag(comic: ComicBook) -> str:
     return flag
 
 
+def get_staged_link_stem(staged_links: list[tuple[Path, Path]] | None) -> str:
+    """Return the page stem a title's staged links share, or "" if it has none.
+
+    Every artifact of one collection member is staged under the same collection page
+    number - "500.jpg", "500.png", "500.svg.png", "500.json" - so the stem doubles as
+    the member's page within its collection. Split on the first dot rather than using
+    `Path.stem`, which would leave "500.svg" for the ".svg.png" link.
+
+    Args:
+        staged_links: The title's `(link, source)` candidates, or None if unlocated.
+
+    Returns:
+        The shared stem, or "" when the title has no staged links.
+
+    """
+    if not staged_links:
+        return ""
+
+    link, _ = staged_links[0]
+
+    return link.name.split(".", 1)[0]
+
+
 def get_state_filter(state_arg: str, valid_flags: list[str]) -> list[str]:
     """Parse a comma-separated build-state filter argument.
 

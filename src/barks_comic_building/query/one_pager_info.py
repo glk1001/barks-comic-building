@@ -53,6 +53,7 @@ from barks_comic_building.query.build_state import (
     RESTORED_FLAG,
     UPSCAYLED_FLAG,
     get_build_blocker,
+    get_staged_link_stem,
     get_state_filter,
 )
 
@@ -87,6 +88,7 @@ class OnePagerRow:
     issue_title: str
     volume: int | None
     page: str
+    link: str
     state_flag: str
     problems: list[str]
 
@@ -235,6 +237,7 @@ def get_one_pager_row(
         issue_title=get_short_issue_title(title),
         volume=volume,
         page=page_str,
+        link=get_staged_link_stem(staged_links),
         state_flag=state_flag,
         problems=get_one_pager_problems(title, staged_links),
     )
@@ -327,6 +330,7 @@ def main(
     table.add_column("Issue")
     table.add_column("Vol", justify="right")
     table.add_column("Jpgs", justify="right")
+    table.add_column("Link", justify="right")
     table.add_column("State")
     table.add_column("Problem")
 
@@ -337,6 +341,7 @@ def main(
             row.issue_title,
             "" if row.volume is None else str(row.volume),
             row.page,
+            row.link,
             row.state_flag,
             Text(",".join(row.problems), style=PROBLEM_STYLE),
             style=style,

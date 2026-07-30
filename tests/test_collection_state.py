@@ -25,6 +25,7 @@ from barks_comic_building.query.build_state import (
     NOT_CONFIGURED_FLAG,
     all_files_exist,
     get_build_blocker,
+    get_staged_link_stem,
     get_state_filter,
     has_restorable_pages,
     is_built,
@@ -381,6 +382,25 @@ class TestProblemCodes:
         assert has_incomplete_submitted_date(replace(cover, submitted_month=-1))
         assert has_incomplete_submitted_date(replace(cover, submitted_year=-1))
         assert not has_incomplete_submitted_date(cover)
+
+
+class TestStagedLinkStem:
+    def test_no_links_gives_no_stem(self) -> None:
+        assert get_staged_link_stem(None) == ""
+        assert get_staged_link_stem([]) == ""
+
+    def test_the_shared_collection_page_is_returned(self, tmp_path: Path) -> None:
+        source = tmp_path / "srce.jpg"
+        links = [(tmp_path / name, source) for name in ("500.jpg", "500.png", "500.json")]
+
+        assert get_staged_link_stem(links) == "500"
+
+    def test_a_double_suffix_link_does_not_leak_into_the_stem(self, tmp_path: Path) -> None:
+        # Path.stem would give "500.svg" here, which is why the first dot is used.
+        source = tmp_path / "srce.svg"
+        links = [(tmp_path / "500.svg.png", source)]
+
+        assert get_staged_link_stem(links) == "500"
 
 
 class TestStateFilter:

@@ -43,6 +43,7 @@ UPSCAYLED = Path("/fanta/upscayled/001.png")
 ORIGINAL = Path("/fanta/original/001.jpg")
 INI_FILE = Path("/reader-repo/data/story-titles/A Title.ini")
 INSET_FILE = Path("/comics/Barks Panels Pngs/Insets/A Title.png")
+BOUNDS_OVERRIDE = Path("/fanta/fixes/images/bounded/001.jpg")
 
 
 def chained(*stages: tuple[Path, float]) -> list[SrceDependency]:
@@ -147,8 +148,16 @@ class TestTheMissingStageSentinel:
 class TestIndependentDependencies:
     """The ini file, the intro inset and a hand-drawn panel bounds fix.
 
-    Nothing is derived from these, so they cannot be chain inversions - but they are
-    still inputs, and an edited ini is the ordinary reason a built comic goes stale.
+    None of these can be a chain inversion, but for two different reasons. Nothing is
+    derived from the ini or the inset at all. The bounds override *is* derived from -
+    the panel segments are computed from it - but the chain here is linear and that
+    dependency is a fork: the segments come from the override *and* the restored page.
+    Putting the override in the chain would make the restored page compare against it
+    instead of against the segments, masking a real inversion whenever the override is
+    the newest of the three. `panel_segments_are_stale` grades that fork instead.
+
+    Either way they are still inputs, and an edited ini is the ordinary reason a built
+    comic goes stale.
     """
 
     def test_an_independent_dependency_is_never_an_inversion(self) -> None:
@@ -165,6 +174,21 @@ class TestIndependentDependencies:
         result = walk_srce_dependency_chain(chain, DEST, OLD, None, is_a_comic=True)
 
         assert result.max_srce == MaxTimestamp(INI_FILE, NEWER)
+
+    def test_a_bounds_override_does_not_displace_the_segments_in_the_chain(self) -> None:
+        # The regression that keeps the override independent. With it chained between the
+        # segments and the restored page, the restored page would compare against the
+        # override (NEWEST, so no inversion) instead of against the segments, and the
+        # segments being older than the page they were computed from would go unreported.
+        chain = [
+            SrceDependency(SEGMENTS, OLDEST, independent=False),
+            SrceDependency(BOUNDS_OVERRIDE, NEWER, independent=True),
+            SrceDependency(RESTORED, NEW, independent=False),
+        ]
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(RESTORED, SEGMENTS)]
 
     def test_an_independent_dependency_does_not_break_the_chain_around_it(self) -> None:
         # It is skipped for chaining purposes, so the stages either side still compare

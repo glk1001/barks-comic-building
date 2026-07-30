@@ -113,3 +113,15 @@ class TestStagingFaults:
         # no image for this member at all.
         assert not member.link_jpg.exists()
         assert member.check() == 1
+
+    def test_an_artifact_that_exists_upstream_but_was_never_staged_is_caught(
+        self, member: StagedMember
+    ) -> None:
+        # The member has been restored since it was staged, so the artifact exists in
+        # its own volume - but no link was ever made, so the build cannot see it. The
+        # scan-only check passed this, because the scan itself is staged correctly.
+        member.stage_correctly()
+        member.srce_png.touch()
+
+        assert not member.link_png.exists()
+        assert member.check() == 1

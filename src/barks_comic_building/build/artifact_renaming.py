@@ -151,6 +151,10 @@ class RenamePlan:
     conflicts: list[ArtifactFix] = field(default_factory=list)
     unbuilt_titles: list[str] = field(default_factory=list)
     load_errors: list[str] = field(default_factory=list)
+    # Carried through from the disk scan so the report can name them: an artifact whose
+    # name does not parse is matched to no title, so it is renamed by nothing and
+    # reported by nothing else either.
+    unparsable: list[tuple[ArtifactKind, Path]] = field(default_factory=list)
 
     def counts(self, kind: ArtifactKind) -> dict[Disposition, int]:
         """Return the per-disposition tally for one artifact kind."""
@@ -525,6 +529,7 @@ def build_rename_plan(comics_db: ComicsDatabase) -> RenamePlan:
         return plan
 
     actual = scan_actual_artifacts()
+    plan.unparsable = actual.unparsable
 
     try:
         plan.dest_dir_steps = _plan_renames(
@@ -656,6 +661,14 @@ def print_rename_plan(plan: RenamePlan) -> None:
         )
         for story_title in plan.unbuilt_titles:
             print(f'  uv run barks-build --title "{story_title}"')
+
+    if plan.unparsable:
+        print(
+            f"\nUnparsable names - matched to no title, so renamed by nothing"
+            f" ({len(plan.unparsable)}). Left alone:",
+        )
+        for kind, path in plan.unparsable:
+            print(f'  [{kind}] "{path.name}"')
 
     if plan.load_errors:
         print(f"\nTitles that could not be loaded ({len(plan.load_errors)}):")

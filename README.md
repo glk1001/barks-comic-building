@@ -104,7 +104,11 @@ At the build the page is not simply the restored file. For each page of the stor
 comic's `.ini` gives, the build resolves *one* source file:
 
 - **`BODY`, `FRONT_MATTER`, `BACK_MATTER`** — the restorable types — must have a restored file.
-  If it is missing this is a **hard error**, not a fallback to the original scan.
+  If it is missing this is a **hard error**, not a fallback to the original scan. The one
+  exception is a synthetic collection (below): a collection page that has not been restored yet
+  falls back to its staged scan with a warning, so a half-restored collection still builds.
+  `barks-check-build` reports every page that took that fallback, because the page it produces
+  is a valid, up-to-date image and nothing else can tell it apart from a restored one.
 - **Everything else** — `COVER`, `SPLASH`, paintings, back matter without panels — comes straight
   from the original scan (with the override below applied). These are never restored.
 - **`TITLE`** is synthesised by the build itself, from the `.ini` and the title's inset image.
@@ -207,11 +211,55 @@ ERROR: File "Fantagraphics-restored-upscayled/…/117.png"
 read as: the `.svg` was re-traced after the upscayled page was built from it, so re-run the
 restore for that page.
 
+"Decrease" is not strict: equal timestamps pass, and there is no tolerance either way.
+
+**How much of the chain applies depends on the page.** The full six-stage walk is for an ordinary
+restorable page. For an *added* page — the hard-coded special cases, every synthetic-collection
+page, and a censored title's `BODY` pages — there is no upscayl or original scan behind it, so the
+chain stops at the restored file and the four earlier stages are not checked. `BLANK_PAGE` has no
+chain at all, and `TITLE` is dated by its inset alone, the `.ini` being hash-checked instead. Only
+"Good Deeds" and "Silent Night" are exempt from needing a restored file at all; they were restored
+by hand.
+
+It also checks the two things a consistent chain cannot show, because in both cases every file is
+present and every timestamp along the chain agrees:
+
+- **A restorable page whose source came from outside the restored tree** — the collection fallback
+  above. The only trace is which tree the file was in.
+- **Panel segments older than the hand-drawn `bounded/` override they were computed from.** The
+  segments depend on both the override and the restored page, so this is a fork in the chain
+  rather than a link in it, and it is graded separately.
+
 Two things are deliberately **not** timestamp-checked. The `.ini` file is compared by **content
 hash** against the hash recorded in the comic's metadata at build time, because the `.ini` files
 are git-tracked in another repository and a checkout rewrites every mtime without changing a byte.
 And an `.ini` whose metadata records no hash at all is reported, since the hash is that file's
 only check.
+
+Beyond the per-page trail it also checks that the original tree is still read-only, that the
+directory structure is complete, that no unexpected file has appeared in any namespace it owns,
+that every `.ini` title is one `SERIES_INFO` knows, and — for the synthetic collections — that
+every staged link points at the source its location table says it should. `--no-check-symlinks`
+and `--no-check-for-unexpected-files` switch off the last two groups.
+
+### What it does not cover
+
+Worth knowing, because a clean run does not mean all of these are true:
+
+- **Recipe currency.** The check compares mtimes; it never reads a recipe id. A page restored or
+  upscayled under an obsolete recipe, with a consistent chain, passes clean. Staleness against the
+  *current* recipe is `barks-restore-status` and `barks-upscale-status`, not this.
+- **Image content.** No image is ever opened — no dimensions, no pixels. The all-black Upscayl
+  failure is caught by the upscale's own guard and by `just check-for-upscayl-errors`; see
+  [docs/image-compare-cutoffs.md](docs/image-compare-cutoffs.md).
+- **cbz contents.** The archive is graded on existence and its own mtime. Its member list is
+  never compared against the dest images.
+- **A page-level error stops that title.** A `.jpg` in a fixes tree, a missing restored file, or a
+  fix competing with a real upscale raises, and the run records that one error and abandons the
+  rest of the title. Its zip, symlink and info-file verdicts are then *unknown*, not clean — fix
+  the file it names and re-run before trusting the title.
+- **A `SERIES_INFO` title with no `.ini`** is not reported. The `.ini` files are written per story
+  as each is worked on, so the difference is outstanding work, not an inconsistency.
 
 ---
 
@@ -243,7 +291,8 @@ Each output PNG carries the **upscale recipe** — backend, scale, model, and th
 tile size — expanded as JSON beside a short `Upscale recipe id`, plus the date. **A page is
 skipped only when its recipe id matches the current one**, so changing `WAIFU2X_NOISE_LEVEL`, the
 model or the backend schedules the pages made under the old value without anything being deleted
-by hand. `--force` redoes pages that are already current.
+by hand. `--force` redoes pages that are already current. As with the restore, recipe staleness is
+`barks-upscale-status`'s answer, not `barks-check-build`'s.
 
 Settings belonging to the backend *not* in use are held at a sentinel, so tuning Upscayl does not
 invalidate pages made with waifu2x or the other way round.
@@ -454,6 +503,9 @@ current one.** That is what makes a re-run after a tuning change automatic — c
 with nothing deleted by hand. It also catches pages missing their 4x or SVG output, which the
 old existence check skipped permanently. `--force` redoes pages that are already current.
 
+This is the one kind of staleness `barks-check-build` does not see — it compares mtimes and never
+reads a recipe id, so `barks-restore-status` is what answers "is this page on the current recipe".
+
 The exception is a page whose outputs are **symlinks to another volume's**, which collection
 titles use to borrow pages. Those are reported as `linked` and never written, here or by the
 upscale — following the link would replace that volume's page from a different source image.
@@ -529,12 +581,19 @@ library can be browsed either way.
 ```bash
 uv run barks-check-build --volume 9
 uv run barks-check-build --title "The Pixilated Parrot"
-uv run barks-check-build --fix-names
+uv run barks-check-build --fix-names --apply
 just check-volume 9
 ```
 
-Verifies previously built comics and can repair artifact names, which follow the pattern
-`NNN <title> [<ISSUE>].cbz`.
+Verifies previously built comics — see
+[What the integrity check verifies](#what-the-integrity-check-verifies) for what that covers and
+what it does not.
+
+`--fix-names` is a **separate mode, not an extra**: it repairs artifact names, which follow the
+pattern `NNN <title> [<ISSUE>].cbz`, and runs *instead of* the verification rather than alongside
+it. Bare `--fix-names` is a dry run that prints the plan, changes nothing and exits 1; `--apply`
+performs it. Because the renames have to form a whole-namespace permutation, it rejects `--volume`
+and `--title`.
 
 ---
 
@@ -555,13 +614,20 @@ Carl Barks/
 ├── Fantagraphics-restored/                      restored, at source size
 ├── Fantagraphics-restored-upscayled/            restored, at 4x
 ├── Fantagraphics-restored-svg/                  vectorised line art
-├── Fantagraphics-restored-ocr/                  OCR text
+├── Fantagraphics-restored-ocr/                  OCR text (not a pipeline stage)
 ├── Fantagraphics-restored-panel-segments/       panel geometry
 ├── Fantagraphics-fixes-and-additions/           manually corrected or added pages
 ├── Fantagraphics-upscayled-fixes-and-additions/ upscaled versions of those fixes
+├── Fantagraphics-fixes-and-additions-scraps/    holding area for fix material; per volume it
+│                                                has images/standard, /upscayled and /restored
 ├── upscale-ledger.jsonl                         what each upscale run did
 └── restore-ledger.jsonl                         what each restore run did
 ```
+
+`barks-check-build` requires every one of these per-volume directories to exist, including the
+scraps tree and the OCR tree. `Fantagraphics-restored-ocr/` is otherwise outside everything above:
+no pipeline stage writes it, nothing in the build reads it, and it is not part of the dependency
+chain.
 
 The volume folder names carry the source release group — `(Salem-Empire)`, `(Digital-Empire)`
 or `(Bean-Empire)` — which is worth knowing, as it correlates with the ink colour difference

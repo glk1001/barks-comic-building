@@ -29,12 +29,19 @@ TITLE = "Fake Title"
 SRCE = Path("/fanta/restored/001.png")
 DEST = Path("/comics/dest/images/001.jpg")
 INFO_FILE = Path("/comics/dest/metadata.txt")
+# A restorable page that resolved to the scan instead of its restored file - the
+# synthetic collections' fallback, which no existence or timestamp check can see.
+UNRESTORED_SRCE = Path("/fanta/fixes/images/501.jpg")
+BOUNDS_OVERRIDE = Path("/fanta/fixes/images/bounded/001.jpg")
+SEGMENTS = Path("/fanta/panel-segments/001.json")
 
 # One representative payload per list-valued finding. `is_error` only asks whether the
 # list is non-empty, so the contents matter only for being the right shape.
 LIST_FINDINGS: dict[str, object] = {
     "srce_and_dest_files_missing": (SRCE, DEST),
     "srce_and_dest_files_out_of_date": (SRCE, DEST),
+    "pages_built_without_restored_file": (UNRESTORED_SRCE, DEST),
+    "stale_panel_segments": (BOUNDS_OVERRIDE, SEGMENTS),
     "dest_dir_files_missing": INFO_FILE,
     "dest_dir_files_out_of_date": INFO_FILE,
     "exception_errors": "the panel segments file could not be read",

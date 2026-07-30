@@ -13,7 +13,7 @@ from pathlib import Path
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
-from barks_fantagraphics.comic_book import ComicBook, get_total_num_pages
+from barks_fantagraphics.comic_book import ComicBook, get_page_str, get_total_num_pages
 from barks_fantagraphics.comic_book_info import (
     NON_COMIC_TITLES,
     SYNTHETIC_TITLES,
@@ -24,6 +24,7 @@ from barks_fantagraphics.comics_consts import (
     BOUNDED_SUBDIR,
     IMAGES_SUBDIR,
     PNG_FILE_EXT,
+    RESTORABLE_PAGE_TYPES,
     THE_CHRONOLOGICAL_DIR,
     THE_CHRONOLOGICAL_DIRS_DIR,
     THE_COMICS_DIR,
@@ -38,6 +39,7 @@ from barks_fantagraphics.comics_utils import (
 )
 from barks_fantagraphics.fanta_comics_info import (
     FIRST_VOLUME_NUMBER,
+    HAND_RESTORED_TITLES,
     LAST_VOLUME_NUMBER,
     SERIES_MISC,
 )
@@ -450,13 +452,100 @@ def dating_dependencies(
     return [dependency for dependency in dependencies if dependency.file != ini_file]
 
 
+def has_restored_file_in_chain(
+    dependencies: Iterable[SrceDependency], restored_image_dir: Path
+) -> bool:
+    """Return whether a restorable page's chain includes a file from the restored tree.
+
+    A restorable page is supposed to be built from its restored file, and a missing
+    restored file is supposed to be a hard error rather than a fallback to the scan.
+    For the synthetic collections it is not: `get_final_srce_story_file` falls back to
+    the staged fixes file - the original scan - so a partially-restored collection stays
+    buildable. That fallback resolves to a real, present, perfectly up-to-date file, so
+    no existence or timestamp check can see it; the only trace is *which tree* the
+    page's source came from.
+
+    Args:
+        dependencies: The page's dependencies, as the pipeline reports them.
+        restored_image_dir: The comic's restored image dir.
+
+    Returns:
+        True if some dependency is a file in the restored image dir.
+
+    """
+    # `zipfile.Path` is excluded rather than coerced: only the intro inset lives in a
+    # zip, it is always independent, and it is never the restored file.
+    return any(
+        isinstance(dependency.file, Path) and dependency.file.parent == restored_image_dir
+        for dependency in dependencies
+    )
+
+
+def panel_segments_are_stale(segments_file: Path, bounds_file: Path | None) -> bool:
+    """Return whether a panel segments json predates the bounds override it was drawn from.
+
+    Kept out of the restore chain deliberately. The chain is linear - each stage compared
+    against the one before it - but the panel segments are computed from *two* things: the
+    restored page and this hand-drawn override. Putting the override in the chain makes
+    the restored page compare against the override instead of against the segments, which
+    silently masks an inverted-segments fault whenever the override is the newest of the
+    three. So the fork is graded here instead.
+
+    Args:
+        segments_file: The panel segments json.
+        bounds_file: The hand-drawn bounds override, or None if the page has none.
+
+    Returns:
+        True if the segments predate the override.
+
+    """
+    if bounds_file is None or not bounds_file.is_file():
+        return False
+
+    # A segments file that is not there at all is already the chain's missing-stage
+    # finding; saying it a second way would only pad the report.
+    if not segments_file.is_file():
+        return False
+
+    return get_timestamp(segments_file) < get_timestamp(bounds_file)
+
+
 def _has_staged_original_scan(links: list[tuple[Path, Path]]) -> bool:
     """Return whether a member's original-scan jpg is staged.
 
-    Every other artifact is optional - a stage that has not been run yet - but without
-    the original scan the collection has no image for the member at all.
+    Without the original scan the collection has no image for the member at all. Which
+    of the *other* artifacts are required is decided by `unstaged_artifacts`.
     """
     return any(link.exists() for link, _ in links if link.suffix == JPG_FILE_EXT)
+
+
+def unstaged_artifacts(links: list[tuple[Path, Path]]) -> list[tuple[Path, Path]]:
+    """Return the candidates whose source exists upstream but which were never staged.
+
+    An artifact with no source is not a fault: the collections are staged before the
+    pipeline runs, so a member that has not been restored yet legitimately has no
+    restored file to link to. An artifact that *does* exist upstream and has no link is
+    a fault - the build will not see it, and nothing else here can tell, because every
+    other check grades the links that exist rather than the ones that should.
+
+    Deriving the requirement from the stager's own candidate list is what keeps this
+    honest: the one-pagers' six artifacts and the covers' two come from
+    `_one_pager_candidate_links` and `_cover_candidate_links`, so a change to either
+    stager cannot leave this check behind.
+
+    Args:
+        links: One member's `(link, source)` candidates.
+
+    Returns:
+        The candidates that should have been staged and were not.
+
+    """
+    # A dangling symlink is excluded - that is a separate, better-named finding.
+    return [
+        (link, source)
+        for link, source in links
+        if source.is_file() and not link.exists() and not link.is_symlink()
+    ]
 
 
 def check_collection_staged_links(
@@ -525,6 +614,15 @@ def check_collection_staged_links(
             )
             ret_code = 1
 
+        for link, source in unstaged_artifacts(links):
+            print(
+                f"{ERROR_MSG_PREFIX}Staged artifact for"
+                f' "{title_str}" is missing: "{get_relpath(link)}".\n'
+                f'{BLANK_ERR_MSG_PREFIX}Its source "{get_relpath(source)}" exists, so the'
+                f" build will not see it. {restage_msg}.",
+            )
+            ret_code = 1
+
     return ret_code
 
 
@@ -579,6 +677,10 @@ class OutOfDateErrors:
     dest_dir_files_out_of_date: list[Path]
     srce_and_dest_files_missing: list[tuple[Path, Path]]
     srce_and_dest_files_out_of_date: list[tuple[Path, Path]]
+    pages_built_without_restored_file: list[tuple[Path, Path]]
+    # `(bounds override, segments json)` - the segments were computed before the
+    # hand-drawn override they should have been computed from.
+    stale_panel_segments: list[tuple[Path, Path]]
     unexpected_dest_image_files: list[Path]
     exception_errors: list[str]
     zip_errors: ZipOutOfDateErrors
@@ -593,6 +695,8 @@ class OutOfDateErrors:
         return bool(
             self.srce_and_dest_files_missing
             or self.srce_and_dest_files_out_of_date
+            or self.pages_built_without_restored_file
+            or self.stale_panel_segments
             or self.dest_dir_files_missing
             or self.dest_dir_files_out_of_date
             or self.exception_errors
@@ -729,6 +833,8 @@ class ComicsIntegrityChecker:
             dest_dir_files_out_of_date=[],
             srce_and_dest_files_out_of_date=[],
             srce_and_dest_files_missing=[],
+            pages_built_without_restored_file=[],
+            stale_panel_segments=[],
             unexpected_dest_image_files=[],
             exception_errors=[],
             zip_errors=ZipOutOfDateErrors(),
@@ -1069,13 +1175,18 @@ class ComicsIntegrityChecker:
             ini_titles = {t[0] for t in titles_and_info}
             titles_and_info = self.comics_database.get_all_titles_in_fantagraphics_volumes([volume])
             series_info_titles = {t[0] for t in titles_and_info}
-            for ini_title in ini_titles:
-                if ini_title not in series_info_titles:
-                    print(
-                        f"{ERROR_MSG_PREFIX}For volume {volume}, ini title is not"
-                        f' in SERIES_INFO: "{ini_title}".',
-                    )
-                    ret_code = 1
+            for ini_title in sorted(ini_titles - series_info_titles):
+                print(
+                    f"{ERROR_MSG_PREFIX}For volume {volume}, ini title is not"
+                    f' in SERIES_INFO: "{ini_title}".',
+                )
+                ret_code = 1
+
+            # Deliberately one-directional. The reverse - a SERIES_INFO title with no ini
+            # file - is not a fault: SERIES_INFO covers the whole Barks corpus and the ini
+            # files are written per story as each is worked on, so the difference is
+            # outstanding work rather than an inconsistency. Reporting it turned out to be
+            # 215 findings across the library, which would bury the real ones.
 
         if ret_code == 0:
             logger.info("All ini file titles match series info.")
@@ -1304,6 +1415,8 @@ class ComicsIntegrityChecker:
         errors.max_dest = None
         errors.srce_and_dest_files_missing = []
         errors.srce_and_dest_files_out_of_date = []
+        errors.pages_built_without_restored_file = []
+        errors.stale_panel_segments = []
         errors.exception_errors = []
 
         inset_file = comic.intro_inset_file
@@ -1327,6 +1440,10 @@ class ComicsIntegrityChecker:
         errors: OutOfDateErrors,
     ) -> None:
         is_a_comic = comic.get_title_enum() not in NON_COMIC_TITLES
+        # "Good Deeds" and "Silent Night" were restored by hand and legitimately have no
+        # file in the restored tree, so the restored-source check below cannot apply.
+        needs_restored_file = comic.get_ini_title() not in HAND_RESTORED_TITLES
+        restored_image_dir = comic.get_srce_restored_image_dir()
 
         for srce_page, dest_page in zip(
             srce_and_dest_pages.srce_pages, srce_and_dest_pages.dest_pages, strict=True
@@ -1338,11 +1455,26 @@ class ComicsIntegrityChecker:
                 )
                 continue
 
+            dependencies = dating_dependencies(
+                get_restored_srce_dependencies(comic, srce_page), comic.ini_file
+            )
+
+            if srce_page.page_type in RESTORABLE_PAGE_TYPES:
+                if needs_restored_file and not has_restored_file_in_chain(
+                    dependencies, restored_image_dir
+                ):
+                    errors.pages_built_without_restored_file.append(
+                        (Path(srce_page.page_filename), dest_file),
+                    )
+
+                bounds_file = comic.get_final_fixes_panel_bounds_file(srce_page.page_num)
+                segments_file = comic.get_srce_panel_segments_file(get_page_str(srce_page.page_num))
+                if panel_segments_are_stale(segments_file, bounds_file) and bounds_file:
+                    errors.stale_panel_segments.append((bounds_file, segments_file))
+
             dest_timestamp = get_timestamp(dest_file)
             chain = walk_srce_dependency_chain(
-                dating_dependencies(
-                    get_restored_srce_dependencies(comic, srce_page), comic.ini_file
-                ),
+                dependencies,
                 dest_file,
                 dest_timestamp,
                 errors.max_srce,
@@ -1626,6 +1758,11 @@ class ComicsIntegrityChecker:
             for findings, noun in (
                 (errors.srce_and_dest_files_missing, "missing dest files"),
                 (errors.srce_and_dest_files_out_of_date, "out of date dest files"),
+                (
+                    errors.pages_built_without_restored_file,
+                    "restorable pages built from outside the restored tree",
+                ),
+                (errors.stale_panel_segments, "stale panel segments"),
             )
             if findings
         ]
@@ -1644,6 +1781,27 @@ class ComicsIntegrityChecker:
             )
         for srce_file, dest_file in errors.srce_and_dest_files_out_of_date:
             print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))
+        for srce_file, dest_file in errors.pages_built_without_restored_file:
+            print(
+                f'{ERROR_MSG_PREFIX} The dest file "{get_relpath(dest_file)}"\n'
+                f"{BLANK_ERR_MSG_PREFIX}is a restorable page built from a file outside the"
+                f" restored tree:\n"
+                f'{BLANK_ERR_MSG_PREFIX}"{get_relpath(srce_file)}".\n'
+                f"{BLANK_ERR_MSG_PREFIX}Restore that page, then rebuild.",
+            )
+        for bounds_file, segments_file in errors.stale_panel_segments:
+            print(
+                get_file_out_of_date_with_other_file_msg(
+                    segments_file,
+                    bounds_file,
+                    ERROR_MSG_PREFIX,
+                ),
+            )
+            print(
+                f"{BLANK_ERR_MSG_PREFIX}The hand-drawn bounds override was edited after the"
+                f" panel segments were computed from it.\n"
+                f"{BLANK_ERR_MSG_PREFIX}Re-run barks-batch-panel-bounds for that page.",
+            )
 
         if errors.file_findings:
             print()

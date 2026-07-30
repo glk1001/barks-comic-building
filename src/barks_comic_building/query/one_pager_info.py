@@ -76,7 +76,7 @@ DONE_FLAG = RESTORED_FLAG
 
 # Problem codes. Independent of the ladder - each is reported whenever it holds,
 # whatever the row's state, so nothing is masked by an earlier unmet rung.
-LINK_PROBLEM = "link"  # a FANTA_01 staged artifact is absent
+LINK_PROBLEM = "link"  # an artifact exists in the one-pager's volume but is not staged
 COPY_PROBLEM = "copy"  # a staged artifact has diverged from an upstream file that exists
 PAGE_PROBLEM = "page"  # located, but no original-issue page recorded
 INSET_PROBLEM = "inset"  # no inset file, so the reader shows its emergency placeholder
@@ -194,7 +194,11 @@ def get_one_pager_problems(
     problems = []
 
     if staged_links is not None:
-        missing = [link for link, _ in staged_links if not link.exists()]
+        # Only an artifact that exists in the one-pager's own volume but was not
+        # linked into the collection. An unlinked artifact with no upstream source
+        # is simply a stage that has not been run yet - that is what the State
+        # ladder is for, and reporting it here would flag work rather than faults.
+        missing = [link for link, source in staged_links if not link.exists() and source.is_file()]
         if missing:
             problems.append(f"{LINK_PROBLEM}({len(missing)})")
         # A real file here is only a problem when the same artifact also exists in

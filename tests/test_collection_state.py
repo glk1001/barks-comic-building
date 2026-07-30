@@ -329,6 +329,15 @@ class TestProblemCodes:
         assert "copy(1)" in problems
         assert not any(p.startswith("link") for p in problems)
 
+    def test_a_stage_that_has_not_been_run_is_not_a_link_problem(self, tmp_path: Path) -> None:
+        # Nothing to link: the one-pager's own volume has no such artifact either, so
+        # this is outstanding work, which the State ladder reports, not a fault.
+        absent_source = tmp_path / "never-made.svg"
+
+        problems = get_one_pager_problems(ONE_PAGERS[0], [(tmp_path / "500.svg", absent_source)])
+
+        assert not any(p.startswith("link") for p in problems)
+
     def test_an_artifact_produced_in_the_collection_is_not_a_copy(self, tmp_path: Path) -> None:
         # Running the pipeline on the collection itself (barks-batch-upscayl --title
         # "All One-Pagers") writes a real file for a stage the one-pager's own volume

@@ -53,6 +53,8 @@ from barks_comic_building.cli_setup import init_logging
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from barks_fantagraphics.barks_titles import Titles
+
 APP_LOGGING_NAME = "1pgr"
 
 # Nominal volume the collection is built as (matches All One-Pagers.ini's source_comic).
@@ -119,18 +121,33 @@ def _one_pager_candidate_links(
     return candidates
 
 
+def get_staged_links_by_title(
+    comics_database: ComicsDatabase,
+) -> dict[Titles, list[tuple[Path, Path]]]:
+    """Return each located one-pager's ``(link, source)`` candidates, keyed by title.
+
+    Order follows ``get_located_one_pagers()`` so the ``base + i`` numbering matches
+    the collection ``ComicBook`` and the reader's override. Exposed per title so a
+    status report can grade one one-pager's staging against the same rules this
+    module stages by, rather than restating them.
+    """
+    links_by_title: dict[Titles, list[tuple[Path, Path]]] = {}
+    for i, title in enumerate(get_located_one_pagers()):
+        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+        collection_page = ONE_PAGER_COLLECTION_PAGE_BASE + i
+        links_by_title[title] = _one_pager_candidate_links(
+            comics_database, volume, page, collection_page
+        )
+    return links_by_title
+
+
 def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]:
     """Return every ``(link, source)`` candidate across all located one-pagers.
 
     Order follows ``get_located_one_pagers()`` so the ``base + i`` numbering matches
     the collection ``ComicBook`` and the reader's override.
     """
-    links: list[tuple[Path, Path]] = []
-    for i, title in enumerate(get_located_one_pagers()):
-        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
-        collection_page = ONE_PAGER_COLLECTION_PAGE_BASE + i
-        links.extend(_one_pager_candidate_links(comics_database, volume, page, collection_page))
-    return links
+    return [link for links in get_staged_links_by_title(comics_database).values() for link in links]
 
 
 def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:

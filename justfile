@@ -52,6 +52,16 @@ show-env:
 info volume:
     {{uv_run}} barks-fanta-info --log-level WARNING --volume {{volume}}
 
+# Get one-pager build state (all one-pagers, or just one volume's)
+[group('comics')]
+one-pager-info volume="":
+    {{uv_run}} barks-one-pager-info --log-level WARNING --volume "{{volume}}"
+
+# Get cover configured state (all covers, or just one volume's)
+[group('comics')]
+cover-info volume="":
+    {{uv_run}} barks-cover-info --log-level WARNING --volume "{{volume}}"
+
 # Get title page counts for Fanta volume or volumes
 [group('comics')]
 page-count volume:

@@ -16,6 +16,7 @@ bsvg
 bufferfmt
 bups
 cbld
+ccbdl
 cbz
 chrn
 chrono
@@ -52,6 +53,7 @@ idempotency
 idempotent
 IEND
 ifan
+icvr
 imread
 imwrite
 injective

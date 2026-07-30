@@ -42,6 +42,7 @@ from barks_fantagraphics.fanta_comics_info import (
 )
 from barks_fantagraphics.page_classes import SrceAndDestPages
 from barks_fantagraphics.pages import (
+    SrceDependency,
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
@@ -370,6 +371,38 @@ def unexpected_entries(dir_path: Path, allowed: Iterable[Path]) -> list[Path] | 
     allowed_paths = set(allowed)
 
     return sorted(entry for entry in dir_path.iterdir() if entry not in allowed_paths)
+
+
+def dating_dependencies(
+    dependencies: Sequence[SrceDependency], ini_file: Path
+) -> list[SrceDependency]:
+    """Drop the dependencies whose timestamps must not date a build.
+
+    Only the ini file is dropped, and for two reasons that both point the same way.
+
+    Its content is already checked properly: `check_hashes` compares the ini's hash
+    against the `ini_hash` recorded in the comic's metadata at build time, so a real edit
+    is caught exactly, with no reference to timestamps at all.
+
+    And its timestamp is not evidence of anything. The ini files are git-tracked, in a
+    different repository from the comics, so a checkout, pull or branch switch rewrites
+    every mtime without changing a byte. Treating that as "the build is stale" reported
+    2982 of 3323 findings on one real tree - 90% of the report - from a single bulk mtime
+    bump in which not one ini's content had actually changed.
+
+    The intro inset and a hand-drawn panel bounds fix stay. They are content files under
+    the comics root rather than in git, nothing hashes them, and an edit to either really
+    does mean the page needs rebuilding.
+
+    Args:
+        dependencies: A dest page's dependencies, as the pipeline reports them.
+        ini_file: The comic's ini file.
+
+    Returns:
+        The dependencies that may date the build.
+
+    """
+    return [dependency for dependency in dependencies if dependency.file != ini_file]
 
 
 def _has_staged_original_scan(links: list[tuple[Path, Path]]) -> bool:
@@ -1252,7 +1285,9 @@ class ComicsIntegrityChecker:
 
             dest_timestamp = get_timestamp(dest_file)
             chain = walk_srce_dependency_chain(
-                get_restored_srce_dependencies(comic, srce_page),
+                dating_dependencies(
+                    get_restored_srce_dependencies(comic, srce_page), comic.ini_file
+                ),
                 dest_file,
                 dest_timestamp,
                 errors.max_srce,

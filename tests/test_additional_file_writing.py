@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import os
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -43,6 +44,7 @@ from barks_comic_building.build.additional_file_writing import (
     write_metadata_file,
     write_readme_file,
 )
+from barks_comic_building.build.comics_integrity import ComicsIntegrityChecker, HashErrors
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -86,6 +88,9 @@ REQUIRED_DIM = RequiredDimensions(
 BBOX = (10, 20, 30, 40)
 
 SUBMITTED_YEAR = 1948
+
+# An mtime far in the future, for the touched-but-unedited case.
+FUTURE = 2_000_000_000.0
 
 
 class FakeDirs:
@@ -377,6 +382,47 @@ class TestTheDestPanelBboxes:
         written = json.loads((comic.get_dest_dir() / DEST_PANELS_BBOXES_FILENAME).read_text())
 
         assert written["001.jpg"] == list(BBOX)
+
+
+class TestTheIniIsCheckedByHashNotByTimestamp:
+    """Where the ini's staleness signal actually lives.
+
+    The integrity check deliberately ignores the ini's mtime - it is git-tracked, so a
+    checkout rewrites it without changing a byte. This is the check that replaces it, and
+    it is exact: the hash recorded at build time versus the hash now.
+    """
+
+    def test_an_unedited_ini_matches_what_was_built(self, comic: FakeComic) -> None:
+        write_json_metadata(as_comic(comic), SRCE_DIM, REQUIRED_DIM, [page(PageType.BODY)])
+
+        errors = HashErrors()
+
+        assert ComicsIntegrityChecker.check_hashes(as_comic(comic), errors) == 0
+
+    def test_a_touched_but_unedited_ini_still_matches(self, comic: FakeComic) -> None:
+        # The 2982-findings case: the mtime moves, the content does not. A hash notices
+        # the difference; a timestamp comparison cannot.
+        write_json_metadata(as_comic(comic), SRCE_DIM, REQUIRED_DIM, [page(PageType.BODY)])
+        os.utime(comic.ini_file, (FUTURE, FUTURE))
+
+        errors = HashErrors()
+
+        assert ComicsIntegrityChecker.check_hashes(as_comic(comic), errors) == 0
+
+    def test_an_edited_ini_is_caught(self, comic: FakeComic) -> None:
+        write_json_metadata(as_comic(comic), SRCE_DIM, REQUIRED_DIM, [page(PageType.BODY)])
+        comic.ini_file.write_text("[info]\ntitle = A Fake Title\npages = 1-10\n")
+
+        errors = HashErrors()
+
+        assert ComicsIntegrityChecker.check_hashes(as_comic(comic), errors) == 1
+        assert errors.file_to_hash == comic.ini_file
+
+    def test_an_unbuilt_comic_is_reported_as_unbuilt(self, comic: FakeComic) -> None:
+        errors = HashErrors()
+
+        assert ComicsIntegrityChecker.check_hashes(as_comic(comic), errors) == 1
+        assert errors.metadata_file == comic.get_metadata_filepath()
 
 
 class TestTheReadme:

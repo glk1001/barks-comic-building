@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from barks_fantagraphics.pages import SrceDependency
 
+from barks_comic_building.build.comics_integrity import dating_dependencies
 from barks_comic_building.build.utils import MaxTimestamp, walk_srce_dependency_chain
 
 # Fixed epoch seconds. No file is ever created - the walk reads `dependency.timestamp`
@@ -40,7 +41,8 @@ SEGMENTS = Path("/fanta/panel-segments/001.json")
 RESTORED = Path("/fanta/restored/001.png")
 UPSCAYLED = Path("/fanta/upscayled/001.png")
 ORIGINAL = Path("/fanta/original/001.jpg")
-INI_FILE = Path("/comics/story-titles/A Title.ini")
+INI_FILE = Path("/reader-repo/data/story-titles/A Title.ini")
+INSET_FILE = Path("/comics/Barks Panels Pngs/Insets/A Title.png")
 
 
 def chained(*stages: tuple[Path, float]) -> list[SrceDependency]:
@@ -227,6 +229,63 @@ class TestADependencyInsideAZip:
         )
 
         assert result.max_srce == MaxTimestamp(inset, NEWER)
+
+
+class TestWhatIsAllowedToDateABuild:
+    """The ini file's timestamp must not, and everything else's must.
+
+    An ini edit is caught by comparing its *hash* against the one recorded at build time,
+    which is exact. Its mtime says nothing: the ini files are git-tracked in a different
+    repository from the comics, so any checkout rewrites every one of them. Counting that
+    as staleness produced 90% of a real tree's 3323 findings from a single bulk mtime
+    bump in which no ini's content had changed at all.
+    """
+
+    def test_the_ini_file_is_dropped(self) -> None:
+        dependencies = [
+            SrceDependency(INI_FILE, NEWER, independent=True),
+            SrceDependency(INSET_FILE, OLD, independent=True),
+        ]
+
+        kept = dating_dependencies(dependencies, INI_FILE)
+
+        assert [dependency.file for dependency in kept] == [INSET_FILE]
+
+    def test_the_ini_file_therefore_cannot_make_a_build_look_stale(self) -> None:
+        # The finding this removes: a zip older than an ini whose content never changed.
+        dependencies = [SrceDependency(INI_FILE, NEWER, independent=True)]
+
+        result = walk_srce_dependency_chain(
+            dating_dependencies(dependencies, INI_FILE), DEST, OLD, None, is_a_comic=True
+        )
+
+        assert result.max_srce is None
+
+    def test_the_intro_inset_still_dates_the_build(self) -> None:
+        # A content file under the comics root, not in git, and nothing hashes it - so an
+        # edit to it really does mean the title page needs rebuilding.
+        dependencies = [SrceDependency(INSET_FILE, NEWER, independent=True)]
+
+        result = walk_srce_dependency_chain(
+            dating_dependencies(dependencies, INI_FILE), DEST, OLD, None, is_a_comic=True
+        )
+
+        assert result.max_srce == MaxTimestamp(INSET_FILE, NEWER)
+
+    def test_the_restore_chain_is_untouched(self) -> None:
+        dependencies = chained((SEGMENTS, NEW), (RESTORED, OLD))
+
+        assert dating_dependencies(dependencies, INI_FILE) == dependencies
+
+    def test_dropping_is_by_path_not_by_independence(self) -> None:
+        # Every independent dependency would be the wrong rule - it would take the inset
+        # and the hand-drawn panel bounds fix with it.
+        panel_bounds = Path("/fanta/fixes/bounded/001.json")
+        dependencies = [SrceDependency(panel_bounds, NEWER, independent=True)]
+
+        kept = dating_dependencies(dependencies, INI_FILE)
+
+        assert [dependency.file for dependency in kept] == [panel_bounds]
 
 
 class TestTheRunningMaximum:

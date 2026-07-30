@@ -7,7 +7,7 @@ from pathlib import Path
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics import panel_bounding
-from barks_fantagraphics.barks_titles import Titles
+from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from barks_fantagraphics.comic_book import ComicBook, get_page_num_str, get_total_num_pages
 from barks_fantagraphics.comic_book_info import (
     NON_COMIC_TITLES,
@@ -45,6 +45,12 @@ from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 
 from barks_comic_building.build.artifact_renaming import run_artifact_rename_fix
+from barks_comic_building.build.stage_covers import (
+    get_staged_links_by_title as get_cover_staged_links,
+)
+from barks_comic_building.build.stage_one_pagers import (
+    get_staged_links_by_title as get_one_pager_staged_links,
+)
 from barks_comic_building.build.utils import (
     DATE_SEP,
     DATE_TIME_SEP,
@@ -196,6 +202,9 @@ class ComicsIntegrityChecker:
             return 1
 
         if self.check_ini_files_match_series_info() != 0:
+            return 1
+
+        if self.check_staged_collection_links() != 0:
             return 1
 
         if self.check_fantagraphics_files() != 0:
@@ -645,6 +654,115 @@ class ComicsIntegrityChecker:
             print(f'{ERROR_MSG_PREFIX}Could not find directory "{dir_path}".')
             return False
         return True
+
+    def check_staged_collection_links(self) -> int:
+        """Check the synthetic collections' staged links still agree with their sources.
+
+        Every other check here asks whether a file exists and whether it is newer than
+        another file. None of that can catch a staged link pointing at the *wrong*
+        source: a wrong-but-present source looks perfectly up to date, and the page
+        built from it is a valid image - just of the wrong gag. So the staging layer is
+        checked against the location tables it was generated from.
+
+        The failure this guards is silent and destructive. A one-pager or cover
+        inserted into (or removed from) ONE_PAGER_LOCATIONS/COVER_LOCATIONS shifts the
+        collection page of every later member, because the page is `base + index`. Skip
+        the restage and the on-disk links stay attached to the old page numbers, so the
+        built cbz shows members under each other's pages.
+
+        Returns:
+            0 if every collection's staging is consistent, 1 otherwise.
+
+        """
+        logger.info("Checking the synthetic collections' staged links.")
+
+        ret_code = 0
+        for collection, links_by_title in (
+            (Titles.ALL_ONE_PAGERS, get_one_pager_staged_links(self.comics_database)),
+            (Titles.ALL_COVERS, get_cover_staged_links(self.comics_database)),
+        ):
+            if self._check_collection_staged_links(collection, links_by_title) != 0:
+                ret_code = 1
+
+        if ret_code == 0:
+            logger.info("All staged collection links are consistent.")
+        else:
+            logger.error("Some staged collection links were inconsistent.")
+
+        return ret_code
+
+    def _check_collection_staged_links(
+        self, collection: Titles, links_by_title: dict[Titles, list[tuple[Path, Path]]]
+    ) -> int:
+        """Check one collection's staged links against the sources they were made from.
+
+        Args:
+            collection: The collection title, for the error messages.
+            links_by_title: Each member's `(link, source)` candidates.
+
+        Returns:
+            0 if the collection's staging is consistent, 1 otherwise.
+
+        """
+        collection_str = ENUM_TO_STR_TITLE[collection]
+        restage_msg = f'Restage "{collection_str}"'
+        ret_code = 0
+
+        for title, links in links_by_title.items():
+            title_str = ENUM_TO_STR_TITLE[title]
+
+            for link, source in links:
+                if link.is_symlink() and not link.exists():
+                    print(
+                        f"{ERROR_MSG_PREFIX}Staged link for"
+                        f' "{title_str}" is dangling: "{get_relpath(link)}"'
+                        f' -> "{link.readlink()}".\n'
+                        f"{BLANK_ERR_MSG_PREFIX}{restage_msg}.",
+                    )
+                    ret_code = 1
+                elif link.is_symlink() and link.resolve() != source.resolve():
+                    # The page's own files are fine; it is the mapping that is wrong.
+                    print(
+                        f"{ERROR_MSG_PREFIX}Staged link for"
+                        f' "{title_str}" points at the wrong source:'
+                        f' "{get_relpath(link)}"\n'
+                        f'{BLANK_ERR_MSG_PREFIX}points at "{link.readlink()}"\n'
+                        f'{BLANK_ERR_MSG_PREFIX}expected  "{get_relpath(source)}"\n'
+                        f"{BLANK_ERR_MSG_PREFIX}The location table has changed without a"
+                        f" restage, so members may be under each other's pages."
+                        f" {restage_msg}.",
+                    )
+                    ret_code = 1
+                elif link.exists() and not link.is_symlink() and source.is_file():
+                    # A real file with no upstream source is normal - the pipeline fills
+                    # a missing stage in place. One that *does* have an upstream source
+                    # has diverged from it and will not pick up a re-restore.
+                    print(
+                        f"{ERROR_MSG_PREFIX}Staged file for"
+                        f' "{title_str}" is a copy, not a link: "{get_relpath(link)}".\n'
+                        f"{BLANK_ERR_MSG_PREFIX}It will not track"
+                        f' "{get_relpath(source)}". {restage_msg}.',
+                    )
+                    ret_code = 1
+
+            if not self._has_staged_original_scan(links):
+                print(
+                    f'{ERROR_MSG_PREFIX}"{title_str}" is located but has no staged'
+                    f' original scan, so "{collection_str}" has no page for it.\n'
+                    f"{BLANK_ERR_MSG_PREFIX}{restage_msg}.",
+                )
+                ret_code = 1
+
+        return ret_code
+
+    @staticmethod
+    def _has_staged_original_scan(links: list[tuple[Path, Path]]) -> bool:
+        """Return whether a member's original-scan jpg is staged.
+
+        Every other artifact is optional - a stage that has not been run yet - but
+        without the original scan the collection has no image for the member at all.
+        """
+        return any(link.exists() for link, _ in links if link.suffix == JPG_FILE_EXT)
 
     def check_ini_files_match_series_info(self) -> int:
         logger.info("Checking ini file titles match series info.")

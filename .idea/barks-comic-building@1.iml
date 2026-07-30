@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module external.system.id="pyproject.toml" type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
-    <content url="file://$MODULE_DIR$">
-      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <excludeFolder url="file://$MODULE_DIR$/.venv" />
-      <excludeFolder url="file://$MODULE_DIR$/barks-restore/experiments" />
-      <excludeFolder url="file://$MODULE_DIR$/build-comics/scraps" />
-      <excludeFolder url="file://$MODULE_DIR$/logs" />
-    </content>
-    <orderEntry type="jdk" jdkName="uv (barks-comic-building)" jdkType="Python SDK" />
+    <content url="file://$MODULE_DIR$" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

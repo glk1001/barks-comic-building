@@ -47,7 +47,7 @@ Re-run `uv sync` after any change to `pyproject.toml`.
 
 ## The pipeline
 
-Three stages, run in order. Each reads one directory under the library root and writes another.
+Run in order. Each stage reads one directory under the library root and writes another.
 
 ```
 Fantagraphics-original/          scanned pages (jpg)
@@ -62,10 +62,156 @@ Fantagraphics-restored/          restored pages, back at source size
 Fantagraphics-restored-upscayled/  restored pages at 4x
 Fantagraphics-restored-svg/      vectorised line art
         |
+        |  +  panel bounds       barks-batch-panel-bounds
+        v
+Fantagraphics-restored-panel-segments/  panel geometry (json)
+        |
         |  3. build              barks-build
         v
 The Comics/                      .cbz archives
 ```
+
+Panel bounds are a separate command rather than a fourth stage — they depend on the restored
+pages but nothing depends on them until the build, so they can be run at any point in between.
+A page can be fully restored and still not buildable without them.
+
+---
+
+## How one page becomes a comic page
+
+The stages above are how the *library* is processed. This is the trail a **single page** leaves,
+which is what the integrity check verifies and what you need in order to work out why a page is
+wrong.
+
+Take page 117 of volume 9. Every artifact for it keeps the same stem, `117`, in a different tree:
+
+| Stage | Command | Writes | Note |
+|---|---|---|---|
+| — | *(the scan)* | `Fantagraphics-original/…/images/117.jpg` | read-only |
+| 1 | `barks-batch-upscayl` | `Fantagraphics-upscayled/…/images/117.png` | 4x |
+| 2 | `barks-batch-restore` | `Fantagraphics-restored/…/images/117.png` | source size |
+| | | `Fantagraphics-restored-upscayled/…/images/117.png` | 4x |
+| | | `Fantagraphics-restored-svg/…/images/117.svg` + `117.svg.png` | traced ink |
+| + | `barks-batch-panel-bounds` | `Fantagraphics-restored-panel-segments/…/117.json` | panel geometry |
+| 3 | `barks-build` | `The Comics/…/<title>/images/<dest page>.jpg` | then zipped to `.cbz` |
+
+Two things about that table are easy to miss. Panel bounds are computed from the **restored** page,
+not the scan — so re-restoring a page leaves its panel bounds stale. And unlike every image tree,
+the panel-segments volume folder has no `images/` level inside it; the json sits directly in the
+volume folder.
+
+At the build the page is not simply the restored file. For each page of the story, in the order the
+comic's `.ini` gives, the build resolves *one* source file:
+
+- **`BODY`, `FRONT_MATTER`, `BACK_MATTER`** — the restorable types — must have a restored file.
+  If it is missing this is a **hard error**, not a fallback to the original scan.
+- **Everything else** — `COVER`, `SPLASH`, paintings, back matter without panels — comes straight
+  from the original scan (with the override below applied). These are never restored.
+- **`TITLE`** is synthesised by the build itself, from the `.ini` and the title's inset image.
+  **`BLANK_PAGE`** is an empty page. Neither has a source scan.
+- Two titles, **"Good Deeds"** and **"Silent Night"**, were restored by hand and are exempt from
+  the restored-file requirement.
+
+### The override mechanism: fixes and additions
+
+Any page can be replaced by hand. A file placed in the fixes tree under the same stem **takes
+precedence over the original**, always:
+
+```
+Fantagraphics-original/…/images/117.jpg              the scan
+Fantagraphics-fixes-and-additions/…/images/117.jpg   wins if present
+```
+
+There is no flag or list to update — presence in the fixes tree *is* the override. Which of two
+things it means depends on whether the original exists:
+
+| Original scan | Fixes file | Meaning | Recorded as |
+|---|---|---|---|
+| exists | — | ordinary page | `ORIGINAL` |
+| exists | exists | the scan was **edited** — censorship fix, rescan, cleanup | `MODIFIED` |
+| absent | exists | a page was **added** that the Fantagraphics volume never had | `ADDED` |
+
+An **added** page has to be numbered outside the volume's real page range: either in the
+extra-pages band (`num_fanta_pages + 1` up to `300`) or in a staged collection's range, and it
+must be referenced by one of the volume's `.ini` files. An edited page must be a story page type.
+The `bounded/` subdirectory inside the fixes images dir is not a page at all — it holds
+hand-drawn panel-bounds overrides that `barks-batch-panel-bounds` reads.
+
+### Upscayled fixes and additions
+
+The same override exists one stage later, for when the *upscale* is what needs replacing rather
+than the scan:
+
+```
+Fantagraphics-upscayled-fixes-and-additions/…/images/117.png
+```
+
+Four rules differ from the plain fixes tree, and all four are enforced rather than documented
+only:
+
+- **`.png` only.** A `.jpg` there raises rather than being used — the upscale output is png.
+- **An upscayled fix replaces the upscayled output.** Having both a fix and a real upscale for one
+  page raises, because which of the two wins would be undefined.
+- **A page must not be fixed in both fixes trees.** A page held in the plain *and* the upscayled
+  fixes tree is reported by `barks-check-build` for the same reason.
+- **No added-pages band.** A page here with no original scan behind it is only allowed where the
+  database explicitly records one as added.
+
+### Special cases: one-pagers and covers
+
+"All One-Pagers" and "All Covers" are not scanned books. Each is a synthetic collection assembled
+out of pages that live in *other* volumes, by symlinking them into a collection volume before the
+normal pipeline runs:
+
+```bash
+uv run barks-stage-one-pagers      # then upscayl / restore / panel-bounds / build as usual
+uv run barks-stage-covers
+uv run barks-stage-covers --remove # clean up
+```
+
+Each located member is staged as collection page **`500 + its index`** in table order
+(`ONE_PAGER_LOCATIONS`, `COVER_LOCATIONS`), which is the thing to be careful about: **inserting a
+member shifts every later member's page**. Skip the restage and the links stay attached to the old
+numbers, so the built cbz shows members under each other's pages — with no file missing and no
+timestamp out of date. `barks-check-build` checks the staged links against the location tables for
+exactly this reason.
+
+The two collections stage different amounts of work, and the reason is the page type:
+
+- **One-pagers are `BODY` pages**, so they are restorable and the whole chain applies. Six
+  artifacts are staged per member: the scan, the upscale, the restored page, the `.svg` and
+  `.svg.png` pair, and the panel segments.
+- **Covers are `COVER` pages**, so they are built full-page — scaled with black bars, never
+  cropped to panels and never restored. Only two artifacts are worth staging: the scan and the
+  upscale.
+
+Both stage the original scan into the collection volume's **fixes** tree rather than its
+read-only original tree, so no permission changes are needed. That also means every collection
+page is an *added* page by the rule above, which is why the added-page band accepts a staged
+collection's range.
+
+### What the integrity check verifies
+
+`barks-check-build` walks the same trail backwards. Per page it checks each artifact exists and
+that timestamps **decrease** along the chain — panel segments, restored, restored-upscayled,
+restored-svg, upscayled, original — because each stage is produced *from* the next. A stage newer
+than the thing derived from it means that thing needs remaking:
+
+```
+ERROR: File "Fantagraphics-restored-upscayled/…/117.png"
+       is out of date with
+       file "Fantagraphics-restored-svg/…/117.svg":
+       '2026-07-29 03:02:31.65' < '2026-07-30 02:59:59.82'
+```
+
+read as: the `.svg` was re-traced after the upscayled page was built from it, so re-run the
+restore for that page.
+
+Two things are deliberately **not** timestamp-checked. The `.ini` file is compared by **content
+hash** against the hash recorded in the comic's metadata at build time, because the `.ini` files
+are git-tracked in another repository and a checkout rewrites every mtime without changing a byte.
+And an `.ini` whose metadata records no hash at all is reported, since the hash is that file's
+only check.
 
 ---
 
@@ -366,10 +512,14 @@ just build-volume 9
 just build-title "the pixilated parrot"
 ```
 
-Assembles finished comics into `.cbz` archives under `The Comics/`. For each story it picks the
-best available version of every page — the restored page where one exists, otherwise a manually
-fixed or added page, otherwise the original scan — applies the page order and types from the
-comic's `.ini`, adds metadata, and zips the result.
+Assembles finished comics into `.cbz` archives under `The Comics/`. For each story it takes the
+page order and types from the comic's `.ini`, resolves one source file per page, renders it onto
+the destination page, adds metadata, and zips the result.
+
+Which source file depends on the page type — the restorable types require a restored page, the
+rest come from the original scan with any hand fix applied over it. See
+[How one page becomes a comic page](#how-one-page-becomes-a-comic-page) for the full resolution
+order and the override rules.
 
 Alongside the chronological archives it generates symlinked views by series and by year, so the
 library can be browsed either way.

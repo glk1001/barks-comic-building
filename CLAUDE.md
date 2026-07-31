@@ -29,6 +29,8 @@ bash scripts/full-lint.sh
 
 It does not run the tests — use `uv run pytest` for those.
 
+**Toolchain bump.** `ruff` and `ty` are `==`-pinned; bump them deliberately on a branch with `bash scripts/bump-toolchain.sh`, which re-locks, re-syncs and runs every gate without committing or pushing. Runbook: `../barks-compleat-reader/docs/toolchain-bump.md`.
+
 **Type-check (two checkers).** `ty` is the primary; **pyrefly** is gated alongside it and is stricter on nullability, which is most of what it earns us. Config and rationale live in `pyrefly.toml`.
 
 ```bash

@@ -73,6 +73,20 @@ class Page:
         self.dest_file.parent.mkdir(parents=True, exist_ok=True)
         self.dest_file.write_text(text)
 
+    def staged_from_home_volume(self) -> Path:
+        """Replace the source scan with the symlink a staged collection page actually has.
+
+        `barks-stage-one-pagers` links the home volume's restored png into the collection,
+        falling back to its fixes jpg when that volume is not restored yet. Either way the
+        collection's source scan is a link from the moment the page is staged.
+        """
+        home_file = self.srce_file.with_name("176.png")
+        home_file.write_text("the home volume's page")
+        self.srce_file.unlink()
+        self.srce_file.symlink_to(home_file)
+
+        return home_file
+
 
 @pytest.fixture
 def page(tmp_path: Path) -> Page:
@@ -181,12 +195,57 @@ class TestAPageStagedFromAnotherVolume:
         # Restaged since, or the home volume's file removed. Either way it is not this
         # run's page to make, and creating it here would populate another volume's tree.
         page.dest_file.parent.mkdir(parents=True, exist_ok=True)
-        page.dest_file.symlink_to(page.dest_file.with_name("gone.json"))
+        home_file = page.dest_file.with_name("gone.json")
+        page.dest_file.symlink_to(home_file)
         processor = FakeBoundingBoxProcessor()
 
         run(page, processor, force=True)
 
         assert processor.kumiko_calls == []
+        assert not home_file.exists()
+
+
+class TestAPageStagedFromAnotherVolumeWithNoBoundsMadeYet:
+    """The same one-pager, in the window before its home volume has any bounds at all.
+
+    Staging only links an artifact that already exists, so there is no segments link to
+    catch here - the dest file is simply absent, which reads exactly like an ordinary
+    unbounded page. It is also the window someone is most likely to be in, because the
+    missing bounds are what sent them to this command.
+
+    The write would land in the collection's own tree rather than through a link, which
+    makes it quieter than the case above rather than safer: same dropped override, and it
+    survives until the next staging run replaces it, so every collection build in between
+    bakes in bounds made without the override. The source scan is the signal that is
+    already a link this early.
+    """
+
+    def test_it_is_skipped(self, page: Page) -> None:
+        page.staged_from_home_volume()
+        processor = FakeBoundingBoxProcessor()
+
+        run(page, processor, force=False)
+
+        assert processor.kumiko_calls == []
+        assert processor.saved == []
+
+    def test_force_does_not_override_the_skip(self, page: Page) -> None:
+        page.staged_from_home_volume()
+        processor = FakeBoundingBoxProcessor()
+
+        run(page, processor, force=True)
+
+        assert processor.kumiko_calls == []
+
+    def test_no_bounds_file_is_left_behind_in_the_collection(self, page: Page) -> None:
+        # The one the link check cannot make: nothing is written through, but a real file
+        # in the collection's own segments dir would be just as wrong, and would outlive
+        # the run.
+        page.staged_from_home_volume()
+
+        run(page, FakeBoundingBoxProcessor(), force=True)
+
+        assert not page.dest_file.exists()
 
 
 class TestAPageWithNoSourceScan:

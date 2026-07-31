@@ -197,7 +197,9 @@ collection's range.
 **A staged page belongs to its home volume, and every stage is run there.** The collection only
 borrows the files. `barks-batch-restore` and `barks-batch-upscayl` enforce this by reporting a
 symlinked page as `linked` and never writing it, which `--force` does not override;
-`barks-batch-panel-bounds` skips a symlinked segments file the same way. So restore, upscale and
+`barks-batch-panel-bounds` skips the same way, on a symlink at *either* end — the staged source
+scan as well as the segments file, because staging only links an artifact that already exists, so
+a home volume with no bounds yet leaves no segments link to catch. So restore, upscale and
 panel-bound a one-pager by running its **home** volume — the collection picks the result up
 through the link.
 

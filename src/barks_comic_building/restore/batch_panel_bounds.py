@@ -99,17 +99,28 @@ def get_page_panel_bounds(
     """
     # noinspection PyBroadException
     try:
-        # Before anything else, and deliberately ahead of the force check: a symlinked
-        # dest means this page belongs to another volume, staged into a synthetic
-        # collection. Writing it here would follow the link and overwrite that volume's
-        # file - and worse, compute it against *this* comic's `bounded/` directory, keyed
-        # by the collection page number, so the page's real hand-drawn override is not
-        # found and is silently dropped. `barks-batch-restore` and `barks-batch-upscayl`
-        # refuse the same way (`PageState.LINKED`); this one used to write through.
-        if dest_file.is_symlink():
+        # Before anything else, and deliberately ahead of the force check: a symlink on
+        # either side means this page belongs to another volume, staged into a synthetic
+        # collection. Writing it here would compute the bounds against *this* comic's
+        # `bounded/` directory, keyed by the collection page number, so the page's real
+        # hand-drawn override is not found and is silently dropped. `barks-batch-restore`
+        # and `barks-batch-upscayl` refuse the same way (`PageState.LINKED`); this one
+        # used to write through.
+        #
+        # Both sides are checked because they are linked at different times. Staging only
+        # links an artifact that already exists, so a home volume that has not been
+        # panel-bounded yet leaves no segments link to catch - and that is precisely the
+        # window in which someone reaches for this command. The write then lands in the
+        # collection's own tree rather than through the link, which is quieter still: it
+        # survives until the next staging run replaces it, and every collection build in
+        # between bakes in bounds made without the override. The source scan is linked
+        # from the start (the restored png, or the fixes jpg it falls back to), so it is
+        # the signal that survives that window.
+        if srce_file.is_symlink() or dest_file.is_symlink():
+            linked_file = srce_file if srce_file.is_symlink() else dest_file
             logger.info(
-                f"Dest file is linked from another volume - skipping:"
-                f' "{get_abbrev_path(dest_file)}".'
+                f"Page is linked from another volume - skipping:"
+                f' "{get_abbrev_path(linked_file)}".'
                 f" Run the panel bounds for the volume it lives in instead."
             )
             return

@@ -103,16 +103,6 @@ upscayl volume:
 upscayl-title title:
     {{uv_run}} barks-batch-upscayl --title "{{title}}"
 
-# Restore all restoreable pages in a volume or volumes
-[group('comics')]
-restore volume:
-    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --volume {{volume}}
-
-# Restore all restoreable pages in a title
-[group('comics')]
-restore-title title:
-    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --title "{{title}}"
-
 # Show what the upscale has done and what is left, per volume, with an estimate
 [group('comics')]
 upscale-status volume *flags:
@@ -122,6 +112,21 @@ upscale-status volume *flags:
 [group('comics')]
 upscale-failures:
     {{uv_run}} barks-upscale-status --failed
+
+# Restore all restoreable pages in a volume or volumes
+[group('comics')]
+restore volume:
+    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --volume {{volume}}
+
+# Resume a volume restore
+[group('comics')]
+restore-resume volume:
+    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --volume {{volume}} --use-existing-work-files
+
+# Restore all restoreable pages in a title
+[group('comics')]
+restore-title title:
+    {{uv_run}} barks-batch-restore --work-dir {{restore_work_dir}}/restore --title "{{title}}"
 
 # Ask a running restore to stop once the pages already under way have finished
 [group('comics')]

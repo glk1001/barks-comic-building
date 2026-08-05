@@ -48,6 +48,7 @@ _REPORTED_STATES = (
     UpscalePageState.STALE,
     UpscalePageState.MISSING,
     UpscalePageState.FIXES,
+    UpscalePageState.HAND_RESTORED,
     UpscalePageState.LINKED,
     UpscalePageState.NO_SRCE,
 )
@@ -99,6 +100,7 @@ def get_title_status(
             Path(dest_file),
             current_recipe_id,
             is_fixes_file=dest_mod is not ModifiedType.ORIGINAL,
+            is_hand_restored=comic.is_hand_restored(Path(srce_file).stem),
         )
         counts[status.state] += 1
 
@@ -170,6 +172,7 @@ def print_status_table(
     table.add_column("Stale", justify="right", style="yellow")
     table.add_column("Missing", justify="right", style="red")
     table.add_column("Fixes", justify="right", style="dim")
+    table.add_column("Hand", justify="right", style="dim")
     table.add_column("Linked", justify="right", style="dim")
     table.add_column("No srce", justify="right", style="dim")
     table.add_column("Est. left", justify="right")
@@ -211,6 +214,12 @@ def print_status_table(
         console.print(
             f"{totals[UpscalePageState.FIXES]} page(s) are hand-edited fixes files and are"
             " never upscayled - the edit is the finished page.",
+        )
+
+    if totals[UpscalePageState.HAND_RESTORED]:
+        console.print(
+            f"{totals[UpscalePageState.HAND_RESTORED]} page(s) were restored by hand, so"
+            " their upscale would feed nothing and is never made.",
         )
 
     if totals[UpscalePageState.LINKED]:

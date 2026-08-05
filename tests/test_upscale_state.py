@@ -55,9 +55,15 @@ class Page:
         self.srce = tmp_path / "srce.jpg"
         self.upscayl = tmp_path / "upscayl.png"
 
-    def state(self, *, is_fixes_file: bool = False) -> UpscalePageState:
+    def state(
+        self, *, is_fixes_file: bool = False, is_hand_restored: bool = False
+    ) -> UpscalePageState:
         return get_upscale_page_status(
-            self.srce, self.upscayl, CURRENT_RECIPE_ID, is_fixes_file=is_fixes_file
+            self.srce,
+            self.upscayl,
+            CURRENT_RECIPE_ID,
+            is_fixes_file=is_fixes_file,
+            is_hand_restored=is_hand_restored,
         ).state
 
     def write_all(self, recipe_id: str | None) -> None:
@@ -126,7 +132,11 @@ class TestUpscalePageState:
         page.write_all(CURRENT_RECIPE_ID)
 
         status = get_upscale_page_status(
-            page.srce, page.upscayl, CURRENT_RECIPE_ID, is_fixes_file=False
+            page.srce,
+            page.upscayl,
+            CURRENT_RECIPE_ID,
+            is_fixes_file=False,
+            is_hand_restored=False,
         )
 
         assert status.upscale_date == UPSCALE_DATE
@@ -171,6 +181,40 @@ class TestAHandEditedPageIsNeverTheRunsToMake:
         assert page.state(is_fixes_file=True) is UpscalePageState.LINKED
 
 
+class TestAHandRestoredPagesUpscaleFeedsNobody:
+    """The upscayled page exists only as the restore's input.
+
+    The restore leaves a hand-restored page alone, so making its upscale is four minutes
+    and 25MB spent on a file no later stage opens.
+    """
+
+    def test_a_hand_restored_page_is_not_upscayled(self, page: Page) -> None:
+        page.write_all(recipe_id=None)
+
+        assert page.state(is_hand_restored=True) is UpscalePageState.HAND_RESTORED
+
+    def test_it_stays_so_under_the_current_recipe(self, page: Page) -> None:
+        page.write_all(CURRENT_RECIPE_ID)
+
+        assert page.state(is_hand_restored=True) is UpscalePageState.HAND_RESTORED
+
+    def test_a_missing_upscayl_is_still_not_made(self, page: Page) -> None:
+        """MISSING is the state that would otherwise queue it on every single run."""
+        write_png(page.srce)
+
+        assert page.state(is_hand_restored=True) is UpscalePageState.HAND_RESTORED
+
+    def test_a_fixes_page_that_is_also_hand_restored_is_reported_as_fixes(self, page: Page) -> None:
+        """Volume 4's 227 is both. FIXES is the one that names a file at risk.
+
+        HAND_RESTORED only says the output need not be made; FIXES says writing it would
+        destroy a hand edit, which is the more urgent of the two to be told.
+        """
+        page.write_all(recipe_id=None)
+
+        assert page.state(is_fixes_file=True, is_hand_restored=True) is UpscalePageState.FIXES
+
+
 class TestNeedsUpscayling:
     @pytest.mark.parametrize(
         ("state", "expected"),
@@ -179,6 +223,7 @@ class TestNeedsUpscayling:
             (UpscalePageState.NO_SRCE, False),
             (UpscalePageState.LINKED, False),
             (UpscalePageState.FIXES, False),
+            (UpscalePageState.HAND_RESTORED, False),
             (UpscalePageState.STALE, True),
             (UpscalePageState.MISSING, True),
         ],

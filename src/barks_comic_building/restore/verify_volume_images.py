@@ -9,6 +9,7 @@ from loguru import logger
 from PIL import Image
 
 from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.restore.image_checks import find_structural_fault
 
 APP_LOGGING_NAME = "vimg"
 Image.MAX_IMAGE_PIXELS = None  # disables the DOS warning
@@ -80,8 +81,9 @@ def verify_volume_dir(volume_dir: Path) -> tuple[int, int]:
             logger.debug(f'Skipping svg file: "{image_file}".')
             continue
 
-        if not verify_file(image_file):
-            logger.error(f'File "{image_file}" is not a valid image file.')
+        fault = find_file_fault(image_file)
+        if fault is not None:
+            logger.error(f'File "{image_file}": {fault}.')
             num_errors += 1
 
         num_image_files += 1
@@ -89,17 +91,34 @@ def verify_volume_dir(volume_dir: Path) -> tuple[int, int]:
     return num_image_files, num_errors
 
 
-def verify_file(image_file: Path) -> bool:
+def find_file_fault(image_file: Path) -> str | None:
+    """Return what is wrong with an image file on disk, or None if it is sound.
+
+    Every pixel is decoded rather than just the header, because the damage worth finding
+    here hides behind a well-formed one - a correct signature, a proper trailing IEND, and
+    a pixel stream zlib will not touch. Reading a whole volume is minutes rather than
+    seconds because of it, which is why this is a command you run and not a step in a
+    build.
+
+    The source comparison is deliberately not run - pairing every tree with what it was
+    made from is a different job, and it is the writing stages that have the source to
+    hand. What is left still finds both kinds of damage this sweep was built for.
+
+    Args:
+        image_file: The file to check.
+
+    Returns:
+        A description of the fault, or None.
+
+    Raises:
+        FileNotFoundError: If the path is not a file.
+
+    """
     if not image_file.is_file():
         msg = f'"{image_file}" is not a file.'
         raise FileNotFoundError(msg)
 
-    try:
-        with Image.open(image_file) as img:
-            img.verify()
-            return True
-    except (OSError, SyntaxError):
-        return False
+    return find_structural_fault(image_file)
 
 
 app = typer.Typer()

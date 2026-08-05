@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from barks_fantagraphics.comics_database import get_fanta_title_for_volume
+from barks_fantagraphics.fanta_comics_info import HAND_RESTORED_PAGES
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
@@ -51,9 +53,14 @@ class Page:
         self.restored_4x = tmp_path / "restored-4x.png"
         self.svg = tmp_path / "restored.svg"
 
-    def status(self) -> PageState:
+    def status(self, *, is_hand_restored: bool = False) -> PageState:
         return get_page_status(
-            self.upscayl, self.restored, self.restored_4x, self.svg, CURRENT_RECIPE_ID
+            self.upscayl,
+            self.restored,
+            self.restored_4x,
+            self.svg,
+            CURRENT_RECIPE_ID,
+            is_hand_restored=is_hand_restored,
         ).state
 
     def write_all(self, recipe_id: str | None) -> None:
@@ -141,6 +148,59 @@ class TestPageState:
         assert page.status() is PageState.LINKED
 
 
+class TestAHandRestoredPageIsNeverTheRunsToMake:
+    """A hand restoration stands where the pipeline's output would go.
+
+    It was made by hand and carries no recipe of ours, so every recipe test calls it
+    stale - which is what had volume 4's page 227 one run away from being redone, and
+    destroyed.
+    """
+
+    def test_a_hand_restored_page_is_hand_restored_not_stale(self, page: Page) -> None:
+        """The state volume 4's 227 is in today."""
+        page.write_all(recipe_id=None)
+
+        assert page.status(is_hand_restored=True) is PageState.HAND_RESTORED
+
+    def test_it_stays_hand_restored_whatever_recipe_it_carries(self, page: Page) -> None:
+        """Including the run's own recipe, stamped there by an earlier overwrite."""
+        page.write_all(CURRENT_RECIPE_ID)
+
+        assert page.status(is_hand_restored=True) is PageState.HAND_RESTORED
+
+    def test_a_hand_restored_page_with_no_input_is_still_hand_restored(self, page: Page) -> None:
+        """Volume 4's 227 has no original scan at all behind it.
+
+        NO_SRCE is logged at ERROR on every run, so letting it win here would turn a
+        finished page into a permanent false alarm.
+        """
+        write_png(page.restored)
+        write_png(page.restored_4x)
+        page.svg.write_text("<svg/>")
+
+        assert page.status(is_hand_restored=True) is PageState.HAND_RESTORED
+
+    def test_deleting_the_outputs_does_not_bring_it_back_into_the_run(self, page: Page) -> None:
+        """A machine restore in place of a hand one is the same loss, one step removed."""
+        write_png(page.upscayl)
+
+        assert page.status(is_hand_restored=True) is PageState.HAND_RESTORED
+
+    def test_a_borrowed_hand_restored_page_is_reported_as_linked(
+        self, page: Page, tmp_path: Path
+    ) -> None:
+        """A page can be both: a link standing here into another volume's hand work.
+
+        Either answer skips it, so nothing is at risk; LINKED is reported because it names
+        the volume the page belongs to, and counting it under HAND_RESTORED would have the
+        closing tally claim another volume's hand work as this one's.
+        """
+        page.restored.parent.mkdir(parents=True, exist_ok=True)
+        page.restored.symlink_to(write_png(tmp_path / "other" / "123.png"))
+
+        assert page.status(is_hand_restored=True) is PageState.LINKED
+
+
 class TestNeedsRestoring:
     @pytest.mark.parametrize(
         ("state", "expected"),
@@ -148,6 +208,7 @@ class TestNeedsRestoring:
             (PageState.CURRENT, False),
             (PageState.NO_SRCE, False),
             (PageState.LINKED, False),
+            (PageState.HAND_RESTORED, False),
             (PageState.STALE, True),
             (PageState.INCOMPLETE, True),
             (PageState.MISSING, True),
@@ -196,6 +257,88 @@ class TestThePipelineRefusesToo:
             )
 
         assert other_volume_page.read_bytes() == before
+
+    @pytest.mark.parametrize(("slot", "suffix"), [(0, ".png"), (1, ".png"), (2, ".svg")])
+    def test_restoring_over_a_hand_restored_page_is_refused(
+        self, tmp_path: Path, slot: int, suffix: str
+    ) -> None:
+        """Any one of the three outputs naming the page refuses the whole run."""
+        volume, page_num = next(iter(HAND_RESTORED_PAGES))
+        image_dir = tmp_path / get_fanta_title_for_volume(volume) / "images"
+
+        hand_work = write_png(image_dir / f"{page_num}.png")
+        before = hand_work.read_bytes()
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        # Only the output in `slot` sits in the volume directory; the other two go
+        # somewhere harmless, so each parameter tests one path on its own.
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        dest_files = [elsewhere / "a.png", elsewhere / "b.png", elsewhere / "c.svg"]
+        dest_files[slot] = image_dir / f"{page_num}{suffix}"
+        restored, restored_4x, svg = dest_files
+
+        with pytest.raises(ValueError, match="hand-restored"):
+            RestorePipeline(
+                work_dir,
+                write_png(tmp_path / "srce.png"),
+                write_png(tmp_path / "srce-upscayl.png"),
+                4,
+                restored,
+                restored_4x,
+                svg,
+            )
+
+        assert hand_work.read_bytes() == before
+
+    def test_a_symlinked_volume_directory_does_not_hide_a_hand_restored_page(
+        self, tmp_path: Path
+    ) -> None:
+        """Staged collections reach their pages through a symlinked volume directory."""
+        volume, page_num = next(iter(HAND_RESTORED_PAGES))
+        real_images = tmp_path / get_fanta_title_for_volume(volume) / "images"
+        write_png(real_images / f"{page_num}.png")
+
+        staged = tmp_path / "staged"
+        staged.symlink_to(real_images, target_is_directory=True)
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        with pytest.raises(ValueError, match="hand-restored"):
+            RestorePipeline(
+                work_dir,
+                write_png(tmp_path / "srce.png"),
+                write_png(tmp_path / "srce-upscayl.png"),
+                4,
+                staged / f"{page_num}.png",
+                staged / f"{page_num}-4x.png",
+                staged / f"{page_num}.svg",
+            )
+
+    def test_an_ordinary_page_of_the_same_volume_is_not_refused(self, tmp_path: Path) -> None:
+        """The guard is keyed on the page as well as the volume, not the volume alone."""
+        volume, page_num = next(iter(HAND_RESTORED_PAGES))
+        image_dir = tmp_path / get_fanta_title_for_volume(volume) / "images"
+        image_dir.mkdir(parents=True)
+
+        next_door = f"{int(page_num) - 1}"
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        pipeline = RestorePipeline(
+            work_dir,
+            write_png(tmp_path / "srce.png"),
+            write_png(tmp_path / "srce-upscayl.png"),
+            4,
+            image_dir / f"{next_door}.png",
+            image_dir / f"{next_door}-4x.png",
+            image_dir / f"{next_door}.svg",
+        )
+
+        assert pipeline.dest_restored_file.stem == next_door
 
 
 class TestUpscalerUsed:

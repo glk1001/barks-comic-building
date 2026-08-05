@@ -67,6 +67,20 @@ class PageState(StrEnum):
     follow the link and overwrite that volume's page, from a different source image, so
     a linked page is never this run's to make."""
 
+    HAND_RESTORED = "hand-restored"
+    """The restored page was made by hand, and is what a run would write over.
+
+    Two kinds, both declared in `HAND_RESTORED_TITLES` / `HAND_RESTORED_PAGES` rather than
+    detected. A page of a hand-restored title, whose restored output the build never even
+    reads - `get_final_srce_story_file` goes to the fixes tree for those titles. And an
+    individually declared page like volume 4's 227, whose restored png *is* the hand work.
+
+    Neither carries a recipe of ours, so the recipe test calls both stale and a run would
+    redo them: the first wasting hours on output nothing consumes, the second destroying a
+    page that no re-run can make again. Declared rather than detected because the only
+    trace on disk is a missing metadata key, which is also what an interrupted write
+    leaves. Never this run's to make, not even under --force."""
+
     NO_SRCE = "no-srce"
     """The upscayled input is not there, so the page cannot be restored at all."""
 
@@ -89,12 +103,17 @@ class PageStatus(NamedTuple):
         return self.state.needs_restoring
 
 
-def get_page_status(
+# One parameter per thing the answer depends on, and one return per state, because the
+# body is a chain of guard clauses in the order the questions have to be asked. Collapsing
+# either would hide the ordering, which is the part that matters here.
+def get_page_status(  # noqa: PLR0911, PLR0913
     srce_upscayl_file: Path,
     dest_restored_file: Path,
     dest_upscayled_restored_file: Path,
     dest_svg_restored_file: Path,
     current_recipe_id: str,
+    *,
+    is_hand_restored: bool,
 ) -> PageStatus:
     """Work out whether a page still needs restoring.
 
@@ -104,6 +123,10 @@ def get_page_status(
         dest_upscayled_restored_file: The restored page at full scale.
         dest_svg_restored_file: The traced line art.
         current_recipe_id: The id of the recipe the pipeline would use now.
+        is_hand_restored: Whether this page's restored file was made by hand -
+            `ComicBook.is_hand_restored`. Deliberately required rather than defaulted: a
+            caller that forgets it queues the hand work for overwriting, which is exactly
+            how volume 4's page 227 came to be one run away from being lost.
 
     Returns:
         The page's state, with the recipe id and date read off the restored png when it
@@ -112,11 +135,24 @@ def get_page_status(
     """
     outputs = [dest_restored_file, dest_upscayled_restored_file, dest_svg_restored_file]
 
-    # Before anything else: a symlink among the outputs means this page is another
-    # volume's, and whether it is up to date is that volume's question. Asked here it
-    # would be answered by writing through the link.
+    # These two come first, and neither looks at the recipe, because for both the question
+    # "is this page up to date" is not this run's to answer - and answering it here is done
+    # by destroying something.
+
+    # A symlink among the outputs means this page is another volume's, and whether it is up
+    # to date is that volume's question. Asked here it would be answered by writing through
+    # the link. Tested before the hand-restored check because a page can be both, and the
+    # volume that owns it is the more useful of the two things to be told.
     if any(file.is_symlink() for file in outputs):
         return PageStatus(PageState.LINKED, "", "")
+
+    # Made by hand. This is deliberately answered before anything about the input or which
+    # outputs exist: those describe the page's ancestry, while this describes whose work
+    # the output is. Volume 4's 227 has no original scan and is spared NO_SRCE today only
+    # because its upscayled-fixes png happens to exist; and if a hand page's outputs were
+    # deleted, a run must still not put a machine restore in their place.
+    if is_hand_restored:
+        return PageStatus(PageState.HAND_RESTORED, "", "")
 
     if not srce_upscayl_file.is_file():
         return PageStatus(PageState.NO_SRCE, "", "")

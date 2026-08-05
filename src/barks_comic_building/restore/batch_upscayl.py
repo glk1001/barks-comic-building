@@ -85,6 +85,7 @@ def get_title_jobs(
     for (srce_file, _srce_mod), (dest_file, dest_mod) in zip(
         srce_files, upscayl_files, strict=True
     ):
+        page_num = Path(srce_file).stem
         status = get_upscale_page_status(
             srce_file,
             dest_file,
@@ -92,15 +93,22 @@ def get_title_jobs(
             # A non-ORIGINAL dest is not the upscayled page at all - it is the hand-edited
             # file standing in for it, and this run's output would be written over the top.
             is_fixes_file=dest_mod is not ModifiedType.ORIGINAL,
+            is_hand_restored=comic.is_hand_restored(page_num),
         )
         counts[status.state] = counts.get(status.state, 0) + 1
 
-        # Neither of these two is queued even under --force.
+        # None of these three is queued even under --force.
 
         # Hand edits cannot be remade, and carry no recipe of ours, so they read as stale
         # and would be overwritten on every run.
         if status.state == UpscalePageState.FIXES:
             logger.debug(f'Page is a hand-edited fixes file - skipping: "{dest_file}".')
+            continue
+
+        # The upscayled page is only ever the restore's input, and the restore leaves a
+        # hand-restored page alone, so this one would be made for nobody to read.
+        if status.state == UpscalePageState.HAND_RESTORED:
+            logger.debug(f'Page was restored by hand - skipping: "{dest_file}".')
             continue
 
         # This page is a symlink to another volume's, and forcing it would write through
@@ -120,7 +128,7 @@ def get_title_jobs(
             _PageJob(
                 title=title,
                 volume=volume,
-                page=Path(srce_file).stem,
+                page=page_num,
                 srce_file=Path(srce_file),
                 dest_file=dest_file,
             )

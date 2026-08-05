@@ -42,6 +42,7 @@ _REPORTED_STATES = (
     PageState.STALE,
     PageState.INCOMPLETE,
     PageState.MISSING,
+    PageState.HAND_RESTORED,
     PageState.LINKED,
     PageState.NO_SRCE,
 )
@@ -102,6 +103,7 @@ def get_title_status(
             Path(upscayled_restored_file),
             Path(svg_file),
             current_recipe_id,
+            is_hand_restored=comic.is_hand_restored(Path(restored_file).stem),
         )
         counts[status.state] += 1
 
@@ -172,6 +174,7 @@ def print_status_table(
     table.add_column("Stale", justify="right", style="yellow")
     table.add_column("Incomplete", justify="right", style="red")
     table.add_column("Missing", justify="right", style="red")
+    table.add_column("Hand", justify="right", style="dim")
     table.add_column("Linked", justify="right", style="dim")
     table.add_column("No srce", justify="right", style="dim")
     table.add_column("Est. left", justify="right")
@@ -215,6 +218,12 @@ def print_status_table(
         console.print(
             f"{totals[PageState.LINKED]} page(s) are symlinks to other volumes' pages"
             " and are restored as part of those volumes.",
+        )
+
+    if totals[PageState.HAND_RESTORED]:
+        console.print(
+            f"{totals[PageState.HAND_RESTORED]} page(s) were restored by hand and are never"
+            " put through the pipeline - the hand restoration is the finished page.",
         )
 
 

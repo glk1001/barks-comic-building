@@ -95,6 +95,14 @@ Take page 117 of volume 9. Every artifact for it keeps the same stem, `117`, in 
 | + | `barks-batch-panel-bounds` | `Fantagraphics-restored-panel-segments/…/117.json` | panel geometry |
 | 3 | `barks-build` | `The Comics/…/<title>/images/<dest page>.jpg` | then zipped to `.cbz` |
 
+Some pages never go through that table at all. A page whose restoration was made by hand is
+declared in `HAND_RESTORED_TITLES` or `HAND_RESTORED_PAGES` (both in `barks_fantagraphics`), and
+both `barks-batch-upscayl` and `barks-batch-restore` report it as `Hand` and leave it alone —
+it carries no recipe of theirs, so every recipe test would otherwise call it stale and redo it
+forever. That covers "Good Deeds" and "Silent Night", which are built out of the fixes tree, and
+volume 4's page 227, whose restored png *is* the hand work. `RestorePipeline` refuses to write
+over the declared pages as well, so no caller can get past it.
+
 Two things about that table are easy to miss. Panel bounds are computed from the **restored** page,
 not the scan — so re-restoring a page leaves its panel bounds stale. And unlike every image tree,
 the panel-segments volume folder has no `images/` level inside it; the json sits directly in the
@@ -534,10 +542,19 @@ old existence check skipped permanently. `--force` redoes pages that are already
 This is the one kind of staleness `barks-check-build` does not see — it compares mtimes and never
 reads a recipe id, so `barks-restore-status` is what answers "is this page on the current recipe".
 
-The exception is a page whose outputs are **symlinks to another volume's**, which collection
-titles use to borrow pages. Those are reported as `linked` and never written, here or by the
-upscale — following the link would replace that volume's page from a different source image.
-`--force` does not override it.
+Two kinds of page are exceptions, and `--force` overrides neither. A page whose outputs are
+**symlinks to another volume's**, which collection titles use to borrow pages, is reported as
+`linked` and never written, here or by the upscale — following the link would replace that
+volume's page from a different source image. And a **hand-restored** page is reported as `hand`
+and never written, because the hand restoration *is* the finished page; see the note under
+[How one page becomes a comic page](#how-one-page-becomes-a-comic-page).
+
+```
+Vol  Title                          Pages  Current  Stale  Incomplete  Missing  Hand  Linked  Est. left
+  1  Donald Duck - Finds Pirate…      283      166                                10     107         --
+  3  Donald Duck - Mystery of the…    220      210                                10                 --
+  4  Donald Duck - Maharajah Donald   196             195                          1              11h45m
+```
 
 ```bash
 uv run barks-restore-status --volume 1-29    # per-volume table with an ETA
@@ -571,6 +588,30 @@ Those are per-page means under contention, so they add up to far more than the 2
 clock a page actually costs — several pages are in each step at once. They rank the steps;
 they do not sum to the total. The work dir holds about **155MB per page** until cleanup, so a
 64-page batch peaks near 10GB.
+
+### Checking what was written
+
+Every page the restore writes is checked before the run moves on, because a bad write is
+otherwise silent — and it fails in two unrelated ways, neither of which finds the other.
+
+A page can be a **well-formed png whose pixel stream is damaged**: correct signature, every
+chunk in place, a proper trailing IEND, and an IDAT chunk that zlib will not decompress.
+Nothing short of decoding every pixel notices, which is why the IEND test in `image_io` is not
+enough. Or it can be **structurally flawless and the wrong picture** — right dimensions, valid
+png, every pixel black. Four Silent Night pages came out of a run that way, from sources with
+the full range of tones. Only comparing the output against what it was made from sees it.
+
+So each output is decoded in full, checked for its expected size and mode, rejected if it is a
+single flat colour, and compared against its source on a 64×64 thumbnail. A page that fails is
+**deleted and the page failed** rather than left on disk — a corrupt file that stays put reads
+as current on the next run and would never be looked at again. The threshold is measured, not
+guessed: see the note beside `MAX_THUMBNAIL_DEVIATION` in `restore/image_checks.py`.
+
+The same checks sweep files already on disk, across every tree of a volume:
+
+```bash
+uv run barks-verify-volume-images --volume 1,3 --do-restored
+```
 
 ### Related commands
 

@@ -485,14 +485,26 @@ def get_title_jobs(  # noqa: PLR0913
         dest_restored_svg_files,
         strict=True,
     ):
+        page_num = Path(dest_restored_file).stem
         status = get_page_status(
             Path(srce_upscayl_file[0]),
             Path(dest_restored_file),
             Path(dest_upscayled_restored_file),
             Path(dest_svg_restored_file),
             recipe.recipe_id,
+            is_hand_restored=comic.is_hand_restored(page_num),
         )
         num_by_state[status.state] = num_by_state.get(status.state, 0) + 1
+
+        # Not even under --force: this page was restored by hand. It carries no recipe of
+        # ours, so it reads as stale, and a run would write over work no re-run can make
+        # again. Tested before NO_SRCE because such a page may have no scan behind it at
+        # all, and being told that every run is a permanent false alarm.
+        if status.state is PageState.HAND_RESTORED:
+            logger.debug(
+                f'Page was restored by hand - skipping: "{get_abbrev_path(dest_restored_file)}".',
+            )
+            continue
 
         if status.state is PageState.NO_SRCE:
             logger.error(
@@ -540,7 +552,7 @@ def get_title_jobs(  # noqa: PLR0913
                 ),
                 title,
                 volume,
-                Path(dest_restored_file).stem,
+                page_num,
             ),
         )
 

@@ -59,6 +59,15 @@ class UpscalePageState(StrEnum):
     reads as STALE on the recipe test and would otherwise be redone, and destroyed, on
     every single run. Never this run's to make, not even under --force."""
 
+    HAND_RESTORED = "hand-restored"
+    """The page's restoration was made by hand, so nothing downstream wants this upscale.
+
+    Unlike FIXES, the path an upscale would write to here is an ordinary file in the plain
+    upscayled tree, and overwriting it destroys nothing. The reason to skip is that it
+    feeds nobody: the upscayled page exists only as the restore's input, and the restore
+    leaves hand-restored pages alone. Volume 3's ten Silent Night pages cost four minutes
+    and 231MB a run to make something no later stage reads."""
+
     NO_SRCE = "no-srce"
     """The original page is not there, so it cannot be upscayled at all."""
 
@@ -81,12 +90,15 @@ class UpscalePageStatus(NamedTuple):
         return self.state.needs_upscayling
 
 
-def get_upscale_page_status(
+# One return per state: the body is a chain of guard clauses in the order the questions
+# have to be asked, and collapsing them would hide the ordering, which is the point.
+def get_upscale_page_status(  # noqa: PLR0911
     srce_file: Path,
     dest_upscayl_file: Path,
     current_recipe_id: str,
     *,
     is_fixes_file: bool,
+    is_hand_restored: bool,
 ) -> UpscalePageStatus:
     """Work out whether a page still needs upscayling.
 
@@ -99,15 +111,19 @@ def get_upscale_page_status(
             non-ORIGINAL `ModifiedType` for. Deliberately required rather than defaulted:
             a caller that forgets it queues the hand edit for overwriting, which is how
             five of them were lost.
+        is_hand_restored: Whether this page's *restoration* was made by hand -
+            `ComicBook.is_hand_restored`. Such a page's upscale feeds only the restore,
+            which skips it, so making it is work for nothing. Required for the same reason
+            as `is_fixes_file`.
 
     Returns:
         The page's state, with the recipe id and date read off the upscayled png when it
         has them.
 
     """
-    # Both of these come first, and neither looks at the recipe, because for both the
-    # question "is this page up to date" is not this run's to answer - and answering it
-    # here is done by destroying something.
+    # These three come first, and none of them looks at the recipe, because for all three
+    # the question "is this page up to date" is not this run's to answer - and for the
+    # first two, answering it here is done by destroying something.
 
     # A symlink is another volume's page, and whether it is up to date belongs to that
     # volume. Asked here it would be answered by writing through the link. Tested before
@@ -121,6 +137,13 @@ def get_upscale_page_status(
     # every recipe test calls it stale, and acting on that would overwrite it for good.
     if is_fixes_file:
         return UpscalePageStatus(UpscalePageState.FIXES, "", "")
+
+    # The restoration of this page was made by hand, so the restore will not read the
+    # upscayled page and nothing else ever does. Tested after the fixes check because a
+    # page can be both - volume 4's 227 is - and FIXES is the one that names a file an
+    # upscale would destroy rather than merely one it need not make.
+    if is_hand_restored:
+        return UpscalePageStatus(UpscalePageState.HAND_RESTORED, "", "")
 
     if not srce_file.is_file():
         return UpscalePageStatus(UpscalePageState.NO_SRCE, "", "")

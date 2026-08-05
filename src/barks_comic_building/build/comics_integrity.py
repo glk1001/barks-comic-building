@@ -1440,8 +1440,11 @@ class ComicsIntegrityChecker:
         errors: OutOfDateErrors,
     ) -> None:
         is_a_comic = comic.get_title_enum() not in NON_COMIC_TITLES
-        # "Good Deeds" and "Silent Night" were restored by hand and legitimately have no
-        # file in the restored tree, so the restored-source check below cannot apply.
+        # "Good Deeds" and "Silent Night" are built out of the fixes tree by design -
+        # `get_final_srce_story_file` skips the restored tree for them - so their
+        # dependency chain never holds a restored-tree file and the check below has
+        # nothing to say about them. Not because the restored tree is empty for these
+        # titles: pipeline output is sitting there, it is simply read by nobody.
         needs_restored_file = comic.get_ini_title() not in HAND_RESTORED_TITLES
         restored_image_dir = comic.get_srce_restored_image_dir()
 

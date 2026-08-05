@@ -10,7 +10,12 @@ from barks_fantagraphics.comics_utils import get_clean_path
 from barks_fantagraphics.fanta_comics_info import FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME
 from comic_utils.pil_image_utils import add_png_metadata
 from loguru import logger
-from PIL import Image, ImageChops, ImageStat
+from PIL import Image
+
+from barks_comic_building.restore.image_checks import (
+    MAX_THUMBNAIL_DEVIATION,
+    get_thumbnail_deviation,
+)
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -64,11 +69,9 @@ WAIFU2X_SCALES = (1, 2, 4, 8, 16, 32)
 WAIFU2X_NOISE_LEVEL = 1
 
 # A broken run still exits 0 and writes a correctly sized PNG that is all black, or blacked out
-# below the first few rows, so every result is compared against its source. A genuine upscale
-# keeps the coarse thumbnails within a couple of levels of each other, while a corrupt one is
-# over a hundred levels away - anything in between is unexplained, so reject it.
-CHECK_THUMBNAIL_SIZE = (64, 64)
-MAX_THUMBNAIL_DEVIATION = 25.0
+# below the first few rows, so every result is compared against its source. The comparison and
+# its threshold live in `image_checks`, which the restore uses too - both stages have the same
+# failure and it is worth them having the same answer to it.
 
 # Enough of a failing run's output to diagnose it, bounded so that a backend stuck in a
 # loop cannot fill memory with its complaints.
@@ -237,11 +240,6 @@ def _run_upscaler(upscaler: Upscaler, run_args: list[str]) -> None:
         raise RuntimeError(f"{msg}\n{said}" if said else msg)
 
 
-def _get_check_thumbnail(image_file: Path) -> Image.Image:
-    with Image.open(image_file) as image:
-        return image.convert("RGB").resize(CHECK_THUMBNAIL_SIZE, Image.Resampling.BOX)
-
-
 def _check_upscaled_output(upscaler: Upscaler, in_file: Path, out_file: Path, scale: int) -> None:
     with Image.open(in_file) as in_image:
         expected_width, expected_height = in_image.width * scale, in_image.height * scale
@@ -255,13 +253,7 @@ def _check_upscaled_output(upscaler: Upscaler, in_file: Path, out_file: Path, sc
         )
         raise RuntimeError(msg)
 
-    difference = ImageChops.difference(
-        _get_check_thumbnail(in_file),
-        _get_check_thumbnail(out_file),
-    )
-    channel_means = ImageStat.Stat(difference).mean
-    deviation = sum(channel_means) / len(channel_means)
-
+    deviation = get_thumbnail_deviation(in_file, out_file)
     if deviation > MAX_THUMBNAIL_DEVIATION:
         msg = (
             f"{upscaler} exited cleanly but its image does not match the source"

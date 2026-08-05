@@ -7,13 +7,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import cv2 as cv
+from barks_fantagraphics.comics_database import get_fanta_title_for_volume
 from barks_fantagraphics.comics_utils import get_clean_path
+from barks_fantagraphics.fanta_comics_info import HAND_RESTORED_PAGES
 from comic_utils.pil_image_utils import get_image_size
 from loguru import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Generator
 
+from barks_comic_building.restore.image_checks import (
+    MAX_THUMBNAIL_DEVIATION,
+    find_content_fault,
+    find_structural_fault,
+)
 from barks_comic_building.restore.image_io import (
     resize_image_file,
     svg_file_to_optimized_png,
@@ -41,6 +48,40 @@ from barks_comic_building.restore.vtracer_to_svg import image_file_to_svg
 # Default for whether existing intermediate work files are reused (resume) rather than
 # regenerated. Can be overridden per pipeline via the constructor. Use with care.
 USE_EXISTING_WORK_FILES = False
+
+
+# The declared hand-restored pages, resolved from (volume, page) to the (volume directory
+# name, page stem) pair a destination path can be tested against. Resolved once, at import,
+# because the volume titles never change during a run.
+_HAND_RESTORED_PAGE_KEYS: frozenset[tuple[str, str]] = frozenset(
+    (get_fanta_title_for_volume(volume), page_num) for volume, page_num in HAND_RESTORED_PAGES
+)
+
+
+def is_hand_restored_page(dest_file: Path) -> bool:
+    """Return whether a destination path is one of the declared hand-restored pages.
+
+    Answered from the path alone - the volume directory two levels up, and the page stem -
+    rather than from anything the caller passes in. That is what makes it a second guard
+    rather than the same knowledge handed down a level: `single_restore_pipeline` has only
+    bare paths off the command line and could not answer honestly if it were asked.
+
+    The resolved parent is tested as well as the given one, since a page can be reached
+    through a symlinked volume directory - the staged collections are built that way - and
+    the volume's name only appears once the links have been followed.
+
+    Args:
+        dest_file: A path the restore is about to write.
+
+    Returns:
+        True if that path is a page whose restoration was made by hand.
+
+    """
+    for image_dir in (dest_file.parent, dest_file.parent.resolve()):
+        if (image_dir.parent.name, dest_file.stem) in _HAND_RESTORED_PAGE_KEYS:
+            return True
+
+    return False
 
 
 # The canonical step names. Kept separate from the log messages, which name the file
@@ -159,6 +200,16 @@ class RestorePipeline:
                 msg = (
                     f'Refusing to restore onto a symlink: "{dest_file}"'
                     f' points at "{dest_file.resolve()}", which belongs to another volume.'
+                )
+                raise ValueError(msg)
+
+            # Likewise refused here as well as in the page state. A page whose restoration
+            # was made by hand carries no recipe of ours, so it reads as stale on every
+            # run, and there is no re-run that could make it again.
+            if is_hand_restored_page(dest_file):
+                msg = (
+                    f'Refusing to restore over a hand-restored page: "{dest_file}".'
+                    " That page was made by hand and cannot be remade."
                 )
                 raise ValueError(msg)
 
@@ -378,6 +429,47 @@ class RestorePipeline:
             )
             logger.info(f"Snapped {fraction:.1%} of pixels to the srce palette.")
 
+    def _verify_output(
+        self,
+        out_file: Path,
+        *,
+        expected_size: tuple[int, int] | None = None,
+        expected_mode: str | None = None,
+        srce_file: Path | None = None,
+        max_deviation: float = MAX_THUMBNAIL_DEVIATION,
+    ) -> None:
+        """Check what was just written, and refuse to leave a bad page on disk.
+
+        The bad output is deleted rather than kept, because a corrupt page that stays put
+        reads as CURRENT on the next run once it has been stamped, and would never be
+        looked at again. Deleted, it comes back as MISSING and the next run redoes it.
+
+        Args:
+            out_file: The file the step has just written.
+            expected_size: The (width, height) it should have, or None not to check.
+            expected_mode: The PIL mode it should have, or None not to check.
+            srce_file: What it was made from, to compare it against, or None to run only
+                the structural checks.
+            max_deviation: How far from `srce_file` it is allowed to be.
+
+        Raises:
+            RuntimeError: If the output is unreadable, the wrong shape, one flat colour,
+                or does not resemble what it was made from.
+
+        """
+        fault = find_structural_fault(
+            out_file, expected_size=expected_size, expected_mode=expected_mode
+        )
+        if fault is None and srce_file is not None:
+            fault = find_content_fault(out_file, srce_file, max_deviation)
+
+        if fault is None:
+            return
+
+        out_file.unlink(missing_ok=True)
+        msg = f'Bad restore output "{out_file.name}", deleted: {fault}.'
+        raise RuntimeError(msg)
+
     def _do_overlay_inpaint_with_black_ink(self) -> None:
         logger.info(
             f'\nOverlaying colour file "{self.file_to_overlay}"'
@@ -386,6 +478,16 @@ class RestorePipeline:
         with _timed_step(self, STEP_OVERLAY, self.file_to_overlay.name):
             overlay_inpainted_file_with_black_ink(
                 self.file_to_overlay, self.svg_png_4x_file, self.dest_upscayled_restored_file
+            )
+
+            # Checked before the resize rather than at the end of the run, because the
+            # resize reads this file: a blacked-out overlay would otherwise be quietly
+            # copied down into the restored page as well.
+            self._verify_output(
+                self.dest_upscayled_restored_file,
+                expected_size=get_image_size(self.srce_upscale_file),
+                expected_mode="RGB",
+                srce_file=self.srce_upscale_file,
             )
 
     def _do_resize_restored_file(self) -> None:
@@ -412,6 +514,16 @@ class RestorePipeline:
                 restored_file_metadata,
             )
 
+            # This is the page the build reads, and the only one carrying a recipe, so a
+            # bad one here is the one that would go unnoticed longest.
+            upscayled_width, upscayled_height = get_image_size(self.dest_upscayled_restored_file)
+            self._verify_output(
+                self.dest_restored_file,
+                expected_size=(upscayled_width // self.scale, upscayled_height // self.scale),
+                expected_mode="RGB",
+                srce_file=self.dest_upscayled_restored_file,
+            )
+
             output_width, output_height = get_image_size(self.srce_file)
             logger.info(
                 f"\nSaving svg file to {output_width} x {output_height}"
@@ -420,6 +532,12 @@ class RestorePipeline:
             svg_file_to_optimized_png(
                 self.dest_svg_restored_file, output_width, output_height, self.png_of_svg_file
             )
+
+            # Structural checks only, and no mode check: the traced ink is written as a
+            # palette png, and it looks nothing like the colour page it came from, so a
+            # deviation threshold that suited the other two outputs would fire on every
+            # page.
+            self._verify_output(self.png_of_svg_file, expected_size=(output_width, output_height))
 
 
 def check_for_errors(

@@ -51,6 +51,8 @@ getpid
 gmic
 graphify
 graphifyignore
+getcolors
+IDAT
 idempotency
 idempotent
 IEND
@@ -87,6 +89,7 @@ ncnn
 neighbours
 nopython
 normalisation
+maxcolors
 normalised
 otsu
 oversubscription
@@ -97,6 +100,7 @@ pil
 pnginfo
 pngs
 popleft
+putdata
 posterise
 posterize
 posterized

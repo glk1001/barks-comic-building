@@ -83,6 +83,7 @@ barks-restore-stop = "barks_comic_building.restore.run_stop:app"
 barks-upscale-status = "barks_comic_building.restore.upscale_status:app"
 barks-single-restore = "barks_comic_building.restore.single_restore_pipeline:app"
 barks-single-upscayl = "barks_comic_building.restore.single_upscayl:app"
+barks-verify-volume-images = "barks_comic_building.restore.verify_volume_images:app"
 
 [tool.uv.sources]
 barks-fantagraphics = { path = "../barks-compleat-reader/src/barks-fantagraphics", editable = true }

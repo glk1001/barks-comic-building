@@ -783,11 +783,12 @@ class ComicsIntegrityChecker:
                     ret_code = ret
 
         if ret_code == 0:
-            if not unexpected_files:
-                print("\nThere were no problems found.\n")
-            else:
-                print("\nThere were no other problems found.\n")
+            if unexpected_files:
+                logger.warning("There were unexpected files but no other problems found.")
                 ret_code = 1
+            else:
+                scope = f"{len(titles)} title(s)" if titles else "every title"
+                logger.success(f"Integrity check passed: no problems found in {scope}.")
 
         return ret_code
 

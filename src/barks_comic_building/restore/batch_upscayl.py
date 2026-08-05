@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated, NamedTuple
 
 import typer
+from barks_fantagraphics.comic_book import ModifiedType
 from barks_fantagraphics.comic_book_info import is_non_comic_title
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
@@ -81,20 +82,35 @@ def get_title_jobs(
     upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
 
     jobs: list[_PageJob] = []
-    for (srce_file, _srce_mod), (dest_file, _is_mod_file) in zip(
+    for (srce_file, _srce_mod), (dest_file, dest_mod) in zip(
         srce_files, upscayl_files, strict=True
     ):
-        status = get_upscale_page_status(srce_file, dest_file, recipe.recipe_id)
+        status = get_upscale_page_status(
+            srce_file,
+            dest_file,
+            recipe.recipe_id,
+            # A non-ORIGINAL dest is not the upscayled page at all - it is the hand-edited
+            # file standing in for it, and this run's output would be written over the top.
+            is_fixes_file=dest_mod is not ModifiedType.ORIGINAL,
+        )
         counts[status.state] = counts.get(status.state, 0) + 1
+
+        # Neither of these two is queued even under --force.
+
+        # Hand edits cannot be remade, and carry no recipe of ours, so they read as stale
+        # and would be overwritten on every run.
+        if status.state == UpscalePageState.FIXES:
+            logger.debug(f'Page is a hand-edited fixes file - skipping: "{dest_file}".')
+            continue
+
+        # This page is a symlink to another volume's, and forcing it would write through
+        # the link over a page that is not this title's.
+        if status.state == UpscalePageState.LINKED:
+            logger.debug(f'Page belongs to another volume - skipping: "{dest_file}".')
+            continue
 
         if status.state == UpscalePageState.NO_SRCE:
             logger.warning(f'No srce file - cannot upscayl: "{get_abbrev_path(srce_file)}".')
-            continue
-
-        # Not even under --force: this page is a symlink to another volume's, and forcing
-        # it would write through the link over a page that is not this title's.
-        if status.state == UpscalePageState.LINKED:
-            logger.debug(f'Page belongs to another volume - skipping: "{dest_file}".')
             continue
 
         if not status.needs_upscayling and not force:

@@ -46,6 +46,19 @@ class UpscalePageState(StrEnum):
     follow the link and overwrite that volume's page, with an upscale of a different
     source image, so a linked page is never this run's to make."""
 
+    FIXES = "fixes"
+    """The page is a hand-edited file in the upscayled fixes tree.
+
+    A fixes file does not sit beside the upscayled page, it *is* what stands in for it:
+    `get_final_srce_upscayled_story_file` returns the fixes file rather than the upscayled
+    one, and refuses to let both exist. So the path an upscale would write to for such a
+    page is the hand-edited file itself.
+
+    Nothing an upscaler produces belongs there. The edit was made by hand, carries no
+    recipe of ours, and cannot be made again by re-running anything - which is also why it
+    reads as STALE on the recipe test and would otherwise be redone, and destroyed, on
+    every single run. Never this run's to make, not even under --force."""
+
     NO_SRCE = "no-srce"
     """The original page is not there, so it cannot be upscayled at all."""
 
@@ -72,6 +85,8 @@ def get_upscale_page_status(
     srce_file: Path,
     dest_upscayl_file: Path,
     current_recipe_id: str,
+    *,
+    is_fixes_file: bool,
 ) -> UpscalePageStatus:
     """Work out whether a page still needs upscayling.
 
@@ -79,15 +94,28 @@ def get_upscale_page_status(
         srce_file: The original page the upscale works from.
         dest_upscayl_file: The upscayled page.
         current_recipe_id: The id of the recipe the upscale would use now.
+        is_fixes_file: Whether `dest_upscayl_file` is a hand-edited page in the upscayled
+            fixes tree, which is what `get_final_srce_upscayled_story_file` returns a
+            non-ORIGINAL `ModifiedType` for. Deliberately required rather than defaulted:
+            a caller that forgets it queues the hand edit for overwriting, which is how
+            five of them were lost.
 
     Returns:
         The page's state, with the recipe id and date read off the upscayled png when it
         has them.
 
     """
-    # Before anything else: a symlink is another volume's page, and the question of
-    # whether it is up to date belongs to that volume. Asked here it would be answered by
-    # writing through the link.
+    # Both of these come first, and neither looks at the recipe, because for both the
+    # question "is this page up to date" is not this run's to answer - and answering it
+    # here is done by destroying something.
+
+    # A hand edit stands where the upscayled page would be. It has no recipe of ours, so
+    # every recipe test calls it stale, and acting on that would overwrite it for good.
+    if is_fixes_file:
+        return UpscalePageStatus(UpscalePageState.FIXES, "", "")
+
+    # A symlink is another volume's page, and whether it is up to date belongs to that
+    # volume. Asked here it would be answered by writing through the link.
     if dest_upscayl_file.is_symlink():
         return UpscalePageStatus(UpscalePageState.LINKED, "", "")
 

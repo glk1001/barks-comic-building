@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Annotated, NamedTuple
 
 import typer
+from barks_fantagraphics.comic_book import ModifiedType
 from barks_fantagraphics.comic_book_info import is_non_comic_title
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
@@ -46,6 +47,7 @@ _REPORTED_STATES = (
     UpscalePageState.CURRENT,
     UpscalePageState.STALE,
     UpscalePageState.MISSING,
+    UpscalePageState.FIXES,
     UpscalePageState.LINKED,
     UpscalePageState.NO_SRCE,
 )
@@ -89,10 +91,15 @@ def get_title_status(
     upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
 
     counts: Counter[UpscalePageState] = Counter()
-    for (srce_file, _srce_mod), (dest_file, _is_mod_file) in zip(
+    for (srce_file, _srce_mod), (dest_file, dest_mod) in zip(
         srce_files, upscayl_files, strict=True
     ):
-        status = get_upscale_page_status(Path(srce_file), Path(dest_file), current_recipe_id)
+        status = get_upscale_page_status(
+            Path(srce_file),
+            Path(dest_file),
+            current_recipe_id,
+            is_fixes_file=dest_mod is not ModifiedType.ORIGINAL,
+        )
         counts[status.state] += 1
 
     return counts
@@ -162,6 +169,7 @@ def print_status_table(
     table.add_column("Current", justify="right", style="green")
     table.add_column("Stale", justify="right", style="yellow")
     table.add_column("Missing", justify="right", style="red")
+    table.add_column("Fixes", justify="right", style="dim")
     table.add_column("Linked", justify="right", style="dim")
     table.add_column("No srce", justify="right", style="dim")
     table.add_column("Est. left", justify="right")
@@ -197,6 +205,12 @@ def print_status_table(
         console.print(
             f"{num_to_do} page(s) to do. No timings recorded yet, so no estimate -"
             " run a volume and the ledger will have one.",
+        )
+
+    if totals[UpscalePageState.FIXES]:
+        console.print(
+            f"{totals[UpscalePageState.FIXES]} page(s) are hand-edited fixes files and are"
+            " never upscayled - the edit is the finished page.",
         )
 
     if totals[UpscalePageState.LINKED]:

@@ -10,11 +10,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from barks_fantagraphics.fanta_comics_info import FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from barks_comic_building.restore import upscale_image
 from barks_comic_building.restore.upscale_image import (
+    HAND_EDITED_DIRNAMES,
     Upscaler,
     check_upscaler_is_usable,
     upscale_image_file,
@@ -53,8 +55,10 @@ class Page:
         self.srce = tmp_path / "srce.jpg"
         self.upscayl = tmp_path / "upscayl.png"
 
-    def state(self) -> UpscalePageState:
-        return get_upscale_page_status(self.srce, self.upscayl, CURRENT_RECIPE_ID).state
+    def state(self, *, is_fixes_file: bool = False) -> UpscalePageState:
+        return get_upscale_page_status(
+            self.srce, self.upscayl, CURRENT_RECIPE_ID, is_fixes_file=is_fixes_file
+        ).state
 
     def write_all(self, recipe_id: str | None) -> None:
         write_png(self.srce)
@@ -121,10 +125,37 @@ class TestUpscalePageState:
     def test_the_date_is_read_back(self, page: Page) -> None:
         page.write_all(CURRENT_RECIPE_ID)
 
-        status = get_upscale_page_status(page.srce, page.upscayl, CURRENT_RECIPE_ID)
+        status = get_upscale_page_status(
+            page.srce, page.upscayl, CURRENT_RECIPE_ID, is_fixes_file=False
+        )
 
         assert status.upscale_date == UPSCALE_DATE
         assert status.recipe_id == CURRENT_RECIPE_ID
+
+
+class TestAHandEditedPageIsNeverTheRunsToMake:
+    """A fixes file replaces the upscayled page, so it is what a run would write over.
+
+    It was made by hand and carries no recipe of ours, so every recipe test calls it
+    stale - which is what had the batch run redo it, and destroy it, on every pass.
+    """
+
+    def test_a_fixes_page_is_fixes_not_stale(self, page: Page) -> None:
+        page.write_all(recipe_id=None)
+
+        assert page.state(is_fixes_file=True) is UpscalePageState.FIXES
+
+    def test_a_fixes_page_stays_fixes_whatever_recipe_it_carries(self, page: Page) -> None:
+        """Including the run's own recipe, stamped there by an earlier overwrite."""
+        page.write_all(CURRENT_RECIPE_ID)
+
+        assert page.state(is_fixes_file=True) is UpscalePageState.FIXES
+
+    def test_an_added_fixes_page_with_no_srce_is_still_fixes(self, page: Page) -> None:
+        """An ADDED page has no original scan; NO_SRCE happened to spare it, FIXES means it."""
+        write_png(page.upscayl)
+
+        assert page.state(is_fixes_file=True) is UpscalePageState.FIXES
 
 
 class TestNeedsUpscayling:
@@ -134,6 +165,7 @@ class TestNeedsUpscayling:
             (UpscalePageState.CURRENT, False),
             (UpscalePageState.NO_SRCE, False),
             (UpscalePageState.LINKED, False),
+            (UpscalePageState.FIXES, False),
             (UpscalePageState.STALE, True),
             (UpscalePageState.MISSING, True),
         ],
@@ -150,7 +182,7 @@ class TestNeedsUpscayling:
 
 
 class TestTheWriterRefusesToo:
-    """The page state keeps linked pages out of a run; this keeps them safe anyway.
+    """The page state keeps these pages out of a run; this keeps them safe anyway.
 
     A guard in only one of the two places would leave `single_upscayl` and
     `directory_upscayl` able to do the damage.
@@ -167,6 +199,42 @@ class TestTheWriterRefusesToo:
             upscale_image_file(write_png(tmp_path / "srce.png"), out_file, 4)
 
         assert other_volume_page.read_bytes() == before
+
+    @pytest.mark.parametrize("tree", HAND_EDITED_DIRNAMES)
+    def test_upscaling_into_a_hand_edited_tree_is_refused(self, tmp_path: Path, tree: str) -> None:
+        hand_edit = write_png(tmp_path / tree / "Vol. 4" / "images" / "045.png")
+        before = hand_edit.read_bytes()
+
+        with pytest.raises(ValueError, match="hand-edited"):
+            upscale_image_file(write_png(tmp_path / "srce.png"), hand_edit, 4)
+
+        assert hand_edit.read_bytes() == before
+
+    def test_a_new_page_in_a_hand_edited_tree_is_refused_as_well(self, tmp_path: Path) -> None:
+        """The tree is refused, not just the pages already in it."""
+        out_file = (
+            tmp_path / FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME / "Vol. 4" / "images" / "999.png"
+        )
+        out_file.parent.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="hand-edited"):
+            upscale_image_file(write_png(tmp_path / "srce.png"), out_file, 4)
+
+        assert not out_file.exists()
+
+    def test_a_symlinked_volume_directory_does_not_hide_the_tree(self, tmp_path: Path) -> None:
+        """Staged collections reach their pages through a symlinked volume directory."""
+        real_volume = tmp_path / FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME / "Vol. 4" / "images"
+        hand_edit = write_png(real_volume / "045.png")
+        before = hand_edit.read_bytes()
+
+        staged = tmp_path / "staged"
+        staged.symlink_to(real_volume, target_is_directory=True)
+
+        with pytest.raises(ValueError, match="hand-edited"):
+            upscale_image_file(write_png(tmp_path / "srce.png"), staged / "045.png", 4)
+
+        assert hand_edit.read_bytes() == before
 
 
 class TestRunLevelPreconditions:

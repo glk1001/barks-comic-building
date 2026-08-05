@@ -7,6 +7,10 @@ from typing import Annotated
 
 import typer
 from barks_fantagraphics.comics_utils import get_clean_path
+from barks_fantagraphics.fanta_comics_info import (
+    FANTAGRAPHICS_FIXES_DIRNAME,
+    FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME,
+)
 from comic_utils.pil_image_utils import add_png_metadata
 from loguru import logger
 from PIL import Image, ImageChops, ImageStat
@@ -72,6 +76,11 @@ MAX_THUMBNAIL_DEVIATION = 25.0
 # Enough of a failing run's output to diagnose it, bounded so that a backend stuck in a
 # loop cannot fill memory with its complaints.
 _MAX_KEPT_OUTPUT_LINES = 40
+
+# The trees whose contents were made by hand. Every other tree in the library can be
+# rebuilt by re-running something; a page in one of these cannot be got back at all. So
+# nothing an upscaler produces may be written into one, whichever tool is asking.
+HAND_EDITED_DIRNAMES = (FANTAGRAPHICS_FIXES_DIRNAME, FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME)
 
 
 def _get_upscayl_run_args(in_file: Path, out_file: Path, scale: int) -> list[str]:
@@ -262,6 +271,28 @@ def _check_upscaled_output(upscaler: Upscaler, in_file: Path, out_file: Path, sc
         raise RuntimeError(msg)
 
 
+def get_hand_edited_tree(out_file: Path) -> Path | None:
+    """Return the hand-edited tree a path would be written into, if any.
+
+    The resolved path is tested as well as the given one, since a page can be reached
+    through a symlinked volume directory - the staged collections are built that way -
+    and the name of the tree only appears once the links have been followed.
+
+    Args:
+        out_file: The path something is about to be written to.
+
+    Returns:
+        The hand-edited directory it lies under, or None.
+
+    """
+    for candidate in (out_file, out_file.parent.resolve() / out_file.name):
+        for parent in candidate.parents:
+            if parent.name in HAND_EDITED_DIRNAMES:
+                return parent
+
+    return None
+
+
 def upscale_image_file(
     in_file: Path,
     out_file: Path,
@@ -278,8 +309,8 @@ def upscale_image_file(
 
     Raises:
         FileNotFoundError: If the backend's binary is not installed.
-        ValueError: If the backend cannot handle the requested scale, or if the output
-            path is a symlink.
+        ValueError: If the backend cannot handle the requested scale, if the output
+            path is a symlink, or if it lies in a hand-edited tree.
         RuntimeError: If the backend fails, carrying what it printed, or returns an
             image that does not match the source. The unusable output file is
             deleted first.
@@ -295,6 +326,18 @@ def upscale_image_file(
         msg = (
             f'Refusing to upscale onto a symlink: "{out_file}"'
             f' points at "{out_file.resolve()}", which belongs to another volume.'
+        )
+        raise ValueError(msg)
+
+    # Likewise refused here as well as in the page state. A hand-edited page is the one
+    # thing in the library that no re-run can reproduce, so the writer refuses the whole
+    # tree outright rather than trusting every caller to have worked out that this
+    # particular path is one.
+    hand_edited_tree = get_hand_edited_tree(out_file)
+    if hand_edited_tree is not None:
+        msg = (
+            f'Refusing to upscale into the hand-edited tree "{hand_edited_tree.name}":'
+            f' "{out_file}". Those pages were made by hand and cannot be remade.'
         )
         raise ValueError(msg)
 

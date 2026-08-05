@@ -109,15 +109,18 @@ def get_upscale_page_status(
     # question "is this page up to date" is not this run's to answer - and answering it
     # here is done by destroying something.
 
+    # A symlink is another volume's page, and whether it is up to date belongs to that
+    # volume. Asked here it would be answered by writing through the link. Tested before
+    # the fixes check because a page can be both - a link standing in this volume that
+    # points into another's upscayled fixes tree - and the volume it belongs to is the
+    # more useful of the two things to be told.
+    if dest_upscayl_file.is_symlink():
+        return UpscalePageStatus(UpscalePageState.LINKED, "", "")
+
     # A hand edit stands where the upscayled page would be. It has no recipe of ours, so
     # every recipe test calls it stale, and acting on that would overwrite it for good.
     if is_fixes_file:
         return UpscalePageStatus(UpscalePageState.FIXES, "", "")
-
-    # A symlink is another volume's page, and whether it is up to date belongs to that
-    # volume. Asked here it would be answered by writing through the link.
-    if dest_upscayl_file.is_symlink():
-        return UpscalePageStatus(UpscalePageState.LINKED, "", "")
 
     if not srce_file.is_file():
         return UpscalePageStatus(UpscalePageState.NO_SRCE, "", "")

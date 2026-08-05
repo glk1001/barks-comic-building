@@ -157,6 +157,19 @@ class TestAHandEditedPageIsNeverTheRunsToMake:
 
         assert page.state(is_fixes_file=True) is UpscalePageState.FIXES
 
+    def test_a_borrowed_fixes_page_is_reported_as_linked(self, page: Page, tmp_path: Path) -> None:
+        """A page can be both: a link standing here, pointing into another volume's fixes.
+
+        Either answer skips it, so nothing is at risk; LINKED is reported because it names
+        the volume the page belongs to, and counting it under FIXES would have the closing
+        tally claim another volume's hand edits as this one's.
+        """
+        other_volume_fix = write_png(tmp_path / "other" / "123.png")
+        write_png(page.srce)
+        page.upscayl.symlink_to(other_volume_fix)
+
+        assert page.state(is_fixes_file=True) is UpscalePageState.LINKED
+
 
 class TestNeedsUpscayling:
     @pytest.mark.parametrize(

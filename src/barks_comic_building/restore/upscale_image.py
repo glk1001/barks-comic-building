@@ -7,10 +7,7 @@ from typing import Annotated
 
 import typer
 from barks_fantagraphics.comics_utils import get_clean_path
-from barks_fantagraphics.fanta_comics_info import (
-    FANTAGRAPHICS_FIXES_DIRNAME,
-    FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME,
-)
+from barks_fantagraphics.fanta_comics_info import FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME
 from comic_utils.pil_image_utils import add_png_metadata
 from loguru import logger
 from PIL import Image, ImageChops, ImageStat
@@ -77,10 +74,15 @@ MAX_THUMBNAIL_DEVIATION = 25.0
 # loop cannot fill memory with its complaints.
 _MAX_KEPT_OUTPUT_LINES = 40
 
-# The trees whose contents were made by hand. Every other tree in the library can be
-# rebuilt by re-running something; a page in one of these cannot be got back at all. So
-# nothing an upscaler produces may be written into one, whichever tool is asking.
-HAND_EDITED_DIRNAMES = (FANTAGRAPHICS_FIXES_DIRNAME, FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME)
+# The tree whose contents were made by hand. Every other tree in the library can be
+# rebuilt by re-running something; a page in this one cannot be got back at all. So
+# nothing an upscaler produces may be written into it, whichever tool is asking.
+#
+# The plain fixes tree is deliberately absent: no upscale destination ever
+# resolves there - the batch run's dest is the plain upscayled page or this tree - and
+# both manual tools refuse an output path that already exists, so guarding it would
+# only stop new files being made beside a fix, which destroys nothing.
+HAND_EDITED_DIRNAMES = (FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME,)
 
 
 def _get_upscayl_run_args(in_file: Path, out_file: Path, scale: int) -> list[str]:

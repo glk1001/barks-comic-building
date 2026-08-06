@@ -4,7 +4,7 @@
 # ruff: noqa: T201
 import json
 import stat
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -385,6 +385,22 @@ def _added_fixes_fault_msg(
     )
 
 
+class HandRestoredPolicy(StrEnum):
+    """What a source tree must hold for a hand-restored title's pages.
+
+    The build reads the hand-restored titles out of the fixes tree, so the png pipeline
+    trees must hold nothing for them - a file of theirs there is dead weight nothing
+    will ever read. The svg tree is the opposite: it holds the hand-restoration work
+    itself, so every one of their pages must be present. Everywhere else the pages are
+    unremarkable - the panel segments, notably, are consumed for every title,
+    hand-restored or not.
+    """
+
+    ALLOWED = "allowed"
+    BANNED = "banned"
+    REQUIRED = "required"
+
+
 @dataclass(frozen=True, slots=True)
 class SourceTreeSpec:
     """One source tree's expected recursive shape.
@@ -404,6 +420,8 @@ class SourceTreeSpec:
     # Non-page files allowed beside `images` - the original downloads shipped a
     # ComicInfo.xml in some volumes, and that read-only tree is kept as delivered.
     extra_volume_files: frozenset[str] = frozenset()
+    # What this tree must hold for a hand-restored title's pages.
+    hand_restored: HandRestoredPolicy = HandRestoredPolicy.ALLOWED
 
 
 ORIGINAL_TREE = SourceTreeSpec(
@@ -411,19 +429,29 @@ ORIGINAL_TREE = SourceTreeSpec(
     page_file_exts=(JPG_FILE_EXT,),
     extra_volume_files=frozenset({"ComicInfo.xml"}),
 )
-UPSCAYLED_TREE = SourceTreeSpec(label="upscayled", page_file_exts=(PNG_FILE_EXT,))
-RESTORED_TREE = SourceTreeSpec(label="restored", page_file_exts=(PNG_FILE_EXT,))
-RESTORED_UPSCAYLED_TREE = SourceTreeSpec(label="restored upscayled", page_file_exts=(PNG_FILE_EXT,))
+UPSCAYLED_TREE = SourceTreeSpec(
+    label="upscayled", page_file_exts=(PNG_FILE_EXT,), hand_restored=HandRestoredPolicy.BANNED
+)
+RESTORED_TREE = SourceTreeSpec(
+    label="restored", page_file_exts=(PNG_FILE_EXT,), hand_restored=HandRestoredPolicy.BANNED
+)
+RESTORED_UPSCAYLED_TREE = SourceTreeSpec(
+    label="restored upscayled",
+    page_file_exts=(PNG_FILE_EXT,),
+    hand_restored=HandRestoredPolicy.BANNED,
+)
 RESTORED_SVG_TREE = SourceTreeSpec(
-    label="restored svg", page_file_exts=(SVG_FILE_EXT, SVG_FILE_EXT + PNG_FILE_EXT)
+    label="restored svg",
+    page_file_exts=(SVG_FILE_EXT, SVG_FILE_EXT + PNG_FILE_EXT),
+    hand_restored=HandRestoredPolicy.REQUIRED,
 )
 PANEL_SEGMENTS_TREE = SourceTreeSpec(
     label="panel segments", page_file_exts=(JSON_FILE_EXT,), has_images_subdir=False
 )
 
 
-def is_expected_page_file(name: str, allowed_exts: tuple[str, ...]) -> bool:
-    """Return whether a filename is a numbered page file with an allowed extension.
+def get_page_file_num(name: str, allowed_exts: tuple[str, ...]) -> str | None:
+    """Return a numbered page file's page num, or None if the name is not one.
 
     The extension is matched as a suffix rather than via `Path.suffix`, so a compound
     extension like `.svg.png` counts as one extension, and a stray `144.png.corrupt-bak`
@@ -434,10 +462,17 @@ def is_expected_page_file(name: str, allowed_exts: tuple[str, ...]) -> bool:
         allowed_exts: The extensions a page in this tree may carry.
 
     Returns:
-        True if the name is a page number followed by an allowed extension.
+        The page num string, or None if the name is not a page number followed by an
+        allowed extension.
 
     """
-    return any(name.endswith(ext) and name.removesuffix(ext).isnumeric() for ext in allowed_exts)
+    for ext in allowed_exts:
+        if name.endswith(ext):
+            stem = name.removesuffix(ext)
+            if stem.isnumeric():
+                return stem
+
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1342,8 +1377,8 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    def _source_trees(self) -> list[tuple[SourceTreeSpec, Path, list[Path]]]:
-        """Return each source tree's spec, root, and expected volume directories."""
+    def _source_trees(self) -> list[tuple[SourceTreeSpec, Path, list[tuple[int, Path]]]]:
+        """Return each source tree's spec, root, and numbered expected volume directories."""
         database = self.comics_database
         trees = [
             (
@@ -1380,9 +1415,34 @@ class ComicsIntegrityChecker:
 
         volumes = range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1)
         return [
-            (spec, root_dir, [get_volume_dir(volume) for volume in volumes])
+            (spec, root_dir, [(volume, get_volume_dir(volume)) for volume in volumes])
             for spec, root_dir, get_volume_dir in trees
         ]
+
+    def _hand_restored_page_nums(self) -> dict[int, dict[str, str]]:
+        """Map each volume to the page nums the hand-restored titles occupy in it.
+
+        Each tree's `HandRestoredPolicy` says what to do with them. The png pipeline
+        trees must not hold these pages: the build reads the hand-restored titles out
+        of the fixes tree, so pipeline output for them is dead weight - and worse, it
+        looks exactly like a page the pipeline still owns, inviting a re-run to
+        "finish" a title that is finished. The svg tree must hold every one of them:
+        it is where the hand-restoration work itself lives.
+
+        Returns:
+            `{volume: {page num: title}}`, the title kept for the error message.
+
+        """
+        pages_by_volume: dict[int, dict[str, str]] = {}
+
+        for title in HAND_RESTORED_TITLES:
+            comic = self.comics_database.get_comic_book(title)
+            volume_pages = pages_by_volume.setdefault(comic.fanta_book.volume, {})
+            for page in comic.page_images_in_order:
+                if page.page_type in RESTORABLE_PAGE_TYPES:
+                    volume_pages[page.page_filenames] = title
+
+        return pages_by_volume
 
     def check_source_tree_contents(self) -> int:
         """Sweep the six source trees for entries that belong to no volume.
@@ -1393,23 +1453,31 @@ class ComicsIntegrityChecker:
         files in the tree's extensions. This is what catches a copied volume directory,
         an `OLD/` backup tree, or a `144.png.corrupt-bak` beside the real page.
 
+        The hand-restored titles' pages are also graded, per each tree's policy: banned
+        from the png pipeline trees, whose output for them the build will never read,
+        and required in the svg tree, which holds the hand-restoration work itself.
+
         Returns:
             0 if every tree holds only what it should, 1 otherwise.
 
         """
         ret_code = 0
+        hand_restored_pages = self._hand_restored_page_nums()
 
         for spec, root_dir, volume_dirs in self._source_trees():
-            if self.check_files_in_dir(spec.label, root_dir, volume_dirs) != 0:
+            if self.check_files_in_dir(spec.label, root_dir, [d for _, d in volume_dirs]) != 0:
                 ret_code = 1
 
-            for volume_dir in volume_dirs:
-                if self._check_source_volume_dir(spec, volume_dir) != 0:
+            for volume, volume_dir in volume_dirs:
+                pages = hand_restored_pages.get(volume, {})
+                if self._check_source_volume_dir(spec, volume_dir, pages) != 0:
                     ret_code = 1
 
         return ret_code
 
-    def _check_source_volume_dir(self, spec: SourceTreeSpec, volume_dir: Path) -> int:
+    def _check_source_volume_dir(
+        self, spec: SourceTreeSpec, volume_dir: Path, hand_restored_pages: Mapping[str, str]
+    ) -> int:
         """Check one volume directory of a source tree, down to its page files."""
         ret_code = 0
 
@@ -1422,14 +1490,68 @@ class ComicsIntegrityChecker:
                 ret_code = 1
             page_dir = volume_dir / IMAGES_SUBDIR
 
-        if self.check_page_files_in_dir(spec.label, page_dir, spec.page_file_exts) != 0:
+        banned = hand_restored_pages if spec.hand_restored is HandRestoredPolicy.BANNED else {}
+        if self.check_page_files_in_dir(spec.label, page_dir, spec.page_file_exts, banned) != 0:
+            ret_code = 1
+
+        # Guarded on the directory: if it is missing entirely, the sweep above already
+        # said so once, and ten more "missing" lines would not say it better.
+        if (
+            spec.hand_restored is HandRestoredPolicy.REQUIRED
+            and page_dir.is_dir()
+            and self.check_hand_restored_files_exist(
+                spec.label, page_dir, spec.page_file_exts, hand_restored_pages
+            )
+            != 0
+        ):
             ret_code = 1
 
         return ret_code
 
     @staticmethod
+    def check_hand_restored_files_exist(
+        file_type: str,
+        page_dir: Path,
+        required_exts: tuple[str, ...],
+        hand_restored_pages: Mapping[str, str],
+    ) -> int:
+        """Check every hand-restored page is present in each of the tree's extensions.
+
+        Every extension, not any: the svg tree pairs each hand-drawn `.svg` with its
+        rendered `.svg.png`, and a page missing either half is incomplete.
+
+        Args:
+            file_type: What to call the tree in a message.
+            page_dir: The directory holding the pages.
+            required_exts: The extensions each page must be present in.
+            hand_restored_pages: Page nums that must be here, mapped to the
+                hand-restored title they belong to.
+
+        Returns:
+            0 if every required file exists, 1 otherwise.
+
+        """
+        ret_code = 0
+
+        for page_num, title in sorted(hand_restored_pages.items()):
+            for ext in required_exts:
+                file = page_dir / (page_num + ext)
+                if not file.is_file():
+                    print(
+                        f'{ERROR_MSG_PREFIX}The {file_type} page file "{file}" is missing.\n'
+                        f'{BLANK_ERR_MSG_PREFIX}"{title}" is hand-restored and this tree'
+                        f" holds the hand-restoration work, so every page must be here.",
+                    )
+                    ret_code = 1
+
+        return ret_code
+
+    @staticmethod
     def check_page_files_in_dir(
-        file_type: str, dir_path: Path, allowed_exts: tuple[str, ...]
+        file_type: str,
+        dir_path: Path,
+        allowed_exts: tuple[str, ...],
+        hand_restored_pages: Mapping[str, str] | None = None,
     ) -> int:
         """Check a page directory holds only numbered page files in the allowed extensions.
 
@@ -1437,22 +1559,36 @@ class ComicsIntegrityChecker:
             file_type: What to call the tree in a message.
             dir_path: The directory holding the pages.
             allowed_exts: The extensions a page in this tree may carry.
+            hand_restored_pages: Page nums that must not appear here at all, mapped to
+                the hand-restored title they belong to.
 
         Returns:
-            0 if every entry is a page file, 1 otherwise.
+            0 if every entry is a page file that belongs here, 1 otherwise.
 
         """
         if not dir_path.is_dir():
             print(f'{ERROR_MSG_PREFIX}The directory "{dir_path}" is missing.')
             return 1
 
+        banned_pages = hand_restored_pages or {}
+
         ret_code = 0
         for entry in sorted(dir_path.iterdir()):
             if entry.is_dir():
                 print(f'{ERROR_MSG_PREFIX}The {file_type} directory "{entry}" was unexpected.')
                 ret_code = 1
-            elif not is_expected_page_file(entry.name, allowed_exts):
+                continue
+
+            page_num = get_page_file_num(entry.name, allowed_exts)
+            if page_num is None:
                 print(f'{ERROR_MSG_PREFIX}The {file_type} page file "{entry}" was unexpected.')
+                ret_code = 1
+            elif page_num in banned_pages:
+                print(
+                    f'{ERROR_MSG_PREFIX}The {file_type} page file "{entry}" was unexpected.\n'
+                    f'{BLANK_ERR_MSG_PREFIX}"{banned_pages[page_num]}" is hand-restored'
+                    f" and is built from the fixes tree, so nothing reads this file.",
+                )
                 ret_code = 1
 
         return ret_code

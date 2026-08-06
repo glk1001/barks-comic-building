@@ -17,6 +17,7 @@ bufferfmt
 bups
 cbld
 ccbdl
+capsys
 cbz
 chrn
 chrono

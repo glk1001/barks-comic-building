@@ -49,7 +49,7 @@ from barks_fantagraphics.pages import (
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
-from comic_utils.comic_consts import JPG_FILE_EXT
+from comic_utils.comic_consts import JPG_FILE_EXT, JSON_FILE_EXT, SVG_FILE_EXT
 from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 
@@ -383,6 +383,61 @@ def _added_fixes_fault_msg(
         f" [{policy.num_fanta_pages + 1}..{MAX_EXTRA_FIXES_PAGE_NUM}]"
         f'{policy.collection_range_msg()}: "{file}".'
     )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceTreeSpec:
+    """One source tree's expected recursive shape.
+
+    Each tree holds one volume directory per Fantagraphics volume and nothing else, and
+    each volume holds only numbered page files - under an `images` subdirectory for the
+    image trees, directly in the volume directory for the panel segments tree.
+    """
+
+    # How the tree is named in a message: "original", "restored", ...
+    label: str
+    # The extensions a page file may carry, matched as whole suffixes so that the svg
+    # tree's compound ".svg.png" is one extension rather than a ".png" with an odd stem.
+    page_file_exts: tuple[str, ...]
+    # Whether pages live under an `images` subdirectory (all trees but panel segments).
+    has_images_subdir: bool = True
+    # Non-page files allowed beside `images` - the original downloads shipped a
+    # ComicInfo.xml in some volumes, and that read-only tree is kept as delivered.
+    extra_volume_files: frozenset[str] = frozenset()
+
+
+ORIGINAL_TREE = SourceTreeSpec(
+    label="original",
+    page_file_exts=(JPG_FILE_EXT,),
+    extra_volume_files=frozenset({"ComicInfo.xml"}),
+)
+UPSCAYLED_TREE = SourceTreeSpec(label="upscayled", page_file_exts=(PNG_FILE_EXT,))
+RESTORED_TREE = SourceTreeSpec(label="restored", page_file_exts=(PNG_FILE_EXT,))
+RESTORED_UPSCAYLED_TREE = SourceTreeSpec(label="restored upscayled", page_file_exts=(PNG_FILE_EXT,))
+RESTORED_SVG_TREE = SourceTreeSpec(
+    label="restored svg", page_file_exts=(SVG_FILE_EXT, SVG_FILE_EXT + PNG_FILE_EXT)
+)
+PANEL_SEGMENTS_TREE = SourceTreeSpec(
+    label="panel segments", page_file_exts=(JSON_FILE_EXT,), has_images_subdir=False
+)
+
+
+def is_expected_page_file(name: str, allowed_exts: tuple[str, ...]) -> bool:
+    """Return whether a filename is a numbered page file with an allowed extension.
+
+    The extension is matched as a suffix rather than via `Path.suffix`, so a compound
+    extension like `.svg.png` counts as one extension, and a stray `144.png.corrupt-bak`
+    is not mistaken for a page because its stem happens to survive one `.suffix` strip.
+
+    Args:
+        name: The filename, with no directory part.
+        allowed_exts: The extensions a page in this tree may carry.
+
+    Returns:
+        True if the name is a page number followed by an allowed extension.
+
+    """
+    return any(name.endswith(ext) and name.removesuffix(ext).isnumeric() for ext in allowed_exts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1274,10 +1329,164 @@ class ComicsIntegrityChecker:
         ):
             ret_code = 1
 
+        if self.check_source_tree_contents() != 0:
+            ret_code = 1
+
+        if self.check_fixes_root_volume_dirs() != 0:
+            ret_code = 1
+
         if ret_code == 0:
             logger.info("There are no unexpected files.")
         else:
             logger.error("There were some unexpected or missing files.")
+
+        return ret_code
+
+    def _source_trees(self) -> list[tuple[SourceTreeSpec, Path, list[Path]]]:
+        """Return each source tree's spec, root, and expected volume directories."""
+        database = self.comics_database
+        trees = [
+            (
+                ORIGINAL_TREE,
+                database.get_fantagraphics_original_root_dir(),
+                database.get_fantagraphics_volume_dir,
+            ),
+            (
+                UPSCAYLED_TREE,
+                database.get_fantagraphics_upscayled_root_dir(),
+                database.get_fantagraphics_upscayled_volume_dir,
+            ),
+            (
+                RESTORED_TREE,
+                database.get_fantagraphics_restored_root_dir(),
+                database.get_fantagraphics_restored_volume_dir,
+            ),
+            (
+                RESTORED_UPSCAYLED_TREE,
+                database.get_fantagraphics_restored_upscayled_root_dir(),
+                database.get_fantagraphics_restored_upscayled_volume_dir,
+            ),
+            (
+                RESTORED_SVG_TREE,
+                database.get_fantagraphics_restored_svg_root_dir(),
+                database.get_fantagraphics_restored_svg_volume_dir,
+            ),
+            (
+                PANEL_SEGMENTS_TREE,
+                database.get_fantagraphics_panel_segments_root_dir(),
+                database.get_fantagraphics_panel_segments_volume_dir,
+            ),
+        ]
+
+        volumes = range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1)
+        return [
+            (spec, root_dir, [get_volume_dir(volume) for volume in volumes])
+            for spec, root_dir, get_volume_dir in trees
+        ]
+
+    def check_source_tree_contents(self) -> int:
+        """Sweep the six source trees for entries that belong to no volume.
+
+        Recursive, unlike the root-level sweep of `BARKS_ROOT_DIR`: the tree root may
+        hold only the volume directories, a volume only its `images` subdirectory (plus
+        any files the spec allows beside it), and the page directory only numbered page
+        files in the tree's extensions. This is what catches a copied volume directory,
+        an `OLD/` backup tree, or a `144.png.corrupt-bak` beside the real page.
+
+        Returns:
+            0 if every tree holds only what it should, 1 otherwise.
+
+        """
+        ret_code = 0
+
+        for spec, root_dir, volume_dirs in self._source_trees():
+            if self.check_files_in_dir(spec.label, root_dir, volume_dirs) != 0:
+                ret_code = 1
+
+            for volume_dir in volume_dirs:
+                if self._check_source_volume_dir(spec, volume_dir) != 0:
+                    ret_code = 1
+
+        return ret_code
+
+    def _check_source_volume_dir(self, spec: SourceTreeSpec, volume_dir: Path) -> int:
+        """Check one volume directory of a source tree, down to its page files."""
+        ret_code = 0
+
+        page_dir = volume_dir
+        if spec.has_images_subdir:
+            allowed = [volume_dir / IMAGES_SUBDIR] + [
+                volume_dir / name for name in sorted(spec.extra_volume_files)
+            ]
+            if self.check_files_in_dir(spec.label, volume_dir, allowed) != 0:
+                ret_code = 1
+            page_dir = volume_dir / IMAGES_SUBDIR
+
+        if self.check_page_files_in_dir(spec.label, page_dir, spec.page_file_exts) != 0:
+            ret_code = 1
+
+        return ret_code
+
+    @staticmethod
+    def check_page_files_in_dir(
+        file_type: str, dir_path: Path, allowed_exts: tuple[str, ...]
+    ) -> int:
+        """Check a page directory holds only numbered page files in the allowed extensions.
+
+        Args:
+            file_type: What to call the tree in a message.
+            dir_path: The directory holding the pages.
+            allowed_exts: The extensions a page in this tree may carry.
+
+        Returns:
+            0 if every entry is a page file, 1 otherwise.
+
+        """
+        if not dir_path.is_dir():
+            print(f'{ERROR_MSG_PREFIX}The directory "{dir_path}" is missing.')
+            return 1
+
+        ret_code = 0
+        for entry in sorted(dir_path.iterdir()):
+            if entry.is_dir():
+                print(f'{ERROR_MSG_PREFIX}The {file_type} directory "{entry}" was unexpected.')
+                ret_code = 1
+            elif not is_expected_page_file(entry.name, allowed_exts):
+                print(f'{ERROR_MSG_PREFIX}The {file_type} page file "{entry}" was unexpected.')
+                ret_code = 1
+
+        return ret_code
+
+    def check_fixes_root_volume_dirs(self) -> int:
+        """Check the two fixes roots hold exactly the volume directories.
+
+        Root level only, by design - the *contents* of each fixes volume are graded
+        against the fixes policy by `check_fixes_tree`, which knows what a fix is. This
+        check only catches an entry at the root that is not a volume at all.
+
+        Returns:
+            0 if both roots hold only volume directories, 1 otherwise.
+
+        """
+        database = self.comics_database
+        volumes = range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1)
+        ret_code = 0
+
+        for spec, root_dir, get_volume_dir in (
+            (
+                STANDARD_FIXES,
+                database.get_fantagraphics_fixes_root_dir(),
+                database.get_fantagraphics_fixes_volume_dir,
+            ),
+            (
+                UPSCAYLED_FIXES,
+                database.get_fantagraphics_upscayled_fixes_root_dir(),
+                database.get_fantagraphics_upscayled_fixes_volume_dir,
+            ),
+        ):
+            allowed = [get_volume_dir(volume) for volume in volumes]
+            if self.check_files_in_dir(spec.tree_label, root_dir, allowed) != 0:
+                ret_code = 1
 
         return ret_code
 

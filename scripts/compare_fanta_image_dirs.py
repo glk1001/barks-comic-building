@@ -51,8 +51,12 @@ def _get_lists_to_compare(comic: ComicBook, downscaled_dir: Path) -> tuple[list[
 
         restored_files_to_compare.append(final_file)
 
-        if upscayl_mod == ModifiedType.MODIFIED:
-            # We need to downscale the modded upscayled file.
+        if upscayl_mod != ModifiedType.ORIGINAL:
+            # Any non-ORIGINAL mod means the upscayled file came from the upscayled fixes
+            # tree, and that hand-edited file - not the original scan - is what the restore
+            # worked from. MODIFIED and ADDED both land here: ADDED means there is no
+            # original scan at all, so comparing against one asks for a file that is not
+            # there. Only the fixes file has the page, at upscayled size, so downscale it.
             srce_image = load_pil_image_for_reading(final_file).convert("RGB")
             downscaled_file = (
                 downscaled_dir / f"down-scaled-{comic.get_fanta_volume()}-{final_file.name}"

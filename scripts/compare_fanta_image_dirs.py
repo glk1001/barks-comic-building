@@ -1,5 +1,6 @@
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -268,78 +269,88 @@ def main(  # noqa: PLR0913
     _clear_diff_dir(diff_dir)
     diff_dir.mkdir(parents=True, exist_ok=True)
 
-    comics_database, titles = get_comic_titles(volumes_str, title_str)
+    # Scratch space this run alone owns. The downscaled files are a run's private
+    # working state, but they used to be written to a fixed path shared by every
+    # run, and the run that finished first removed the whole of it. A run still
+    # comparing then failed on its own downscaled file as a missing image.
+    DOWNSCALED_DIR.mkdir(parents=True, exist_ok=True)
+    run_downscaled_dir = Path(tempfile.mkdtemp(prefix="fcmp-", dir=DOWNSCALED_DIR))
 
-    errors: list[tuple[str, CompareError]] = []
-    calibration_results: list[CalibrationResult] = []
-    # Only the volumes a compared file actually came from, so that the count and the
-    # volume list in the summary are about the same set of files. A title whose pages
-    # were all skipped has already said so, and adds nothing here.
-    num_files_compared = 0
-    volumes_compared: set[int] = set()
-    for title in titles:
-        logger.info(f'Comparing images in {title}"...')
+    try:
+        comics_database, titles = get_comic_titles(volumes_str, title_str)
 
-        title_downscaled_dir = DOWNSCALED_DIR / title
-        title_downscaled_dir.mkdir(parents=True, exist_ok=True)
+        errors: list[tuple[str, CompareError]] = []
+        calibration_results: list[CalibrationResult] = []
+        # Only the volumes a compared file actually came from, so that the count and the
+        # volume list in the summary are about the same set of files. A title whose pages
+        # were all skipped has already said so, and adds nothing here.
+        num_files_compared = 0
+        volumes_compared: set[int] = set()
+        for title in titles:
+            logger.info(f'Comparing images in {title}"...')
 
-        # Normally already empty, the whole diff dir having been cleared above.
-        # This is what still holds when that had to be refused.
-        image_diff_dir = diff_dir / title
-        shutil.rmtree(image_diff_dir, ignore_errors=True)
-        image_diff_dir.mkdir(parents=True, exist_ok=True)
+            title_downscaled_dir = run_downscaled_dir / title
+            title_downscaled_dir.mkdir(parents=True, exist_ok=True)
 
-        comic_book = comics_database.get_comic_book(title)
-        restored_files, original_files = _get_lists_to_compare(comic_book, title_downscaled_dir)
+            # Normally already empty, the whole diff dir having been cleared above.
+            # This is what still holds when that had to be refused.
+            image_diff_dir = diff_dir / title
+            shutil.rmtree(image_diff_dir, ignore_errors=True)
+            image_diff_dir.mkdir(parents=True, exist_ok=True)
 
-        if len(restored_files) == 0:
-            logger.warning(f'No restored files need to be compared for "{title}".')
+            comic_book = comics_database.get_comic_book(title)
+            restored_files, original_files = _get_lists_to_compare(comic_book, title_downscaled_dir)
+
+            if len(restored_files) == 0:
+                logger.warning(f'No restored files need to be compared for "{title}".')
+            else:
+                num_files_compared += len(restored_files)
+                volumes_compared.add(comic_book.get_fanta_volume())
+
+                title_errors = compare_image_lists(
+                    restored_files,
+                    original_files,
+                    fuzz,
+                    ae_cutoff,
+                    image_diff_dir,
+                    ae_cutoff_pct=ae_cutoff_pct,
+                    calibrate=calibrate,
+                    tile_size=tile_size,
+                    tile_cutoff_pct=tile_cutoff_pct,
+                    calibration_out=calibration_results,
+                    label=f"Vol {comic_book.get_fanta_volume()} / {title}",
+                )
+                errors += [(title, err) for err in title_errors]
+
+            _delete_any_downscaled_files(title_downscaled_dir)
+            _delete_diff_dir_if_empty(image_diff_dir)
+
+        if not titles:
+            # Reported as a failure, not a success: asking for a volume that does
+            # not exist compares nothing, and "all equivalent" would read as a pass.
+            logger.error("Error: No titles matched. Nothing was compared.")
+            sys.exit(1)
+
+        _log_compared_scope(num_files_compared, volumes_compared)
+
+        if calibrate:
+            log_calibration_summary(calibration_results)
+            if len(calibration_results) > 0:
+                logger.info("Calibration complete. Use the figures above to choose a cutoff.")
+        elif errors:
+            logger.error(f"Comparison failed with {len(errors)} errors.")
+            print_error_summary(errors)
         else:
-            num_files_compared += len(restored_files)
-            volumes_compared.add(comic_book.get_fanta_volume())
+            logger.success("Comparison successful. All directories are equivalent.")
 
-            title_errors = compare_image_lists(
-                restored_files,
-                original_files,
-                fuzz,
-                ae_cutoff,
-                image_diff_dir,
-                ae_cutoff_pct=ae_cutoff_pct,
-                calibrate=calibrate,
-                tile_size=tile_size,
-                tile_cutoff_pct=tile_cutoff_pct,
-                calibration_out=calibration_results,
-                label=f"Vol {comic_book.get_fanta_volume()} / {title}",
-            )
-            errors += [(title, err) for err in title_errors]
-
-        _delete_any_downscaled_files(title_downscaled_dir)
-        _delete_diff_dir_if_empty(image_diff_dir)
-
-    # Guarded: with no matching titles the loop never created this dir.
-    shutil.rmtree(DOWNSCALED_DIR, ignore_errors=True)
-
-    if not titles:
-        # Reported as a failure, not a success: asking for a volume that does
-        # not exist compares nothing, and "all equivalent" would read as a pass.
-        logger.error("Error: No titles matched. Nothing was compared.")
-        sys.exit(1)
-
-    _log_compared_scope(num_files_compared, volumes_compared)
-
-    if calibrate:
-        log_calibration_summary(calibration_results)
-        if len(calibration_results) > 0:
-            logger.info("Calibration complete. Use the figures above to choose a cutoff.")
-    elif errors:
-        logger.error(f"Comparison failed with {len(errors)} errors.")
-        print_error_summary(errors)
-    else:
-        logger.success("Comparison successful. All directories are equivalent.")
-
-    # Exit with a plain pass/fail status: an error *count* would be truncated
-    # modulo 256 by the shell, so exactly 256 errors would look like success.
-    sys.exit(1 if errors else 0)
+        # Exit with a plain pass/fail status: an error *count* would be truncated
+        # modulo 256 by the shell, so exactly 256 errors would look like success.
+        sys.exit(1 if errors else 0)
+    finally:
+        # Ours and only ours. Nothing sweeps the shared parent any more, so a run
+        # that dies partway has to take its own scratch with it or leave it there
+        # for good.
+        shutil.rmtree(run_downscaled_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

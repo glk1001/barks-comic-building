@@ -78,6 +78,46 @@ def _get_lists_to_compare(comic: ComicBook, downscaled_dir: Path) -> tuple[list[
     return restored_files_to_compare, original_files_to_compare
 
 
+def _format_volume_list(volumes: set[int]) -> str:
+    """Render volume numbers as a compact list, collapsing consecutive runs.
+
+    A whole-library run names 30 volumes, which as a bare list buries the one
+    thing the summary is for - the scope of what was compared.
+
+    Args:
+        volumes: The volume numbers to render.
+
+    Returns:
+        A string like "1-4, 7, 9-11". Empty if there are no volumes.
+
+    """
+    runs: list[list[int]] = []
+    for vol in sorted(volumes):
+        if runs and vol == runs[-1][1] + 1:
+            runs[-1][1] = vol
+        else:
+            runs.append([vol, vol])
+
+    return ", ".join(str(lo) if lo == hi else f"{lo}-{hi}" for lo, hi in runs)
+
+
+def _log_compared_scope(num_files: int, volumes: set[int]) -> None:
+    """Log what the run actually got through, ahead of its pass/fail verdict.
+
+    Args:
+        num_files: The number of file pairs compared.
+        volumes: The volumes those files came from.
+
+    """
+    file_str = "file" if num_files == 1 else "files"
+    volume_str = "volume" if len(volumes) == 1 else "volumes"
+
+    logger.info(
+        f"Compared {num_files} {file_str} from"
+        f" {len(volumes)} {volume_str} ({_format_volume_list(volumes)})."
+    )
+
+
 def _delete_any_downscaled_files(image_dir: Path) -> None:
     # rmtree rather than unlink per item, so that a directory left behind by an
     # interrupted run does not stop the cleanup.
@@ -232,6 +272,11 @@ def main(  # noqa: PLR0913
 
     errors: list[tuple[str, CompareError]] = []
     calibration_results: list[CalibrationResult] = []
+    # Only the volumes a compared file actually came from, so that the count and the
+    # volume list in the summary are about the same set of files. A title whose pages
+    # were all skipped has already said so, and adds nothing here.
+    num_files_compared = 0
+    volumes_compared: set[int] = set()
     for title in titles:
         logger.info(f'Comparing images in {title}"...')
 
@@ -250,6 +295,9 @@ def main(  # noqa: PLR0913
         if len(restored_files) == 0:
             logger.warning(f'No restored files need to be compared for "{title}".')
         else:
+            num_files_compared += len(restored_files)
+            volumes_compared.add(comic_book.get_fanta_volume())
+
             title_errors = compare_image_lists(
                 restored_files,
                 original_files,
@@ -275,6 +323,8 @@ def main(  # noqa: PLR0913
         # not exist compares nothing, and "all equivalent" would read as a pass.
         logger.error("Error: No titles matched. Nothing was compared.")
         sys.exit(1)
+
+    _log_compared_scope(num_files_compared, volumes_compared)
 
     if calibrate:
         log_calibration_summary(calibration_results)

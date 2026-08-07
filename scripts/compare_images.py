@@ -55,6 +55,7 @@ def compare_image_lists(  # noqa: PLR0913
     tile_size: int | None = None,
     tile_cutoff_pct: float | None = None,
     calibration_out: list[CalibrationResult] | None = None,
+    label: str = "",
 ) -> list[CompareError]:
     """Compare two parallel lists of images element by element.
 
@@ -78,6 +79,10 @@ def compare_image_lists(  # noqa: PLR0913
             differing-pixel percentage exceeds this.
         calibration_out: When calibrating, the per-image measurements are
             appended to this list (for a global summary across many calls).
+        label: What these images belong to, shown on each per-image progress
+            line. A page number alone says nothing about which of them is being
+            compared once a run spans more than one directory. Callers that
+            compare a single directory have nothing to add and leave it unset.
 
     Returns:
         A list of comparison errors (empty in calibration mode).
@@ -138,6 +143,7 @@ def compare_image_lists(  # noqa: PLR0913
             diff_dir,
             tile_size=tile_size,
             tile_cutoff_pct=tile_cutoff_pct,
+            label=label,
         )
         if error is not None:
             errors.append(error)
@@ -323,6 +329,7 @@ def compare_one_image(  # noqa: PLR0913
     *,
     tile_size: int | None = None,
     tile_cutoff_pct: float | None = None,
+    label: str = "",
 ) -> CompareError | None:
     """Compare a single image pair, returning a CompareError if they differ.
 
@@ -330,11 +337,16 @@ def compare_one_image(  # noqa: PLR0913
     the whole page is compared: when `ae_cutoff_pct` is given the cutoff is
     derived from the first image's total pixel count, otherwise `ae_cutoff`.
 
+    `label` names what the image belongs to, and is shown before the filename on
+    the progress line. Left unset the line is the filename alone, as it is for a
+    caller comparing one directory, where there is nothing to disambiguate.
+
     Returns:
         A CompareError if the images differ beyond the cutoff, else None.
 
     """
-    logger.info(f'Comparing "{image_file1.name}"...')
+    label_str = f"{label} " if label else ""
+    logger.info(f'Comparing {label_str}"{image_file1.name}"...')
 
     if tile_size is not None:
         assert tile_cutoff_pct is not None

@@ -309,6 +309,7 @@ def main(  # noqa: PLR0913
                 tile_size=tile_size,
                 tile_cutoff_pct=tile_cutoff_pct,
                 calibration_out=calibration_results,
+                label=f"Vol {comic_book.get_fanta_volume()} / {title}",
             )
             errors += [(title, err) for err in title_errors]
 

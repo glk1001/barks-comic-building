@@ -295,7 +295,7 @@ backup-to-2tb-internal:
 [group('rsync')]
 [confirm]
 backup-from-2tb-external:
-    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} \
+    {{rsync_dirs}} "{{internal_2tb_exclude_dirs}}" \
                    "{{external_2tb_backup_1}}/"                         "{{internal_2tb}}/"
     {{rsync_dirs}} "{{internal_2tb}}/barks-backup/Carl Barks/"          "{{barks_dir}}/"
     {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-wiki/"          "{{barks_wiki_dir}}/"

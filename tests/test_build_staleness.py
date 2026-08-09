@@ -320,9 +320,11 @@ class TestOutOfDateMessage:
         assert msg == f'{ERROR_PREFIX}File "{gone}" is missing.'
 
     def test_a_missing_input_message_still_carries_the_error_prefix(self, tmp_path: Path) -> None:
-        # This branch is reached in an ordinary run, via the missing-stage sentinel. An
-        # unprefixed line would flip the exit code while slipping past any filter that
-        # greps the report for the prefix - which is how every other finding is found.
+        # The out-of-date half being the absent one is a guard rather than an ordinary-run
+        # path - the walk no longer pairs a present stage against a missing one - but the
+        # comparison it stands in front of stats both files and would raise. It carries the
+        # prefix like every other finding: an unprefixed line would flip the exit code while
+        # slipping past any filter that greps the report for the prefix.
         dest = tmp_path / "dest.jpg"
         srce = touch_at(tmp_path / "restored.png", NEW)
 

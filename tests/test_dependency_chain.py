@@ -134,15 +134,35 @@ class TestTheMissingStageSentinel:
 
         assert result.max_srce == MaxTimestamp(RESTORED, OLD)
 
-    def test_a_missing_stage_poisons_the_rest_of_the_walk(self) -> None:
-        # Deliberate: nothing downstream of a stage that is not there can be rebuilt, so
-        # the stage after it is reported too rather than being compared against -1 and
-        # silently passing.
+    def test_a_missing_stage_is_reported_once_not_twice(self) -> None:
+        # The stage after a missing one used to be paired against it as well, because the
+        # sentinel is lower than any real timestamp. Both pairs render to the same line -
+        # `File "<SEGMENTS>" is missing.` - since naming the absent file is all either pair
+        # can say, so one missing file was logged twice and counted twice in the tally.
         chain = chained((SEGMENTS, MISSING_STAGE), (RESTORED, OLD))
 
         result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
 
+        assert result.stale_pairs == [(SEGMENTS, DEST)]
+
+    def test_consecutive_missing_stages_are_each_reported(self) -> None:
+        # Not-reporting-twice must not become not-reporting: each absent file is a separate
+        # finding naming a different file, which is the real Vol. 8 case (the whole tail of
+        # the chain gone).
+        chain = chained((SEGMENTS, MISSING_STAGE), (RESTORED, MISSING_STAGE), (UPSCAYLED, OLD))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
         assert result.stale_pairs == [(SEGMENTS, DEST), (RESTORED, SEGMENTS)]
+
+    def test_the_walk_resumes_after_a_missing_stage(self) -> None:
+        # Skipping the pair must not skip the comparison: the stages after the missing one
+        # still grade against each other, so an inversion further down is still found.
+        chain = chained((SEGMENTS, MISSING_STAGE), (RESTORED, OLD), (UPSCAYLED, NEW))
+
+        result = walk_srce_dependency_chain(chain, DEST, NEWER, None, is_a_comic=True)
+
+        assert result.stale_pairs == [(SEGMENTS, DEST), (UPSCAYLED, RESTORED)]
 
 
 class TestIndependentDependencies:

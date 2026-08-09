@@ -156,9 +156,11 @@ def walk_srce_dependency_chain(
     rebuilding. The dest page is the head of the chain.
 
     A timestamp of -1 is the sentinel for a stage whose file is not on disk, and is always
-    an inversion - that is what the sign test is for. It also poisons the rest of the walk
-    deliberately: nothing downstream of a missing stage can be rebuilt until it is back,
-    and the reported pair names the missing file rather than a timestamp comparison.
+    an inversion - that is what the sign test is for. The reported pair names the missing
+    file rather than a timestamp comparison, and it is reported exactly once: the stage
+    after a missing one is not paired against it, because that pair's message can only name
+    the same absent file again. The walk resumes comparing from that stage, so a real
+    inversion further down the chain is still found.
 
     Independent dependencies - the ini file, the intro inset, a hand-drawn panel bounds
     fix - are not part of the chain, because nothing was derived from them. They only
@@ -192,7 +194,13 @@ def walk_srce_dependency_chain(
             continue
 
         if not dependency.independent and is_a_comic:
-            if timestamp < 0 or timestamp > prev_timestamp:
+            # A missing stage is its own finding, reported once. The `prev_timestamp >= 0`
+            # guard is what keeps it to once: the sentinel is lower than every real
+            # timestamp, so without it the next stage that *is* on disk compares newer than
+            # -1 and gets paired against the absent file too - and the message for that pair
+            # names the same missing file a second time, because naming it is all the pair
+            # can say.
+            if timestamp < 0 or (prev_timestamp >= 0 and timestamp > prev_timestamp):
                 stale_pairs.append((dependency.file, prev_file))
             prev_timestamp = timestamp
             prev_file = dependency.file
@@ -277,9 +285,11 @@ def check_zip_symlink_freshness(
 def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_prefix: str) -> str:
     """Describe a file being older than one specific other file.
 
-    The two missing-file branches are not dead defensiveness: a dependency carrying the
+    The `other_file` branch is not dead defensiveness: a dependency carrying the
     missing-stage sentinel is reported through here, and naming the absent file is the
-    whole message in that case.
+    whole message in that case. The `file` branch is a guard - the walk no longer pairs a
+    present stage against a missing one, so it should not be reached, but the comparison
+    below stats both files and would raise on a file that went away mid-run.
 
     Args:
         file: The out-of-date file.
@@ -290,9 +300,9 @@ def get_file_out_of_date_with_other_file_msg(file: Path, other_file: Path, msg_p
         The multi-line message.
 
     """
-    # Prefixed like every other finding. These two branches are the missing-stage
-    # sentinel's message, so they are reached in an ordinary run - an unprefixed line here
-    # would flip the exit code while slipping past any filter that greps for the prefix.
+    # Prefixed like every other finding. The first branch is the missing-stage sentinel's
+    # message, so it is reached in an ordinary run - an unprefixed line here would flip the
+    # exit code while slipping past any filter that greps for the prefix.
     if not other_file.is_file():
         return f'{msg_prefix}File "{other_file}" is missing.'
     if not file.is_file():

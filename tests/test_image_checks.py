@@ -17,15 +17,23 @@ from PIL import Image
 
 from barks_comic_building.restore.image_checks import (
     MAX_THUMBNAIL_DEVIATION,
+    MIN_THUMBNAIL_STDDEV,
     find_content_fault,
     find_structural_fault,
+    get_check_thumbnail,
     get_thumbnail_deviation,
+    get_thumbnail_stddev,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 SIZE = (64, 48)
+
+# Big enough that a handful of stray pixels is the vanishing proportion of the page that it
+# is on a real one - sixteen of a hundred million - rather than a visible slice of a tiny
+# fixture. The blank test averages the page into a thumbnail, so proportion is all it sees.
+BLANK_SIZE = (2048, 1536)
 
 
 def write_picture(path: Path, *, shade: int = 0) -> Path:
@@ -48,6 +56,22 @@ def write_flat(path: Path, colour: tuple[int, int, int] = (0, 0, 0)) -> Path:
     """Write a png of one colour - the shape of a page with none of the content."""
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", SIZE, colour).save(str(path))
+
+    return path
+
+
+def write_nearly_flat(path: Path, stray: int, colour: tuple[int, int, int] = (0, 0, 0)) -> Path:
+    """Write a page of one colour with a handful of stray pixels of another.
+
+    What gmic's failed inpaint actually looks like: volume 4's page 099 came back as
+    104,399,984 black pixels with sixteen that were not, which is a blank page by any
+    reading and two distinct colours by an exact one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", BLANK_SIZE, colour)
+    for i in range(stray):
+        image.putpixel((i, 0), (255, 0, 0))
+    image.save(str(path))
 
     return path
 
@@ -157,13 +181,29 @@ class TestABlankedPageIsTheRightShapeAndTheWrongPicture:
         fault = find_structural_fault(write_flat(tmp_path / "black.png"))
 
         assert fault is not None
-        assert "every pixel is the same colour" in fault
+        assert "effectively the same colour" in fault
 
     def test_a_flat_white_page_is_found_too(self, tmp_path: Path) -> None:
         """Not just black: a page of any one colour has none of the content."""
         white = write_flat(tmp_path / "white.png", (255, 255, 255))
 
         assert find_structural_fault(white) is not None
+
+    def test_a_blank_page_with_stray_pixels_is_found_too(self, tmp_path: Path) -> None:
+        """The hole an exact colour count leaves: gmic's blanks are not quite uniform.
+
+        Volume 4's page 099 came back from the inpaint as 104,399,984 black pixels and
+        sixteen stray ones, so `getcolors(maxcolors=1)` saw two colours and passed it.
+        """
+        nearly_flat = write_nearly_flat(tmp_path / "black.png", stray=16)
+
+        with Image.open(nearly_flat) as image:
+            assert image.convert("RGB").getcolors(maxcolors=1) is None
+
+        fault = find_structural_fault(nearly_flat)
+
+        assert fault is not None
+        assert "effectively the same colour" in fault
 
     def test_a_blacked_out_page_is_nowhere_near_its_source(self, tmp_path: Path) -> None:
         srce = write_picture(tmp_path / "srce.png")
@@ -191,3 +231,24 @@ class TestABlankedPageIsTheRightShapeAndTheWrongPicture:
         srce = write_picture(tmp_path / "srce.png")
 
         assert get_thumbnail_deviation(srce, srce) == pytest.approx(0.0)
+
+
+class TestTellingABlankApartFromAPicture:
+    """The measurement the blank test rests on, stated rather than left implied."""
+
+    def test_a_flat_page_has_no_spread(self, tmp_path: Path) -> None:
+        flat = get_check_thumbnail(write_flat(tmp_path / "black.png"))
+
+        assert get_thumbnail_stddev(flat) == pytest.approx(0.0)
+
+    def test_stray_pixels_do_not_lift_a_blank_over_the_threshold(self, tmp_path: Path) -> None:
+        """Averaged into a thumbnail, sixteen pixels of a hundred million disappear."""
+        nearly_flat = get_check_thumbnail(write_nearly_flat(tmp_path / "black.png", stray=16))
+
+        assert get_thumbnail_stddev(nearly_flat) < MIN_THUMBNAIL_STDDEV
+
+    def test_a_picture_is_far_clear_of_the_threshold(self, tmp_path: Path) -> None:
+        """Measured on real pages the gap is 45 to 60 against 0.0, so the margin is wide."""
+        picture = get_check_thumbnail(write_picture(tmp_path / "good.png"))
+
+        assert get_thumbnail_stddev(picture) > MIN_THUMBNAIL_STDDEV * 10

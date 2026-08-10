@@ -10,6 +10,19 @@ from barks_comic_building.restore.image_io import write_cv_image_file
 # record what the colour layer was filled with.
 GMIC_INPAINT_MATCHPATCH_PARAMS = '"1","5","26","5","1","255","0","0","255","1","0"'
 
+# Clamped to the 8-bit range before it is written, because matchpatch blends its way a
+# little past white - 258 and 259 were measured on volume 4's page 098 - and gmic answers a
+# value over 255 by writing a 16 bit png. Nothing else here reads one: PIL and OpenCV both
+# rescale 16 bit down by dividing by 257, so a page holding 0 to 259 arrives as every pixel
+# zero. That is what made 098 and 099 look like blank pages for a whole day of investigation
+# while the files on disk were perfectly good, and it is why the fix belongs here, at the one
+# step that produces the out-of-range values, rather than in the readers.
+#
+# A no-op for every page that already fitted, and outside the recipe id - which is built from
+# `GMIC_INPAINT_MATCHPATCH_PARAMS`, not from the command - so nothing already restored goes
+# stale over it.
+_GMIC_CLAMP_TO_8_BIT = ("cut", "0,255")
+
 
 def inpaint_image_file(
     work_dir: Path,
@@ -18,6 +31,19 @@ def inpaint_image_file(
     black_ink_mask_file: Path,
     out_file: Path,
 ) -> None:
+    """Fill an image's black ink areas with colour taken from around them.
+
+    Args:
+        work_dir: Where the intermediates are written.
+        work_file_stem: What to name them after.
+        in_file: The colour page to fill.
+        black_ink_mask_file: The colour-removed page, dark where the ink is.
+        out_file: Where to write the filled page.
+
+    Raises:
+        FileNotFoundError: If either input image is missing.
+
+    """
     if not in_file.is_file():
         msg = f'File not found: "{in_file}".'
         raise FileNotFoundError(msg)
@@ -50,12 +76,13 @@ def inpaint_image_file(
     in_file_black_removed = work_dir / f"{work_file_stem}-input-black-removed.png"
     write_cv_image_file(in_file_black_removed, out_image)
 
-    inpaint_cmd = [
-        str(in_file_black_removed),
-        "-fx_inpaint_matchpatch",
-        GMIC_INPAINT_MATCHPATCH_PARAMS,
-        "output",
-        str(out_file),
-    ]
-
-    run_gmic(inpaint_cmd)
+    run_gmic(
+        [
+            str(in_file_black_removed),
+            "-fx_inpaint_matchpatch",
+            GMIC_INPAINT_MATCHPATCH_PARAMS,
+            *_GMIC_CLAMP_TO_8_BIT,
+            "output",
+            str(out_file),
+        ]
+    )

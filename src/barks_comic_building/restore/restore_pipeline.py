@@ -97,6 +97,14 @@ STEP_SNAP_PALETTE = "snap palette"
 STEP_OVERLAY = "overlay"
 STEP_RESIZE = "resize restored file"
 
+# There was a retry here, and then a ladder of reduced scales beneath it, on the strength of
+# volume 4's 098 and 099 coming back as blank pages. They were never blank: the inpaint had
+# written values a shade over 255, gmic had answered by writing 16 bit pngs, and the check
+# below was reading those as solid black. Both are gone now that the inpaint clamps its
+# output - see `_GMIC_CLAMP_TO_8_BIT` in `inpaint`. Retrying a step whose output was
+# misjudged only ever spent time, and shrinking the page to satisfy the misreading cost
+# real quality: the fill it produced at 1/8 was visibly crude.
+
 
 @contextlib.contextmanager
 def _timed_step(pipeline: RestorePipeline, step_name: str, target: str) -> Generator[None]:
@@ -407,6 +415,31 @@ class RestorePipeline:
                 self.removed_colors_file,
                 self.inpainted_file,
             )
+            self._verify_inpaint()
+
+    def _verify_inpaint(self) -> None:
+        """Refuse an inpaint that came back as a blank page.
+
+        Kept because a blank fill is a real failure mode - volume 3's 251, 254, 257 and 259
+        were genuinely blank - and catching it here names the step that produced it instead
+        of leaving the overlay to fail on its input two steps later.
+
+        Not retried. The pages that looked blank for a day were being misread, not badly
+        filled, and there has never been a case of the inpaint failing once and succeeding
+        on a repeat.
+
+        The output is only checked for being blank, not for resembling the page it came
+        from. The inpaint lifts every ink pixel out and fills it, which on the page measured
+        here already moves the thumbnail 22.9 of the 25 that `MAX_THUMBNAIL_DEVIATION`
+        allows, and an ink-heavier page moves it further - a content check here would fail
+        good pages. The overlay puts the ink back, which is why the same threshold is honest
+        one step later.
+        """
+        self._verify_output(
+            self.inpainted_file,
+            expected_size=get_image_size(self.srce_upscale_file),
+            expected_mode="RGB",
+        )
 
     def _do_snap_palette(self) -> None:
         if not self.do_palette_snap:

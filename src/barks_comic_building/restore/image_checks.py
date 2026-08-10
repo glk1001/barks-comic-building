@@ -31,11 +31,13 @@ if TYPE_CHECKING:
 __all__ = [
     "CHECK_THUMBNAIL_SIZE",
     "MAX_THUMBNAIL_DEVIATION",
+    "MIN_THUMBNAIL_STDDEV",
     "SIZE_TOLERANCE",
     "find_content_fault",
     "find_structural_fault",
     "get_check_thumbnail",
     "get_thumbnail_deviation",
+    "get_thumbnail_stddev",
 ]
 
 Image.MAX_IMAGE_PIXELS = None
@@ -59,6 +61,62 @@ CHECK_THUMBNAIL_SIZE = (64, 64)
 MAX_THUMBNAIL_DEVIATION = 25.0
 
 
+# How much a page's thumbnail has to vary before it counts as a picture rather than a
+# blank. Nothing real comes close to this: measured across the pages sampled here, a
+# restored page's thumbnail spreads 45 to 60, while a blank one is flat at 0.0.
+MIN_THUMBNAIL_STDDEV = 2.0
+
+
+# A png's magic number, and where its IHDR puts the bit depth. Read from the bytes rather
+# than asked of PIL, because PIL is one of the readers that gets 16 bit wrong and cannot be
+# used to detect the thing it mishandles.
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_PNG_IHDR_BIT_DEPTH_OFFSET = 24
+_PNG_HEADER_BYTES = 33
+_EIGHT_BIT = 8
+
+
+def _find_bit_depth_fault(image_file: Path) -> str | None:
+    """Return a fault if a png was written deeper than 8 bits per channel.
+
+    Nothing downstream of the restore reads a 16 bit png correctly. PIL and OpenCV both
+    rescale one down by dividing by 257, so a page whose values sit in 0 to 259 - which is
+    what gmic writes when a step blends its way just past white - arrives as every pixel
+    zero. Judged a fault rather than worked around: every page in this library is 8 bit, the
+    reader expects 8 bit, and a page that is not is broken however it came about.
+
+    Detected here so that it is reported as itself. Volume 4's pages 098 and 099 spent a day
+    being diagnosed as blank output from a broken gmic, and the sweep that followed turned up
+    volume 16's page 062 sitting in the library in the same state - a page that would have
+    displayed as solid black and that nothing was looking for.
+
+    Args:
+        image_file: The png to inspect.
+
+    Returns:
+        A description of the fault, or None if the file is 8 bit or is not a png.
+
+    """
+    with image_file.open("rb") as opened:
+        header = opened.read(_PNG_HEADER_BYTES)
+
+    if len(header) < _PNG_HEADER_BYTES or header[: len(_PNG_MAGIC)] != _PNG_MAGIC:
+        return None
+
+    bit_depth = header[_PNG_IHDR_BIT_DEPTH_OFFSET]
+    if bit_depth <= _EIGHT_BIT:
+        return None
+
+    return (
+        f"it is a {bit_depth}-bit png, which every reader here misreads as black"
+        f" - the step that wrote it needs its output clamped to 0,255"
+    )
+
+
+def _reduce_to_check_thumbnail(image: Image.Image) -> Image.Image:
+    return image.convert("RGB").resize(CHECK_THUMBNAIL_SIZE, Image.Resampling.BOX)
+
+
 def get_check_thumbnail(image_file: Path) -> Image.Image:
     """Return a small RGB thumbnail of an image, for comparing it against another.
 
@@ -70,7 +128,22 @@ def get_check_thumbnail(image_file: Path) -> Image.Image:
 
     """
     with Image.open(image_file) as image:
-        return image.convert("RGB").resize(CHECK_THUMBNAIL_SIZE, Image.Resampling.BOX)
+        return _reduce_to_check_thumbnail(image)
+
+
+def get_thumbnail_stddev(thumbnail: Image.Image) -> float:
+    """Return how much a check thumbnail varies, averaged over its channels.
+
+    Args:
+        thumbnail: A thumbnail from `get_check_thumbnail`.
+
+    Returns:
+        The mean per-channel standard deviation, 0 for a page of one flat colour.
+
+    """
+    channel_stddevs = ImageStat.Stat(thumbnail).stddev
+
+    return sum(channel_stddevs) / len(channel_stddevs)
 
 
 def get_thumbnail_deviation(image_file: Path, other_file: Path) -> float:
@@ -100,7 +173,7 @@ def get_thumbnail_deviation(image_file: Path, other_file: Path) -> float:
 SIZE_TOLERANCE = 1
 
 
-def find_structural_fault(
+def find_structural_fault(  # noqa: PLR0911
     image_file: Path,
     *,
     expected_size: tuple[int, int] | None = None,
@@ -124,14 +197,19 @@ def find_structural_fault(
     if not image_file.is_file():
         return "the file was not written"
 
+    too_deep = _find_bit_depth_fault(image_file)
+    if too_deep is not None:
+        return too_deep
+
     try:
         with Image.open(image_file) as image:
             image.load()
             size, mode = image.size, image.mode
-            # None once a second distinct colour turns up, so this is the "is the whole
-            # page one flat colour" question asked directly, rather than inferred from
-            # per-band extrema - which an image could pass while still being flat.
-            only_colour = image.convert("RGB").getcolors(maxcolors=1)
+            # Asked of a thumbnail rather than of an exact colour count, because the blanks
+            # that turn up are not quite uniform and an exact test reads them as pictures:
+            # gmic handed back volume 4's page 099 as 104,399,984 black pixels and sixteen
+            # stray ones, which `getcolors(maxcolors=1)` waves straight through.
+            thumbnail = _reduce_to_check_thumbnail(image)
     except (OSError, SyntaxError, ValueError) as exc:
         # OSError covers PIL's "broken data stream" and "image file is truncated"; the
         # other two cover a file that is not an image at all.
@@ -145,10 +223,15 @@ def find_structural_fault(
     if expected_mode is not None and mode != expected_mode:
         return f'it is mode "{mode}" but "{expected_mode}" was expected'
 
-    if only_colour:
+    spread = get_thumbnail_stddev(thumbnail)
+    if spread < MIN_THUMBNAIL_STDDEV:
         # A blanked page: the shape of a picture with none of the content. Blank pages are
         # not a restorable page type, so nothing legitimate lands here.
-        return f"every pixel is the same colour ({only_colour[0][1]})"
+        colour = tuple(round(mean) for mean in ImageStat.Stat(thumbnail).mean)
+        return (
+            f"every pixel is effectively the same colour {colour}"
+            f" (thumbnail spread {spread:.1f} < {MIN_THUMBNAIL_STDDEV})"
+        )
 
     return None
 

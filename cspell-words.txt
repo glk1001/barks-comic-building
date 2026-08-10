@@ -62,6 +62,7 @@ icvr
 imread
 imwrite
 injective
+IHDR
 inpaint
 inpainted
 inpainting
@@ -102,6 +103,7 @@ pnginfo
 pngs
 popleft
 putdata
+putpixel
 posterise
 posterize
 posterized
@@ -129,6 +131,7 @@ spla
 srce
 srst
 ssim
+stddevs
 storycode
 sttl
 subimage

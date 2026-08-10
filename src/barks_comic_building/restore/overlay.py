@@ -22,6 +22,15 @@ def overlay_inpainted_file_with_black_ink(
         "100%",
         "+image[0]",
         "[1],0%,0%,0,0,1,[2],255",
+        # Clamped for the same reason the inpaint is: a value over 255 makes gmic write a
+        # 16 bit png, which every reader here turns into a page of solid black by dividing
+        # by 257. Volume 16's restored page 062 is one - written before this, and the only
+        # other 16 bit file in the library besides the one that started this hunt. The
+        # inpaint being clamped should keep this step in range on its own, so this is the
+        # belt to that braces: it costs nothing and it is the step that writes the page the
+        # build reads.
+        "cut[-1]",
+        "0,255",
         "output[-1]",
         str(out_file),
     ]

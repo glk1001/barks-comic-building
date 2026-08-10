@@ -46,6 +46,8 @@ from barks_fantagraphics.fanta_comics_info import (
 from barks_fantagraphics.page_classes import SrceAndDestPages
 from barks_fantagraphics.pages import (
     SrceDependency,
+    get_full_srce_filepath,
+    get_required_pages_in_order,
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
@@ -778,6 +780,10 @@ class OutOfDateErrors:
     year_zip_symlink_errors: ZipSymlinkOutOfDateErrors
     max_srce: MaxTimestamp | None = None
     max_dest: MaxTimestamp | None = None
+    # Set when a title's page list could not be built, so the per-page and dest-dir checks
+    # never ran. Reported, because otherwise the one exception that stopped them reads as
+    # the whole of what is wrong with the title.
+    checks_skipped: bool = False
 
     @property
     def file_findings(self) -> bool:
@@ -1737,6 +1743,46 @@ class ComicsIntegrityChecker:
             f' expected hash = "{errors.expected_hash}", file hash = "{errors.file_hash}".',
         )
 
+    @staticmethod
+    def get_unresolvable_srce_file_errors(comic: ComicBook) -> list[str]:
+        """Return a message for every page of a title whose source file will not resolve.
+
+        `get_sorted_srce_and_dest_pages` resolves the whole title in one go and raises on
+        the first page it cannot find, so a title with several unrestored pages named one
+        of them and said nothing about the others - and nothing about anything else
+        either, since the page list it gave up on is what every other per-page check
+        reads. Volume 4's pages 098 and 099 were the case that showed it: both were
+        missing from the restored tree, and only 098 was ever mentioned.
+
+        Resolution goes through `get_full_srce_filepath`, the same call the page list
+        makes, rather than a copy of it - so the pages this passes are exactly
+        the pages the build would resolve, including the title and blank pages that never
+        touch the disk.
+
+        Args:
+            comic: The title to sweep.
+
+        Returns:
+            One message per unresolvable page, in page order, empty if every page
+            resolves.
+
+        """
+        try:
+            required_pages = get_required_pages_in_order(comic.page_images_in_order)
+        except Exception as e:  # noqa: BLE001
+            # The page list is unreadable rather than incomplete, so there are no pages to
+            # sweep and this is the only thing there is to say about the title.
+            return [str(e)]
+
+        messages = []
+        for page in required_pages:
+            try:
+                get_full_srce_filepath(comic, page)
+            except Exception as e:  # noqa: BLE001
+                messages.append(str(e))
+
+        return messages
+
     def check_out_of_date_files(self, comic: ComicBook) -> int:
         title = get_safe_title(comic.get_comic_title())
         logger.info(f'Checking title "{title}".')
@@ -1764,16 +1810,28 @@ class ComicsIntegrityChecker:
         errors.pages_built_without_restored_file = []
         errors.stale_panel_segments = []
         errors.exception_errors = []
+        errors.checks_skipped = False
 
         inset_file = comic.intro_inset_file
         if comic.get_title_enum() not in TITLES_WITHOUT_INSETS and not inset_file.is_file():
             errors.exception_errors.append(f'Inset file not found: "{inset_file}"')
+            errors.checks_skipped = True
+            return
+
+        # Swept a page at a time before the list is built, because the build gives up on
+        # the first page it cannot resolve: a title missing several restored pages used to
+        # report one of them and stay silent about the rest.
+        unresolvable = self.get_unresolvable_srce_file_errors(comic)
+        if unresolvable:
+            errors.exception_errors.extend(unresolvable)
+            errors.checks_skipped = True
             return
 
         try:
             srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
         except Exception as e:  # noqa: BLE001
             errors.exception_errors.append(str(e))
+            errors.checks_skipped = True
             return
 
         self.check_missing_or_out_of_date_dest_files(comic, srce_and_dest_pages, errors)
@@ -2097,6 +2155,13 @@ class ComicsIntegrityChecker:
         if errors.exception_errors:
             for err_msg in errors.exception_errors:
                 print(f'{ERROR_MSG_PREFIX} For "{errors.title}", there was an error: {err_msg}.')
+            if errors.checks_skipped:
+                # Without this the errors above read as the whole of what is wrong with the
+                # title, when in fact they are the reason nothing else about it was looked at.
+                print(
+                    f'{ERROR_MSG_PREFIX} For "{errors.title}", the page and dest dir checks'
+                    f" were skipped: the above had to be fixed first."
+                )
             print()
 
     @staticmethod

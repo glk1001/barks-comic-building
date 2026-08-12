@@ -4,14 +4,12 @@
 # ruff: noqa: T201
 import json
 import stat
-from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
-from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from barks_fantagraphics.comic_book import ComicBook, get_page_str, get_total_num_pages
 from barks_fantagraphics.comic_book_info import (
@@ -69,10 +67,12 @@ from barks_comic_building.build.utils import (
     ZipSymlinkOutOfDateErrors,
     check_zip_freshness,
     check_zip_symlink_freshness,
+    dating_dependencies,
     fold_max,
     get_file_out_of_date_with_other_file_msg,
     get_file_out_of_date_wrt_max_timestamp_msg,
     is_stale,
+    quiet_panel_bbox_height_warnings,
     walk_srce_dependency_chain,
 )
 from barks_comic_building.restore.restore_ledger import LEDGER_FILENAME as RESTORE_LEDGER_FILENAME
@@ -104,26 +104,6 @@ TITLES_WITHOUT_INSETS = frozenset(NON_COMIC_TITLES) | frozenset(SYNTHETIC_TITLES
 def _as_str(timestamp: float) -> str:
     """Render a timestamp for a finding, in the one format every finding uses."""
     return get_timestamp_as_str(timestamp, *TIMESTAMP_SEPS)
-
-
-@contextmanager
-def _quiet_panel_bbox_height_warnings() -> Iterator[None]:
-    """Silence the shared panel-bounding height warning for the duration of a check.
-
-    A short page legitimately has a panels bbox shorter than the volume average, and the
-    integrity run visits every page of every title, so the warning is noise here.
-
-    Restored on the way out because this is a module global in a *shared* package. The
-    unrestored assignment it replaces was harmless only for as long as nothing called
-    this method twice in one process - the moment a test does, the flag leaks into every
-    later test in the session.
-    """
-    previous = panel_bounding.warn_on_panels_bbox_height_less_than_av
-    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
-    try:
-        yield
-    finally:
-        panel_bounding.warn_on_panels_bbox_height_less_than_av = previous
 
 
 class AddedFixesFault(StrEnum):
@@ -512,38 +492,6 @@ def unexpected_entries(dir_path: Path, allowed: Iterable[Path]) -> list[Path] | 
     return sorted(entry for entry in dir_path.iterdir() if entry not in allowed_paths)
 
 
-def dating_dependencies(
-    dependencies: Sequence[SrceDependency], ini_file: Path
-) -> list[SrceDependency]:
-    """Drop the dependencies whose timestamps must not date a build.
-
-    Only the ini file is dropped, and for two reasons that both point the same way.
-
-    Its content is already checked properly: `check_hashes` compares the ini's hash
-    against the `ini_hash` recorded in the comic's metadata at build time, so a real edit
-    is caught exactly, with no reference to timestamps at all.
-
-    And its timestamp is not evidence of anything. The ini files are git-tracked, in a
-    different repository from the comics, so a checkout, pull or branch switch rewrites
-    every mtime without changing a byte. Treating that as "the build is stale" reported
-    2982 of 3323 findings on one real tree - 90% of the report - from a single bulk mtime
-    bump in which not one ini's content had actually changed.
-
-    The intro inset and a hand-drawn panel bounds fix stay. They are content files under
-    the comics root rather than in git, nothing hashes them, and an edit to either really
-    does mean the page needs rebuilding.
-
-    Args:
-        dependencies: A dest page's dependencies, as the pipeline reports them.
-        ini_file: The comic's ini file.
-
-    Returns:
-        The dependencies that may date the build.
-
-    """
-    return [dependency for dependency in dependencies if dependency.file != ini_file]
-
-
 def has_restored_file_in_chain(
     dependencies: Iterable[SrceDependency], restored_image_dir: Path
 ) -> bool:
@@ -842,7 +790,7 @@ class ComicsIntegrityChecker:
     def check_comics_integrity(
         self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
     ) -> int:
-        with _quiet_panel_bbox_height_warnings():
+        with quiet_panel_bbox_height_warnings():
             return self._check_comics_integrity(
                 titles, fix_names=fix_names, apply_fixes=apply_fixes
             )

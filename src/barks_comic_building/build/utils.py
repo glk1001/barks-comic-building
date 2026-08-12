@@ -17,9 +17,11 @@ at ERROR - in different words - is how one fault came to be described two ways.
 from __future__ import annotations
 
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comics_utils import (
     get_abbrev_path,
     get_timestamp,
@@ -28,7 +30,7 @@ from barks_fantagraphics.comics_utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
     from pathlib import Path
 
     from barks_fantagraphics.pages import SrceDependency
@@ -40,6 +42,58 @@ HOUR_SEP = ":"
 # One tuple, so no call site can format a timestamp without separators. One of the eleven
 # used to, and rendered its timestamp in a different format from the other ten.
 TIMESTAMP_SEPS = (DATE_SEP, DATE_TIME_SEP, HOUR_SEP)
+
+
+@contextmanager
+def quiet_panel_bbox_height_warnings() -> Iterator[None]:
+    """Silence the shared panel-bounding height warning while a check resolves pages.
+
+    A short page legitimately has a panels bbox shorter than the volume average, and a
+    check that visits every page of every title would otherwise warn on all of them.
+
+    Restored on the way out because this is a module global in a *shared* package. The
+    unrestored assignment it replaces was harmless only for as long as nothing called
+    this twice in one process - the moment a test does, the flag leaks into every later
+    test in the session.
+    """
+    previous = panel_bounding.warn_on_panels_bbox_height_less_than_av
+    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
+    try:
+        yield
+    finally:
+        panel_bounding.warn_on_panels_bbox_height_less_than_av = previous
+
+
+def dating_dependencies(
+    dependencies: Sequence[SrceDependency], ini_file: Path
+) -> list[SrceDependency]:
+    """Drop the dependencies whose timestamps must not date a build.
+
+    Only the ini file is dropped, and for two reasons that both point the same way.
+
+    Its content is already checked properly: `check_hashes` compares the ini's hash
+    against the `ini_hash` recorded in the comic's metadata at build time, so a real edit
+    is caught exactly, with no reference to timestamps at all.
+
+    And its timestamp is not evidence of anything. The ini files are git-tracked, in a
+    different repository from the comics, so a checkout, pull or branch switch rewrites
+    every mtime without changing a byte. Treating that as "the build is stale" reported
+    2982 of 3323 findings on one real tree - 90% of the report - from a single bulk mtime
+    bump in which not one ini's content had actually changed.
+
+    The intro inset and a hand-drawn panel bounds fix stay. They are content files under
+    the comics root rather than in git, nothing hashes them, and an edit to either really
+    does mean the page needs rebuilding.
+
+    Args:
+        dependencies: A dest page's dependencies, as the pipeline reports them.
+        ini_file: The comic's ini file.
+
+    Returns:
+        The dependencies that may date the build.
+
+    """
+    return [dependency for dependency in dependencies if dependency.file != ini_file]
 
 
 @dataclass(frozen=True, slots=True)

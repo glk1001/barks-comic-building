@@ -21,6 +21,7 @@ from barks_fantagraphics.comic_book_info import COVERS, ONE_PAGERS, is_one_pager
 
 from barks_comic_building.query.build_state import (
     BUILD_STATE_FLAGS,
+    CLEAN_CHAIN,
     CONFIGURED_FLAG,
     NOT_CONFIGURED_FLAG,
     all_files_exist,
@@ -72,6 +73,7 @@ class FakeComic:
         self._segments = [tmp_path / "segments" / "500.json"] if restorable else []
         self._srce = [tmp_path / "fixes" / "500.jpg"]
         self._zip = tmp_path / "dest" / "collection.cbz"
+        self._metadata = tmp_path / "dest" / "comic-metadata.json"
         self._series_symlink = tmp_path / "series" / "collection.cbz"
         self._year_symlink = tmp_path / "year" / "collection.cbz"
 
@@ -89,6 +91,9 @@ class FakeComic:
 
     def get_dest_comic_zip(self) -> Path:
         return self._zip
+
+    def get_metadata_filepath(self) -> Path:
+        return self._metadata
 
     def get_dest_series_comic_zip_symlink(self) -> Path:
         return self._series_symlink
@@ -110,6 +115,9 @@ class FakeComic:
 
     def build_dest(self) -> None:
         touch(self._zip)
+        # Written by every build and by nothing else, which is what makes it the thing
+        # the build state is dated by.
+        touch(self._metadata)
         self._series_symlink.parent.mkdir(parents=True, exist_ok=True)
         self._series_symlink.symlink_to(self._zip)
         self._year_symlink.parent.mkdir(parents=True, exist_ok=True)
@@ -211,12 +219,41 @@ class TestBuildBlocker:
         assert blocker is not None
         assert blocker.startswith("there is no zip file")
 
+    def test_a_build_older_than_its_sources_is_named_as_the_blocker(
+        self, covers_collection: FakeComic
+    ) -> None:
+        # The zip and both symlinks are present and current; only the file a build
+        # writes says when the build actually ran.
+        covers_collection.stage_sources()
+        covers_collection.build_dest()
+        srce_timestamp = covers_collection.get_final_srce_story_files([])[0][0].stat().st_mtime
+        metadata_file = covers_collection.get_metadata_filepath()
+        os.utime(metadata_file, (srce_timestamp - 100, srce_timestamp - 100))
+
+        assert get_build_blocker(as_comic(covers_collection)) == (
+            "the build is older than its staged source images"
+        )
+
+    def test_a_build_with_no_metadata_file_is_named_as_the_blocker(
+        self, covers_collection: FakeComic
+    ) -> None:
+        covers_collection.stage_sources()
+        covers_collection.build_dest()
+        covers_collection.get_metadata_filepath().unlink()
+
+        blocker = get_build_blocker(as_comic(covers_collection))
+
+        assert blocker is not None
+        assert blocker.startswith("there is no build metadata file")
+
     def test_unrestored_pages_are_named_as_the_blocker(self, tmp_path: Path) -> None:
         comic = FakeComic(tmp_path, restorable=True)
         comic.stage_sources()
         comic.build_dest()
 
-        assert get_build_blocker(as_comic(comic)) == "1 of its 1 pages are not restored"
+        assert (
+            get_build_blocker(as_comic(comic), CLEAN_CHAIN) == "1 of its 1 pages are not restored"
+        )
 
     def test_missing_panel_segments_are_named_as_the_blocker(self, tmp_path: Path) -> None:
         comic = FakeComic(tmp_path, restorable=True)
@@ -224,7 +261,10 @@ class TestBuildBlocker:
         comic.restore_pages()
         comic.build_dest()
 
-        assert get_build_blocker(as_comic(comic)) == "1 of its 1 pages have no panel segments file"
+        assert (
+            get_build_blocker(as_comic(comic), CLEAN_CHAIN)
+            == "1 of its 1 pages have no panel segments file"
+        )
 
     def test_a_zip_that_exists_still_blocks_on_its_pages(self, tmp_path: Path) -> None:
         # The case that prompted the message: the .cbz is right there on disk, but
@@ -234,7 +274,7 @@ class TestBuildBlocker:
         comic.build_dest()
 
         assert comic.get_dest_comic_zip().is_file()
-        blocker = get_build_blocker(as_comic(comic))
+        blocker = get_build_blocker(as_comic(comic), CLEAN_CHAIN)
         assert blocker is not None
         assert "zip" not in blocker
 
@@ -242,12 +282,14 @@ class TestBuildBlocker:
         # The two must never disagree, so is_built is defined in terms of the blocker.
         comic = FakeComic(tmp_path, restorable=True)
         for step in (comic.stage_sources, comic.restore_pages, comic.write_panel_segments):
-            assert is_built(as_comic(comic)) is (get_build_blocker(as_comic(comic)) is None)
+            assert is_built(as_comic(comic), CLEAN_CHAIN) is (
+                get_build_blocker(as_comic(comic), CLEAN_CHAIN) is None
+            )
             step()
         comic.build_dest()
 
-        assert is_built(as_comic(comic))
-        assert get_build_blocker(as_comic(comic)) is None
+        assert is_built(as_comic(comic), CLEAN_CHAIN)
+        assert get_build_blocker(as_comic(comic), CLEAN_CHAIN) is None
 
 
 class TestCoverIssueProblem:

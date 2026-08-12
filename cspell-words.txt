@@ -114,6 +114,7 @@ rasterises
 recognise
 relativedelta
 rdonly
+rescanned
 RMSE
 rsta
 scancode
@@ -144,6 +145,7 @@ thepayments
 tilemask
 timespec
 tobytes
+unrecognised
 ultramix
 unbuilt
 unconfigured

@@ -100,13 +100,13 @@ dev = [
     # Pinned: with select = ["ALL"] (via ../barks-compleat-reader/.ruff-base.toml), a
     # ruff release that stabilizes rules out of preview changes our lint policy, not
     # just the version. Bump deliberately and triage the new hits.
-    "ruff==0.16.1",
+    "ruff==0.16.2",
     # Pinned to match the rest of the barks repos. 0.0.62 and 0.0.63 had a flaky
     # salsa panic that aborted files on roughly 1 in 3 runs of a large project;
     # 0.0.64 fixes that, and also a pathological inference blow-up that had this
     # project's check taking 67 seconds. ty is beta with 1.0 targeted for 2026, so
     # stay pinned until it stabilizes.
-    "ty==0.0.65",
+    "ty==0.0.71",
     "types-psutil>=7.2.2.20260518",
     "types-python-dateutil>=2.9.0.20260716",
 ]

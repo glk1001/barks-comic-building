@@ -1,4 +1,16 @@
-uv_run := "uv run --project " + source_dir()
+# `uv run` re-syncs the project before every command, and any dependency uv cannot
+# resolve from disk or its content-addressed cache — a direct URL, an out-of-date
+# lock — is revalidated over the network. That makes recipes fail with no connection
+# even when the command itself needs nothing. --offline short-circuits the check and
+# runs from the already-installed venv.
+#
+# Defined here, in the justfile the other repos import, so barks-ocr and
+# barks-compleat-reader share one switch — just errors on a duplicate definition, so
+# it must NOT be redefined there. Blank it out with `just offline= <recipe>` after
+# adding or changing a dependency, when the sync genuinely has to reach the network.
+offline := "--offline"
+
+uv_run := "uv run " + offline + " --project " + source_dir()
 
 rsync_flags := ""
 rsync_dirs := "rsync --delete -avh " + rsync_flags

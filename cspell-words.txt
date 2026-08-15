@@ -59,6 +59,7 @@ idempotent
 IEND
 ifan
 icvr
+Lanczos
 imread
 imwrite
 injective
@@ -92,7 +93,9 @@ neighbours
 nopython
 normalisation
 maxcolors
+normalise
 normalised
+normalising
 otsu
 oversubscription
 oxipng

@@ -141,6 +141,36 @@ def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]
     return [link for links in get_staged_links_by_title(comics_database).values() for link in links]
 
 
+def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path]]:
+    """Return the ``(volume, image dir)`` pairs a located cover needs but that are absent.
+
+    Guards the failure that is otherwise silent: a volume's directory name comes from its
+    ``VOLUME_nn`` constant, so a single wrong word there makes every source path for that
+    volume miss. `stage` skips any candidate whose source is not a file, which is worse
+    here than a plain no-op - a cover added to the middle of the date-ordered table shifts
+    every later cover's collection page, so the restage that follows moves all the
+    reachable covers to their new pages and leaves the unreachable ones still attached to
+    their *previous* occupants. Those pages then build as valid images of the wrong cover.
+
+    Args:
+        comics_database: The database supplying the volume directory paths.
+
+    Returns:
+        One pair per offending volume, ordered by volume number; empty when all are present.
+
+    """
+    missing: dict[int, Path] = {}
+    for cover in get_located_covers():
+        location = get_cover_location(cover)
+        assert location is not None  # located by construction
+        volume = location[0]
+        image_dir = comics_database.get_fantagraphics_volume_image_dir(volume)
+        if not image_dir.is_dir():
+            missing[volume] = image_dir
+
+    return sorted(missing.items())
+
+
 def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_02 cover links.
 
@@ -196,6 +226,23 @@ def main(
         raise typer.BadParameter(msg)
     init_logging(APP_LOGGING_NAME, "stage-covers.log", log_level_str)
     comics_database = ComicsDatabase(for_building_comics=True)
+
+    # Checked here rather than in `stage` because it is a precondition of staging, not of
+    # working out the links: `--remove` must still clean up after a volume goes missing.
+    if not remove:
+        missing = missing_volume_dirs(comics_database)
+        if missing:
+            for volume, image_dir in missing:
+                logger.error(f'Volume {volume} original image dir not found: "{image_dir}".')
+            logger.error(
+                "A located cover points at a volume that is not on disk. Restaging now"
+                " would leave its pages attached to whichever covers held those page"
+                " numbers before. Check each volume's VOLUME_nn constant in"
+                " fanta_comics_info.py names its actual directory in the"
+                f' "{comics_database.get_fantagraphics_original_root_dir()}" tree.'
+            )
+            raise typer.Exit(1)
+
     stage(comics_database, remove=remove, copy=copy)
 
 

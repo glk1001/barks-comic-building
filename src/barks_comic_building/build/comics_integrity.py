@@ -1153,10 +1153,29 @@ class ComicsIntegrityChecker:
         ]
 
         ret_code = 0
+        missing_originals = []
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
+            # The original tree is checked separately from the derived trees above
+            # because it is the one directory nothing creates for us. Every other dir
+            # here is made by `make_all_fantagraphics_directories`, so a volume whose
+            # `VOLUME_nn` constant disagrees with its directory on disk still passes the
+            # loop below - the derived dirs all exist, under the wrong name - while every
+            # source lookup for that volume silently misses.
+            if not self._found_dir(database.get_fantagraphics_volume_image_dir(volume)):
+                missing_originals.append(volume)
+                ret_code = 1
+
             for get_dir in volume_dir_getters:
                 if not self._found_dir(get_dir(volume)):
                     ret_code = 1
+
+        if missing_originals:
+            volumes = ", ".join(str(volume) for volume in missing_originals)
+            logger.error(
+                f"No original images dir for volume(s) {volumes}. Check each one's"
+                f" VOLUME_nn constant names its actual directory in the"
+                f' "{database.get_fantagraphics_original_root_dir()}" tree.'
+            )
 
         if ret_code == 0:
             logger.info("The directory structure is correct.")

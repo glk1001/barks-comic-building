@@ -150,6 +150,32 @@ def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]
     return [link for links in get_staged_links_by_title(comics_database).values() for link in links]
 
 
+def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path]]:
+    """Return the ``(volume, image dir)`` pairs a located one-pager needs but that are absent.
+
+    Guards the failure that is otherwise silent: a volume's directory name comes from its
+    ``VOLUME_nn`` constant, so a single wrong word there makes every source path for that
+    volume miss. `stage` skips any candidate whose source is not a file, so a misnamed
+    volume stages nothing at all and reports success - the only symptom being a link count
+    lower than expected.
+
+    Args:
+        comics_database: The database supplying the volume directory paths.
+
+    Returns:
+        One pair per offending volume, ordered by volume number; empty when all are present.
+
+    """
+    missing: dict[int, Path] = {}
+    for title in get_located_one_pagers():
+        volume = ONE_PAGER_LOCATIONS[title][0]
+        image_dir = comics_database.get_fantagraphics_volume_image_dir(volume)
+        if not image_dir.is_dir():
+            missing[volume] = image_dir
+
+    return sorted(missing.items())
+
+
 def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_01 one-pager symlinks.
 
@@ -199,6 +225,22 @@ def main(
 ) -> None:
     init_logging(APP_LOGGING_NAME, "stage-one-pagers.log", log_level_str)
     comics_database = ComicsDatabase(for_building_comics=True)
+
+    # Checked here rather than in `stage` because it is a precondition of staging, not of
+    # working out the links: `--remove` must still clean up after a volume goes missing.
+    if not remove:
+        missing = missing_volume_dirs(comics_database)
+        if missing:
+            for volume, image_dir in missing:
+                logger.error(f'Volume {volume} original image dir not found: "{image_dir}".')
+            logger.error(
+                "A located one-pager points at a volume that is not on disk, so it would"
+                " stage nothing and report success. Check each volume's VOLUME_nn constant"
+                " in fanta_comics_info.py names its actual directory in the"
+                f' "{comics_database.get_fantagraphics_original_root_dir()}" tree.'
+            )
+            raise typer.Exit(1)
+
     stage(comics_database, remove=remove)
 
 

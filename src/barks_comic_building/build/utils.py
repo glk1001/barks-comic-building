@@ -44,6 +44,35 @@ HOUR_SEP = ":"
 TIMESTAMP_SEPS = (DATE_SEP, DATE_TIME_SEP, HOUR_SEP)
 
 
+def links_to(link: Path, source: Path) -> bool:
+    """Return whether ``link`` is already a symlink pointing at ``source``.
+
+    Staging exists to let a restage be run freely, so it must be able to do nothing.
+    That is not cosmetic here: `get_timestamp` reads a symlink's *own* mtime rather
+    than its target's, deliberately, so that re-pointing a link marks everything built
+    from it stale. Re-creating a link that already pointed at the right source sets
+    that same clock forward without anything having changed, and the build then
+    refuses a page whose segments file is in fact still current.
+
+    The pages this bites are exactly the ones with a staged image but a
+    collection-computed segments file - a one-pager whose source volume never
+    segmented that page, because the one-pager belongs to no title. Their segments
+    file is a real file that no restage touches, so only the link moves.
+
+    Args:
+        link: The staged path to test.
+        source: The file the link should be pointing at.
+
+    Returns:
+        True if the link exists, is a symlink, and already resolves to ``source``.
+
+    """
+    if not link.is_symlink():
+        return False
+
+    return link.readlink() == source
+
+
 @contextmanager
 def quiet_panel_bbox_height_warnings() -> Iterator[None]:
     """Silence the shared panel-bounding height warning while a check resolves pages.

@@ -54,6 +54,7 @@ from comic_utils.comic_consts import JPG_FILE_EXT, PNG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
+from barks_comic_building.build.utils import links_to
 from barks_comic_building.cli_setup import init_logging
 
 if TYPE_CHECKING:
@@ -175,9 +176,10 @@ def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_02 cover links.
 
     On create, a link is made only when its source file exists (so already-built
-    artifacts are reused and missing ones are simply left for the pipeline); with
-    ``copy``, files are copied instead of symlinked. On remove, any existing
-    staged file is deleted regardless of its source or whether it was a symlink.
+    artifacts are reused and missing ones are simply left for the pipeline), and only
+    when it is not already pointing where it should - see `links_to`; with ``copy``,
+    files are copied instead of symlinked. On remove, any existing staged file is
+    deleted regardless of its source or whether it was a symlink.
     """
     candidates = get_staged_links(comics_database)
     if not candidates:
@@ -185,6 +187,7 @@ def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
         return
 
     count = 0
+    unchanged = 0
     for link, source in candidates:
         if remove:
             if link.is_symlink() or link.exists():
@@ -194,6 +197,14 @@ def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
             continue
 
         if not source.is_file():
+            continue
+
+        # Only for symlinks: `--copy` asked for a file, so an existing link is not what
+        # was asked for however well it points, and `copy2` carries the source's mtime
+        # over anyway, which leaves a re-copy idempotent as far as staleness goes.
+        if not copy and links_to(link, source):
+            unchanged += 1
+            logger.debug(f'Already staged - leaving alone: "{link}".')
             continue
 
         link.parent.mkdir(parents=True, exist_ok=True)
@@ -207,6 +218,8 @@ def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
         logger.info(f'Staged "{link}" -> "{source}".')
 
     logger.info(f"{'Removed' if remove else 'Staged'} {count} cover links.")
+    if unchanged:
+        logger.info(f"Left {unchanged} already-correct links untouched.")
 
 
 app = typer.Typer()

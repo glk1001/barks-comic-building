@@ -48,6 +48,7 @@ from comic_utils.comic_consts import JPG_FILE_EXT, JSON_FILE_EXT, PNG_FILE_EXT, 
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
+from barks_comic_building.build.utils import links_to
 from barks_comic_building.cli_setup import init_logging
 
 if TYPE_CHECKING:
@@ -180,8 +181,9 @@ def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_01 one-pager symlinks.
 
     On create, a link is made only when its source file exists (so already-built
-    artifacts are reused and missing ones are simply left for the pipeline). On
-    remove, any existing link is deleted regardless of its source.
+    artifacts are reused and missing ones are simply left for the pipeline), and only
+    when it is not already pointing where it should - see `links_to`. On remove, any
+    existing link is deleted regardless of its source.
     """
     candidates = get_staged_links(comics_database)
     if not candidates:
@@ -189,6 +191,7 @@ def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
         return
 
     count = 0
+    unchanged = 0
     for link, source in candidates:
         if remove:
             if link.is_symlink() or link.exists():
@@ -200,6 +203,11 @@ def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
         if not source.is_file():
             continue
 
+        if links_to(link, source):
+            unchanged += 1
+            logger.debug(f'Already staged - leaving alone: "{link}".')
+            continue
+
         link.parent.mkdir(parents=True, exist_ok=True)
         if link.is_symlink() or link.exists():
             link.unlink()
@@ -208,6 +216,8 @@ def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
         logger.info(f'Staged "{link}" -> "{source}".')
 
     logger.info(f"{'Removed' if remove else 'Staged'} {count} one-pager links.")
+    if unchanged:
+        logger.info(f"Left {unchanged} already-correct links untouched.")
 
 
 app = typer.Typer()

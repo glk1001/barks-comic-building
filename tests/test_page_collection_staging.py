@@ -309,6 +309,43 @@ class TestStagingLinks:
 
         assert link.resolve() == self._first_member_source(database).resolve()
 
+    def test_restaging_leaves_an_already_correct_link_untouched(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # A restage must be safe to run at any time, which means a link that is already
+        # right has to be left completely alone - including its mtime. `get_timestamp`
+        # reads a symlink's own mtime, not its target's, so re-creating an unchanged link
+        # moves that clock forward and the build then rejects a page whose panel-segments
+        # file is still perfectly current. That is exactly what happened to the one-pager
+        # at collection page 595: staged image, real segments file, and a restage that
+        # changed nothing made the segments look stale.
+        self._first_member_source(database)
+        stage_one_pagers.stage(as_database(database), remove=False)
+        link = self._first_member_link(database)
+        before = link.lstat().st_mtime_ns
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert link.lstat().st_mtime_ns == before
+
+    def test_restaging_a_link_whose_source_changed_moves_its_mtime(
+        self, database: FakeComicsDatabase, tmp_path: Path
+    ) -> None:
+        # The other half of the same rule: leaving correct links alone must not blunt the
+        # signal. A link that really did change source is rebuilt, so its mtime advances
+        # and everything built from it is correctly seen as stale.
+        self._first_member_source(database)
+        stage_one_pagers.stage(as_database(database), remove=False)
+        link = self._first_member_link(database)
+        before = link.lstat().st_mtime_ns
+        link.unlink()
+        link.symlink_to(touch(tmp_path / "elsewhere" / "999.jpg"))
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert link.lstat().st_mtime_ns != before
+        assert link.resolve() == self._first_member_source(database).resolve()
+
     def test_remove_deletes_the_link(self, database: FakeComicsDatabase) -> None:
         self._first_member_source(database)
         stage_one_pagers.stage(as_database(database), remove=False)

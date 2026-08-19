@@ -216,8 +216,9 @@ def get_chain_state(comic: ComicBook) -> ChainState:
     Walks the same chain as `barks-check-build`, through the same
     `walk_srce_dependency_chain`, so the two reports cannot come to opposite conclusions
     about one title. A page list that will not resolve grades as clean rather than
-    raising, and the pages are resolved with the timestamp check off, both for the same
-    reason: that check raises on exactly the fault this report exists to display.
+    raising: resolving it must not raise on the very fault this report exists to
+    display. `get_sorted_srce_and_dest_pages` no longer dates the source pages itself,
+    so there is nothing left to turn off for that.
 
     Args:
         comic: The comic to grade.
@@ -231,9 +232,13 @@ def get_chain_state(comic: ComicBook) -> ChainState:
 
     try:
         with quiet_panel_bbox_height_warnings():
-            pages = get_sorted_srce_and_dest_pages(
-                comic, get_full_paths=True, check_srce_page_timestamps=False
-            )
+            pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
+    except TypeError:
+        # A wrong call signature is a bug in this module, not an unreadable comic, and
+        # the handler below would bury it: `check_srce_page_timestamps` outlived its
+        # removal from `get_sorted_srce_and_dest_pages` here for days, and every title
+        # graded clean because the TypeError was caught and logged at debug.
+        raise
     except Exception as e:  # noqa: BLE001
         logger.debug(f'Cannot read the pages of "{comic.ini_file}" to date them - {e}.')
         return CLEAN_CHAIN

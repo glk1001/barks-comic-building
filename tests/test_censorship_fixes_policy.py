@@ -44,6 +44,9 @@ from pathlib import Path
 
 import pytest
 from barks_fantagraphics.censorship_fixes import (
+    CENSORSHIP_FIXES_HEADER,
+    CensorshipFixesError,
+    read_censorship_fixes,
     story_page_offsets,
     story_page_offsets_disagree,
 )
@@ -340,6 +343,35 @@ class TestAPageWithNoNumberOfItsOwn:
         assert classify_censorship_row(facts) is CensorshipRowFault.UNKNOWN_PAGE
 
 
+class TestARowThatNamesAPageAndNoImage:
+    """The one shape `barks-ocr-censorship-csv` cannot report on its own.
+
+    That tool derives Image from the page, then reports the derived value where it
+    differs from the stored one. A page the story does not have derives to blank, and the
+    stored cell of a hand-added row is blank too, so the two agree and the typo is
+    reported by nothing. This check is where it has to surface.
+    """
+
+    def test_a_blank_image_for_a_page_the_story_does_have(self) -> None:
+        # The derived columns have not been filled in yet.
+        assert (
+            classify_censorship_row(row_facts(stored_image="")) is CensorshipRowFault.MISSING_IMAGE
+        )
+
+    def test_a_blank_image_for_a_page_the_story_does_not_have(self) -> None:
+        # Nothing to fill it in with: the page number itself is the mistake.
+        assert (
+            classify_censorship_row(row_facts(stored_image="", expected_image=None))
+            is CensorshipRowFault.UNKNOWN_PAGE
+        )
+
+    def test_the_volume_is_still_judged_first(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_image="", stored_volume=9))
+            is CensorshipRowFault.WRONG_VOLUME
+        )
+
+
 class TestAStoryImpliesOneOffset:
     """Fanta_page and Comic_page advance together, so their gap is the story's start."""
 
@@ -384,3 +416,43 @@ class TestARestoredPageIsAllowedToStepTheOffset:
         pairs = [("1", "187"), ("3", "188a"), ("4", "189"), ("9", "300")]
 
         assert story_page_offsets_disagree(pairs)
+
+    def test_a_second_panel_on_the_same_folio_buys_nothing(self) -> None:
+        # The rows are per panel, so one restored page can carry several. Counting rows
+        # rather than folios would widen the allowance to three offsets and let the
+        # page-300 row through.
+        pairs = [("1", "187"), ("3", "188a"), ("3", "188a"), ("4", "189"), ("9", "300")]
+
+        assert story_page_offsets_disagree(pairs)
+
+
+class TestAMalformedRow:
+    """A hand-edited CSV is the normal way this file changes, so it can be malformed.
+
+    Every caller guards on `CensorshipFixesError`, so anything else - a `TypeError` out
+    of the row dataclass, say - escapes the handler and aborts `barks-check-build` with
+    a traceback instead of the error line it means to print.
+    """
+
+    def _write(self, tmp_path: Path, *rows: str) -> Path:
+        file = tmp_path / "censorship-fixes.csv"
+        file.write_text("\n".join([",".join(CENSORSHIP_FIXES_HEADER), *rows]), encoding="utf-8")
+        return file
+
+    def test_a_row_with_a_column_missing(self, tmp_path: Path) -> None:
+        file = self._write(tmp_path, "4,134,187,4,3,Frozen Gold,censorship,before")
+
+        with pytest.raises(CensorshipFixesError, match="9 columns"):
+            read_censorship_fixes(file)
+
+    def test_a_row_with_a_column_too_many(self, tmp_path: Path) -> None:
+        # An unquoted comma inside Change_From splits the cell in two.
+        file = self._write(tmp_path, "4,134,187,4,3,Frozen Gold,censorship,be,fore,after")
+
+        with pytest.raises(CensorshipFixesError, match="9 columns"):
+            read_censorship_fixes(file)
+
+    def test_a_well_formed_row_still_reads(self, tmp_path: Path) -> None:
+        file = self._write(tmp_path, "4,134,187,4,3,Frozen Gold,censorship,before,after")
+
+        assert read_censorship_fixes(file)[0].story == "Frozen Gold"

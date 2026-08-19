@@ -34,6 +34,15 @@ def main(  # noqa: PLR0913
         msg = "Options --censorship-only and --no-check-censorship-csv contradict each other."
         raise typer.BadParameter(msg)
 
+    if censorship_only and (volumes_str or title_str or fix_names):
+        # Each of these would otherwise be dropped without a word - and --fix-names would
+        # look like a rename run that decided there was nothing to rename.
+        msg = (
+            "Option --censorship-only runs the whole-library censorship check on its own,"
+            " so it cannot be combined with --volume, --title or --fix-names."
+        )
+        raise typer.BadParameter(msg)
+
     if censorship_only:
         # The censorship check is whole-library, so it takes no volume or title filter
         # and nothing else needs to run first. Kept separate so a recipe that only wants

@@ -277,6 +277,7 @@ class CensorshipRowFault(StrEnum):
     UNKNOWN_PAGE = "unknown page"
     WRONG_VOLUME = "wrong volume"
     WRONG_IMAGE = "wrong image"
+    MISSING_IMAGE = "missing image"
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,7 +286,8 @@ class CensorshipRowFacts:
 
     Attributes:
         stored_volume: The volume the row gives.
-        stored_image: The scan image the row gives, or "" for a whole-story row.
+        stored_image: The scan image the row gives, or "" for a whole-story row - or for
+            a row whose page has no image to derive one from.
         stored_comic_page: The page within the story, or "" where the page has no
             number of its own.
         expected_volume: The volume the story is in, or None if it does not resolve.
@@ -316,6 +318,12 @@ def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | N
     image but no page because the page has no number: a cover, or back matter. Both are
     ordinary, and both still have to name the right volume.
 
+    A row that names a page and no image is neither of those. The image is derived from
+    the page, so a blank one is either a row nobody has run the derive tool over yet, or
+    a page the story does not have - which is what the derive tool leaves blank. Since
+    both the stored and the derived cell are then empty, that tool sees no disagreement,
+    and this is the only check the typo reaches.
+
     Args:
         facts: What the row claims and what its story says.
 
@@ -329,20 +337,23 @@ def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | N
     if facts.stored_volume != facts.expected_volume:
         return CensorshipRowFault.WRONG_VOLUME
 
-    if not facts.stored_image:
-        return None
-
     if not facts.stored_comic_page:
+        if not facts.stored_image:
+            # A whole story censored out of its volume: no one page to point at.
+            return None
         return None if facts.image_is_unnumbered_page else CensorshipRowFault.UNKNOWN_PAGE
 
     if facts.stored_image != facts.expected_image:
-        # No expected image at all means the story has no such page, which is a
-        # different mistake from naming the wrong image for a page it does have.
-        return (
-            CensorshipRowFault.UNKNOWN_PAGE
-            if facts.expected_image is None
-            else CensorshipRowFault.WRONG_IMAGE
-        )
+        if facts.expected_image is None:
+            # No expected image at all means the story has no such page, which is a
+            # different mistake from naming the wrong image for a page it does have.
+            fault = CensorshipRowFault.UNKNOWN_PAGE
+        elif not facts.stored_image:
+            # A page that exists and a cell nobody derived a value into yet.
+            fault = CensorshipRowFault.MISSING_IMAGE
+        else:
+            fault = CensorshipRowFault.WRONG_IMAGE
+        return fault
 
     return None
 
@@ -498,6 +509,13 @@ def _censorship_row_fault_msg(
                 f" a page of that story that could carry a fix without a page number."
             )
         return f"{ERROR_MSG_PREFIX}The {where} names a page that story does not have."
+
+    if fault is CensorshipRowFault.MISSING_IMAGE:
+        return (
+            f"{ERROR_MSG_PREFIX}The {where} names no image, but that page was printed"
+            f' on image "{expected.expected_image}".'
+            f" Run `barks-ocr-censorship-csv` to fill the derived columns in."
+        )
 
     if fault is CensorshipRowFault.WRONG_VOLUME:
         return (

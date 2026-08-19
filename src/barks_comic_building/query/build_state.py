@@ -210,6 +210,22 @@ def stale_chain_rungs(
     return rungs, fold_max(staleness.max_srce, head_file, chain[0].timestamp)
 
 
+def _is_wrong_call_signature(error: TypeError) -> bool:
+    """Say whether a TypeError came from the call itself rather than from inside it.
+
+    Binding a call's arguments fails in the calling frame, so a signature mismatch has a
+    one-frame traceback. Anything deeper was raised by the callee working on real data.
+
+    Args:
+        error: The caught TypeError.
+
+    Returns:
+        True if the call was made wrongly.
+
+    """
+    return error.__traceback__ is not None and error.__traceback__.tb_next is None
+
+
 def get_chain_state(comic: ComicBook) -> ChainState:
     """Grade every page's restore chain, and collect the newest source of the title.
 
@@ -233,13 +249,15 @@ def get_chain_state(comic: ComicBook) -> ChainState:
     try:
         with quiet_panel_bbox_height_warnings():
             pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
-    except TypeError:
+    except Exception as e:
         # A wrong call signature is a bug in this module, not an unreadable comic, and
-        # the handler below would bury it: `check_srce_page_timestamps` outlived its
-        # removal from `get_sorted_srce_and_dest_pages` here for days, and every title
-        # graded clean because the TypeError was caught and logged at debug.
-        raise
-    except Exception as e:  # noqa: BLE001
+        # this handler would bury it: `check_srce_page_timestamps` outlived its removal
+        # from `get_sorted_srce_and_dest_pages` here for days, and every title graded
+        # clean because the TypeError was caught and logged at debug. Only that shape is
+        # re-raised - a TypeError from inside the call is ordinary unreadable-page data,
+        # and raising on it would put back the crash this handler exists to stop.
+        if isinstance(e, TypeError) and _is_wrong_call_signature(e):
+            raise
         logger.debug(f'Cannot read the pages of "{comic.ini_file}" to date them - {e}.')
         return CLEAN_CHAIN
 

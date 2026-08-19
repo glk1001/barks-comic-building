@@ -63,12 +63,14 @@ def facts(
     cited_in_csv: bool = True,
     has_edited_image: bool = True,
     added_page_allowed: bool = False,
+    page_is_non_comic: bool = False,
 ) -> CensorshipPageFacts:
     """Make one page's facts, defaulting to a fix that is recorded and was applied."""
     return CensorshipPageFacts(
         cited_in_csv=cited_in_csv,
         has_edited_image=has_edited_image,
         added_page_allowed=added_page_allowed,
+        page_is_non_comic=page_is_non_comic,
     )
 
 
@@ -126,9 +128,33 @@ class TestAnEditedImageWithNoCsvRow:
         )
 
 
-class TestTheWholeTruthTable:
-    """Every combination of the three facts, so no case is left undecided."""
+class TestAnEssayPageNeedsNoRow:
+    """The volumes' essays and articles are retouched too, and are not comics.
 
+    The CSV records what was changed in the comics. Four prose pages - two of the Maggie
+    Thompson article, two of the Don Ault essay - were the last findings standing, and
+    they were never going to be written down.
+    """
+
+    def test_an_unrecorded_fix_to_one_is_not_reported(self) -> None:
+        assert classify_censorship_page(facts(cited_in_csv=False, page_is_non_comic=True)) is None
+
+    def test_recording_one_anyway_is_still_allowed(self) -> None:
+        # Exempt from having to be recorded, not from being able to be.
+        assert classify_censorship_page(facts(page_is_non_comic=True)) is None
+
+    def test_a_recorded_fix_to_one_still_needs_its_image(self) -> None:
+        # The exemption is one-directional: it excuses a missing row, not a missing file.
+        assert (
+            classify_censorship_page(facts(has_edited_image=False, page_is_non_comic=True))
+            is CensorshipCsvFault.NO_FIX_IMAGE
+        )
+
+
+class TestTheWholeTruthTable:
+    """Every combination of the four facts, so no case is left undecided."""
+
+    @pytest.mark.parametrize("non_comic", [False, True])
     @pytest.mark.parametrize(
         ("cited", "edited", "added", "expected"),
         [
@@ -143,10 +169,24 @@ class TestTheWholeTruthTable:
         ],
     )
     def test_each_combination_has_one_verdict(
-        self, cited: bool, edited: bool, added: bool, expected: CensorshipCsvFault | None
+        self,
+        cited: bool,
+        edited: bool,
+        added: bool,
+        non_comic: bool,
+        expected: CensorshipCsvFault | None,
     ) -> None:
+        # Being a non-comic page changes exactly one verdict: it excuses the missing row.
+        if non_comic and expected is CensorshipCsvFault.UNDOCUMENTED_FIX:
+            expected = None
+
         verdict = classify_censorship_page(
-            facts(cited_in_csv=cited, has_edited_image=edited, added_page_allowed=added)
+            facts(
+                cited_in_csv=cited,
+                has_edited_image=edited,
+                added_page_allowed=added,
+                page_is_non_comic=non_comic,
+            )
         )
 
         assert verdict is expected

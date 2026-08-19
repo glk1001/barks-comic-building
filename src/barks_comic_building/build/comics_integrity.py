@@ -364,12 +364,15 @@ class CensorshipPageFacts:
             exists - an edit, rather than a page added to the volume.
         added_page_allowed: The database says this page was added to the volume on
             purpose, so the CSV may cite it even with no original scan behind it.
+        page_is_non_comic: The page belongs to a title that is not a Barks comic - one
+            of the volume's essays or articles.
 
     """
 
     cited_in_csv: bool
     has_edited_image: bool
     added_page_allowed: bool
+    page_is_non_comic: bool
 
 
 def classify_censorship_page(facts: CensorshipPageFacts) -> CensorshipCsvFault | None:
@@ -381,6 +384,11 @@ def classify_censorship_page(facts: CensorshipPageFacts) -> CensorshipCsvFault |
     cite one even though it is not an edit. The reverse does not follow - an added page
     nobody cited is an addition, not an undocumented fix, so it is not reported.
 
+    A page of one of the volume's essays or articles is exempt from being recorded. The
+    CSV is a record of what was changed in the comics; retouching a page of prose is a
+    different kind of work and has never been listed. Citing one is still allowed - the
+    exemption is from having to, not from being able to.
+
     Args:
         facts: What the CSV and the trees say about the page.
 
@@ -391,7 +399,7 @@ def classify_censorship_page(facts: CensorshipPageFacts) -> CensorshipCsvFault |
     if facts.cited_in_csv and not (facts.has_edited_image or facts.added_page_allowed):
         return CensorshipCsvFault.NO_FIX_IMAGE
 
-    if facts.has_edited_image and not facts.cited_in_csv:
+    if facts.has_edited_image and not facts.cited_in_csv and not facts.page_is_non_comic:
         return CensorshipCsvFault.UNDOCUMENTED_FIX
 
     return None
@@ -1234,9 +1242,18 @@ class ComicsIntegrityChecker:
 
         cited_pages = censorship_fix_pages(rows)
 
+        non_comic_pages = self._non_comic_page_nums()
+
         ret_code = self.check_censorship_fixes_rows(rows)
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
-            if self.check_censorship_fixes_volume(volume, cited_pages.get(volume, set())) != 0:
+            if (
+                self.check_censorship_fixes_volume(
+                    volume,
+                    cited_pages.get(volume, set()),
+                    non_comic_pages.get(volume, frozenset()),
+                )
+                != 0
+            ):
                 ret_code = 1
 
         if ret_code == 0:
@@ -1245,6 +1262,28 @@ class ComicsIntegrityChecker:
             logger.error("The censorship fixes CSV does not match the fixes trees.")
 
         return ret_code
+
+    def _non_comic_page_nums(self) -> dict[int, frozenset[str]]:
+        """Return the page nums belonging to a title that is not a Barks comic, by volume.
+
+        There are only a handful of these - the volumes' essays and articles - so they
+        are asked for by name rather than found by walking every title of every volume.
+
+        Returns:
+            Volume number to the page nums of its non-comic titles.
+
+        """
+        page_nums: dict[int, set[str]] = {}
+        for title in NON_COMIC_TITLES:
+            try:
+                comic = self.comics_database.get_comic_book_for(title)
+            except (TitleNotFoundError, FileNotFoundError):
+                # Not every one of them is configured in every library.
+                continue
+            volume = page_nums.setdefault(comic.get_fanta_volume(), set())
+            volume.update(page.page_filenames for page in comic.page_images_in_order)
+
+        return {volume: frozenset(nums) for volume, nums in page_nums.items()}
 
     def check_censorship_fixes_rows(self, rows: list[CensorshipFixRow]) -> int:
         """Check each row's volume and image against the story and page it names.
@@ -1305,12 +1344,16 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    def check_censorship_fixes_volume(self, volume: int, cited_pages: set[str]) -> int:
+    def check_censorship_fixes_volume(
+        self, volume: int, cited_pages: set[str], non_comic_pages: frozenset[str]
+    ) -> int:
         """Check one volume's fixed pages against the pages the CSV records.
 
         Args:
             volume: The Fantagraphics volume.
             cited_pages: The page nums the CSV records a fix for in this volume.
+            non_comic_pages: The page nums belonging to the volume's essays and articles,
+                which need no row of their own.
 
         Returns:
             0 if the CSV and this volume's fixes trees agree, 1 otherwise.
@@ -1343,6 +1386,7 @@ class ComicsIntegrityChecker:
                 cited_in_csv=page_num in cited_pages,
                 has_edited_image=page_num in edited_pages,
                 added_page_allowed=ComicBook.is_fixes_special_case_added(volume, page_num),
+                page_is_non_comic=page_num in non_comic_pages,
             )
             fault = classify_censorship_page(facts)
             if fault is None:

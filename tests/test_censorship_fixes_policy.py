@@ -20,6 +20,18 @@ while working this out and both are wrong: the extension splits repainted from c
 rather than edit from addition, and the page-number rule misfiles the restored *Bill
 Collectors* page, which is an addition that really is a censorship fix.
 
+The row checks are the other half: the CSV agreeing with itself rather than with the
+trees. Volume and Image are worked out from the story and the page within it, so a
+hand-edited one describes a page it does not mean - and because a plain run rewrites
+them from the story, being wrong was invisible. One was: a row gave image 134 with comic
+page 7 of Turkey Raffle, but 134 is that story's page 4, and the next run would have
+moved the image to 137 and undone the row's whole point.
+
+Fanta_page cannot be checked against an absolute here - the printed start pages live in
+another repo - but it does not need to be. Both page numbers advance one per page, so a
+story implies exactly one offset between them, and a row that breaks it is wrong without
+anyone knowing where the story starts.
+
 The second is that the one asymmetry runs in only one direction. A story Fantagraphics
 cut entirely comes back as pages with no original scan, so the CSV may legitimately cite
 an addition. It does not follow that an uncited addition is a missing CSV row - almost
@@ -31,11 +43,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from barks_fantagraphics.censorship_fixes import (
+    story_page_offsets,
+    story_page_offsets_disagree,
+)
 
 from barks_comic_building.build.comics_integrity import (
     CensorshipCsvFault,
     CensorshipPageFacts,
+    CensorshipRowFacts,
+    CensorshipRowFault,
     classify_censorship_page,
+    classify_censorship_row,
 )
 
 
@@ -149,3 +168,179 @@ class TestPathsAreNotNeeded:
             classify_censorship_page(facts(has_edited_image=False))
             is CensorshipCsvFault.NO_FIX_IMAGE
         )
+
+
+def row_facts(  # noqa: PLR0913 - one keyword per fact, which is the point of the helper
+    *,
+    stored_volume: int = 4,
+    stored_image: str = "134",
+    stored_comic_page: str = "4",
+    expected_volume: int | None = 4,
+    expected_image: str | None = "134",
+    image_is_unnumbered_page: bool = False,
+) -> CensorshipRowFacts:
+    """Make one row's facts, defaulting to a row that agrees with its own story."""
+    return CensorshipRowFacts(
+        stored_volume=stored_volume,
+        stored_image=stored_image,
+        stored_comic_page=stored_comic_page,
+        expected_volume=expected_volume,
+        expected_image=expected_image,
+        image_is_unnumbered_page=image_is_unnumbered_page,
+    )
+
+
+class TestARowThatAgreesWithItsStory:
+    """The states that are not findings."""
+
+    def test_a_matching_volume_and_image_is_fine(self) -> None:
+        assert classify_censorship_row(row_facts()) is None
+
+    def test_a_whole_story_row_names_no_image_and_needs_none(self) -> None:
+        # A story censored out of its volume: no one page to point at.
+        assert (
+            classify_censorship_row(
+                row_facts(stored_image="", stored_comic_page="", expected_image=None)
+            )
+            is None
+        )
+
+
+class TestARowThatDoesNot:
+    """Each way a row can describe a page it does not mean."""
+
+    def test_a_story_the_database_does_not_know(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(expected_volume=None))
+            is CensorshipRowFault.UNKNOWN_STORY
+        )
+
+    def test_a_wrong_volume(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_volume=9)) is CensorshipRowFault.WRONG_VOLUME
+        )
+
+    def test_a_page_the_story_does_not_have(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(expected_image=None))
+            is CensorshipRowFault.UNKNOWN_PAGE
+        )
+
+    def test_an_image_that_is_no_page_of_the_story_at_all(self) -> None:
+        # No page number given, and the image is not one of its unnumbered pages either.
+        assert (
+            classify_censorship_row(row_facts(stored_comic_page="", expected_image=None))
+            is CensorshipRowFault.UNKNOWN_PAGE
+        )
+
+    def test_a_wrong_image(self) -> None:
+        # The Turkey Raffle row: page 7 of a story whose page 4 is image 134.
+        assert (
+            classify_censorship_row(row_facts(expected_image="137"))
+            is CensorshipRowFault.WRONG_IMAGE
+        )
+
+    def test_the_volume_is_judged_before_the_image(self) -> None:
+        # A wrong volume makes the image meaningless, so it is the finding worth showing.
+        assert (
+            classify_censorship_row(row_facts(stored_volume=9, expected_image="137"))
+            is CensorshipRowFault.WRONG_VOLUME
+        )
+
+    def test_a_whole_story_row_still_has_to_name_the_right_volume(self) -> None:
+        assert (
+            classify_censorship_row(
+                row_facts(
+                    stored_volume=9, stored_image="", stored_comic_page="", expected_image=None
+                )
+            )
+            is CensorshipRowFault.WRONG_VOLUME
+        )
+
+
+class TestAPageWithNoNumberOfItsOwn:
+    """A cover, or back matter: an image and no page, because there is no page to name.
+
+    Ten rows do this today. Judging them by the body pages reported every one as naming
+    a page the story does not have, which is true and beside the point - a cover is not
+    a body page and never will be.
+    """
+
+    def test_a_cover_row_is_fine(self) -> None:
+        facts = row_facts(
+            stored_image="213",
+            stored_comic_page="",
+            expected_image=None,
+            image_is_unnumbered_page=True,
+        )
+
+        assert classify_censorship_row(facts) is None
+
+    def test_an_unnumbered_page_still_has_to_be_in_the_right_volume(self) -> None:
+        facts = row_facts(
+            stored_volume=9,
+            stored_image="213",
+            stored_comic_page="",
+            expected_image=None,
+            image_is_unnumbered_page=True,
+        )
+
+        assert classify_censorship_row(facts) is CensorshipRowFault.WRONG_VOLUME
+
+    def test_giving_a_page_number_for_one_is_still_wrong(self) -> None:
+        # `Back to Long Ago!` had its back-matter page filed as comic page 24, which the
+        # story does not have - the image is right and the page number should not be there.
+        facts = row_facts(
+            stored_image="209",
+            stored_comic_page="24",
+            expected_image=None,
+            image_is_unnumbered_page=True,
+        )
+
+        assert classify_censorship_row(facts) is CensorshipRowFault.UNKNOWN_PAGE
+
+
+class TestAStoryImpliesOneOffset:
+    """Fanta_page and Comic_page advance together, so their gap is the story's start."""
+
+    def test_rows_in_step_imply_one_offset(self) -> None:
+        assert story_page_offsets([("1", "95"), ("2", "96"), ("10", "104")]) == {94}
+
+    def test_a_row_out_of_step_shows_up_as_a_second_offset(self) -> None:
+        assert story_page_offsets([("1", "95"), ("7", "98")]) == {94, 91}
+
+    def test_a_single_row_cannot_disagree_with_itself(self) -> None:
+        assert story_page_offsets([("1", "95")]) == {94}
+
+    def test_a_restored_page_folio_is_skipped_rather_than_parsed(self) -> None:
+        # "188a" sits between two printed pages, so it implies no whole-page offset.
+        assert story_page_offsets([("1", "187"), ("3", "188a"), ("4", "189")]) == {186, 185}
+
+    def test_a_whole_story_row_contributes_no_offset(self) -> None:
+        assert story_page_offsets([("", "")]) == set()
+
+
+class TestARestoredPageIsAllowedToStepTheOffset:
+    """The Bill Collectors: a page put back mid-story shifts every page after it.
+
+    Its printed pages run 187, 188, then the restored folio 188a, then 189 onwards - so
+    pages before the restoration sit one printed page higher than pages after it, and two
+    offsets is what a correct story looks like.
+    """
+
+    def test_two_offsets_are_fine_when_a_folio_explains_one_of_them(self) -> None:
+        pairs = [("1", "187"), ("3", "188a"), ("4", "189"), ("9", "194")]
+
+        assert not story_page_offsets_disagree(pairs)
+
+    def test_two_offsets_with_no_folio_is_a_disagreement(self) -> None:
+        assert story_page_offsets_disagree([("1", "95"), ("7", "98")])
+
+    def test_rows_in_step_never_disagree(self) -> None:
+        assert not story_page_offsets_disagree([("1", "95"), ("2", "96"), ("10", "104")])
+
+    def test_a_folio_does_not_excuse_a_second_unexplained_step(self) -> None:
+        # One folio buys one step, not two.
+        pairs = [("1", "187"), ("3", "188a"), ("4", "189"), ("9", "300")]
+
+        assert story_page_offsets_disagree(pairs)

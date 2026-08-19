@@ -14,8 +14,14 @@ from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from barks_fantagraphics.censorship_fixes import (
     CENSORSHIP_FIXES_CSV,
     CensorshipFixesError,
+    CensorshipFixRow,
+    CensorshipStoryPages,
     censorship_fix_pages,
+    censorship_story_pages,
     read_censorship_fixes,
+    resolve_censorship_story,
+    story_page_offsets,
+    story_page_offsets_disagree,
 )
 from barks_fantagraphics.comic_book import ComicBook, get_page_str, get_total_num_pages
 from barks_fantagraphics.comic_book_info import (
@@ -34,7 +40,7 @@ from barks_fantagraphics.comics_consts import (
     THE_COMICS_DIR,
     THE_YEARS_COMICS_DIR,
 )
-from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_database import ComicsDatabase, TitleNotFoundError
 from barks_fantagraphics.comics_utils import (
     get_relpath,
     get_safe_title,
@@ -264,6 +270,83 @@ class AddedPagePolicy:
         )
 
 
+class CensorshipRowFault(StrEnum):
+    """Why one censorship-fixes row does not agree with the story it names."""
+
+    UNKNOWN_STORY = "unknown story"
+    UNKNOWN_PAGE = "unknown page"
+    WRONG_VOLUME = "wrong volume"
+    WRONG_IMAGE = "wrong image"
+
+
+@dataclass(frozen=True, slots=True)
+class CensorshipRowFacts:
+    """What one row claims, beside what its story and page actually say.
+
+    Attributes:
+        stored_volume: The volume the row gives.
+        stored_image: The scan image the row gives, or "" for a whole-story row.
+        stored_comic_page: The page within the story, or "" where the page has no
+            number of its own.
+        expected_volume: The volume the story is in, or None if it does not resolve.
+        expected_image: The image that page was printed on, or None if the story has
+            no such page.
+        image_is_unnumbered_page: The image is one of the story's pages that carries no
+            comic page number - its cover, splash, or front and back matter.
+
+    """
+
+    stored_volume: int
+    stored_image: str
+    stored_comic_page: str
+    expected_volume: int | None
+    expected_image: str | None
+    image_is_unnumbered_page: bool
+
+
+def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | None:
+    """Say how a censorship-fixes row disagrees with its own story.
+
+    The volume and the image are worked out from the story and the page within it, so a
+    row that gives a different one has had a cell edited by hand and is now describing a
+    page it does not mean. Both were wrong at some point, which is why both are checked.
+
+    Two kinds of row name no page. One names no image either - a whole story censored
+    out of its volume, where there is no single page to point at. The other names an
+    image but no page because the page has no number: a cover, or back matter. Both are
+    ordinary, and both still have to name the right volume.
+
+    Args:
+        facts: What the row claims and what its story says.
+
+    Returns:
+        The fault, or None if the row agrees with itself.
+
+    """
+    if facts.expected_volume is None:
+        return CensorshipRowFault.UNKNOWN_STORY
+
+    if facts.stored_volume != facts.expected_volume:
+        return CensorshipRowFault.WRONG_VOLUME
+
+    if not facts.stored_image:
+        return None
+
+    if not facts.stored_comic_page:
+        return None if facts.image_is_unnumbered_page else CensorshipRowFault.UNKNOWN_PAGE
+
+    if facts.stored_image != facts.expected_image:
+        # No expected image at all means the story has no such page, which is a
+        # different mistake from naming the wrong image for a page it does have.
+        return (
+            CensorshipRowFault.UNKNOWN_PAGE
+            if facts.expected_image is None
+            else CensorshipRowFault.WRONG_IMAGE
+        )
+
+    return None
+
+
 class CensorshipCsvFault(StrEnum):
     """Why a fixed page and the censorship-fixes CSV do not agree."""
 
@@ -381,16 +464,59 @@ def iter_fix_images(images_dir: Path, spec: FixesTreeSpec) -> Iterator[tuple[str
         yield file.stem, file
 
 
-def _censorship_fault_msg(fault: CensorshipCsvFault, volume: int, page_num: str) -> str:
+def _censorship_row_fault_msg(
+    fault: CensorshipRowFault, row: CensorshipFixRow, expected: CensorshipRowFacts
+) -> str:
+    """Word one row that disagrees with the story it names.
+
+    Args:
+        fault: How the row disagrees.
+        row: The row as stored.
+        expected: What its story and page say it should hold.
+
+    Returns:
+        The message, ready to print.
+
+    """
+    where = f'censorship fixes row for "{row.story}" page "{row.comic_page}"'
+
+    if fault is CensorshipRowFault.UNKNOWN_STORY:
+        return f"{ERROR_MSG_PREFIX}The {where} names no story this database knows."
+
+    if fault is CensorshipRowFault.UNKNOWN_PAGE:
+        if not row.comic_page:
+            return (
+                f'{ERROR_MSG_PREFIX}The {where} names image "{row.image}", which is not'
+                f" a page of that story that could carry a fix without a page number."
+            )
+        return f"{ERROR_MSG_PREFIX}The {where} names a page that story does not have."
+
+    if fault is CensorshipRowFault.WRONG_VOLUME:
+        return (
+            f"{ERROR_MSG_PREFIX}The {where} says volume {row.volume},"
+            f" but that story is in volume {expected.expected_volume}."
+        )
+
+    return (
+        f'{ERROR_MSG_PREFIX}The {where} says image "{row.image}",'
+        f' but that page was printed on image "{expected.expected_image}".'
+    )
+
+
+def _censorship_fault_msg(
+    fault: CensorshipCsvFault, volume: int, page_num: str, fix_file: Path | None
+) -> str:
     """Word one disagreement between the censorship-fixes CSV and the fixes trees.
 
-    The CSV's path is not repeated here: `check_censorship_fixes_csv` names it once, and
-    every finding refers to the same file.
+    The offending file is named rather than described. Both trees are searched, and which
+    one a fix landed in is not guessable from the page number - saying only "a fixes tree"
+    sends the reader to look for it.
 
     Args:
         fault: How the two disagree.
         volume: The Fantagraphics volume.
         page_num: The page they disagree about.
+        fix_file: The edited image, when there is one.
 
     Returns:
         The message, ready to print.
@@ -399,12 +525,13 @@ def _censorship_fault_msg(fault: CensorshipCsvFault, volume: int, page_num: str)
     if fault is CensorshipCsvFault.NO_FIX_IMAGE:
         return (
             f"{ERROR_MSG_PREFIX}Censorship fixes CSV records a fix for volume {volume}"
-            f' page "{page_num}", but no fixes tree holds an edited image for it.'
+            f' page "{page_num}", but neither fixes tree holds an edited image for it.'
         )
 
     return (
-        f'{ERROR_MSG_PREFIX}Volume {volume} page "{page_num}" has an edited image in a'
-        f" fixes tree, but the censorship fixes CSV does not record it."
+        f'{ERROR_MSG_PREFIX}Volume {volume} page "{page_num}" has an edited image, but'
+        f" the censorship fixes CSV does not record it.\n"
+        f'{BLANK_ERR_MSG_PREFIX}Image: "{fix_file}".'
     )
 
 
@@ -1107,7 +1234,7 @@ class ComicsIntegrityChecker:
 
         cited_pages = censorship_fix_pages(rows)
 
-        ret_code = 0
+        ret_code = self.check_censorship_fixes_rows(rows)
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
             if self.check_censorship_fixes_volume(volume, cited_pages.get(volume, set())) != 0:
                 ret_code = 1
@@ -1116,6 +1243,65 @@ class ComicsIntegrityChecker:
             logger.info("The censorship fixes CSV matches the fixes trees.")
         else:
             logger.error("The censorship fixes CSV does not match the fixes trees.")
+
+        return ret_code
+
+    def check_censorship_fixes_rows(self, rows: list[CensorshipFixRow]) -> int:
+        """Check each row's volume and image against the story and page it names.
+
+        Those two columns are worked out from the story and the page within it, so this
+        is the CSV agreeing with itself rather than with the trees. A row that has drifted
+        points the tree comparison at the wrong page, so it is checked first.
+
+        Args:
+            rows: The rows, from `read_censorship_fixes`.
+
+        Returns:
+            0 if every row agrees with its own story, 1 otherwise.
+
+        """
+        ret_code = 0
+        pages_by_title: dict[str, CensorshipStoryPages | None] = {}
+        page_pairs: dict[str, list[tuple[str, str]]] = {}
+
+        for row in rows:
+            page_pairs.setdefault(row.story, []).append((row.comic_page, row.fanta_page))
+
+            if row.story not in pages_by_title:
+                try:
+                    title = resolve_censorship_story(self.comics_database, row.story)
+                    pages_by_title[row.story] = censorship_story_pages(self.comics_database, title)
+                except (CensorshipFixesError, TitleNotFoundError):
+                    pages_by_title[row.story] = None
+
+            pages = pages_by_title[row.story]
+            facts = CensorshipRowFacts(
+                stored_volume=row.volume,
+                stored_image=row.image,
+                stored_comic_page=row.comic_page,
+                expected_volume=None if pages is None else pages.volume,
+                expected_image=None if pages is None else pages.body_images.get(row.comic_page),
+                image_is_unnumbered_page=(
+                    pages is not None and row.image in pages.unnumbered_images
+                ),
+            )
+
+            fault = classify_censorship_row(facts)
+            if fault is not None:
+                print(_censorship_row_fault_msg(fault, row, facts))
+                ret_code = 1
+
+        for story, pairs in page_pairs.items():
+            # Both page numbers advance one per page, so one story implies one offset -
+            # give or take a page restored into the middle of it, which steps the rest.
+            if story_page_offsets_disagree(pairs):
+                offsets = story_page_offsets(pairs)
+                print(
+                    f'{ERROR_MSG_PREFIX}The censorship fixes rows for "{story}" do not'
+                    f" agree on where the story starts: its printed page runs"
+                    f" {sorted(offsets)} ahead of its comic page on different rows."
+                )
+                ret_code = 1
 
         return ret_code
 
@@ -1132,20 +1318,27 @@ class ComicsIntegrityChecker:
         """
         original_image_dir = self.comics_database.get_fantagraphics_volume_image_dir(volume)
 
-        edited_pages = set()
+        # Keyed by page num so a finding can name the file. A page in both trees is
+        # itself a fault, reported by `check_fixes_tree`, so which copy wins here is
+        # not worth choosing between.
+        edited_pages: dict[str, Path] = {}
         for spec in (STANDARD_FIXES, UPSCAYLED_FIXES):
             _root_dir, images_dir, _other_tree_dir = self._fixes_tree_dirs(volume, spec)
             if not images_dir.is_dir():
                 # Already reported by `check_basic_fixes`; nothing to add here.
                 continue
-            for page_num, _file in iter_fix_images(images_dir, spec):
-                # An edit replaces a scan; a page with no scan behind it was added to the
-                # volume, and additions are not censorship fixes.
-                if (original_image_dir / (page_num + JPG_FILE_EXT)).is_file():
-                    edited_pages.add(page_num)
+            # An edit replaces a scan; a page with no scan behind it was added to the
+            # volume, and additions are not censorship fixes.
+            edited_pages.update(
+                {
+                    page_num: file
+                    for page_num, file in iter_fix_images(images_dir, spec)
+                    if (original_image_dir / (page_num + JPG_FILE_EXT)).is_file()
+                }
+            )
 
         ret_code = 0
-        for page_num in sorted(cited_pages | edited_pages):
+        for page_num in sorted(cited_pages | set(edited_pages)):
             facts = CensorshipPageFacts(
                 cited_in_csv=page_num in cited_pages,
                 has_edited_image=page_num in edited_pages,
@@ -1155,7 +1348,7 @@ class ComicsIntegrityChecker:
             if fault is None:
                 continue
 
-            print(_censorship_fault_msg(fault, volume, page_num))
+            print(_censorship_fault_msg(fault, volume, page_num, edited_pages.get(page_num)))
             ret_code = 1
 
         return ret_code

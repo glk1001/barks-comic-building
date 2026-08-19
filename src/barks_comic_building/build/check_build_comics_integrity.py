@@ -20,6 +20,7 @@ def main(  # noqa: PLR0913
     no_check_for_unexpected_files: bool = False,
     no_check_symlinks: bool = False,
     no_check_censorship_csv: bool = False,
+    censorship_only: bool = False,
     fix_names: bool = False,
     apply: bool = False,
 ) -> None:
@@ -28,6 +29,21 @@ def main(  # noqa: PLR0913
     if apply and not fix_names:
         msg = "Option --apply does nothing without --fix-names."
         raise typer.BadParameter(msg)
+
+    if censorship_only and no_check_censorship_csv:
+        msg = "Options --censorship-only and --no-check-censorship-csv contradict each other."
+        raise typer.BadParameter(msg)
+
+    if censorship_only:
+        # The censorship check is whole-library, so it takes no volume or title filter
+        # and nothing else needs to run first. Kept separate so a recipe that only wants
+        # this one does not quietly become a full build check once the tree is clean.
+        checker = ComicsIntegrityChecker(
+            ComicsDatabase(),
+            no_check_for_unexpected_files=True,
+            no_check_symlinks=True,
+        )
+        sys.exit(checker.check_censorship_fixes_csv())
 
     if fix_names and (volumes_str or title_str):
         # The renames form a permutation over the whole namespace. A filtered subset

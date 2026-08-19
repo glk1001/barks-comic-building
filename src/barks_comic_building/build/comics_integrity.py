@@ -4,13 +4,19 @@
 # ruff: noqa: T201
 import json
 import stat
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
+from barks_fantagraphics.censorship_fixes import (
+    CENSORSHIP_FIXES_CSV,
+    CensorshipFixesError,
+    censorship_fix_pages,
+    read_censorship_fixes,
+)
 from barks_fantagraphics.comic_book import ComicBook, get_page_str, get_total_num_pages
 from barks_fantagraphics.comic_book_info import (
     NON_COMIC_TITLES,
@@ -258,6 +264,56 @@ class AddedPagePolicy:
         )
 
 
+class CensorshipCsvFault(StrEnum):
+    """Why a fixed page and the censorship-fixes CSV do not agree."""
+
+    NO_FIX_IMAGE = "no fix image"
+    UNDOCUMENTED_FIX = "undocumented fix"
+
+
+@dataclass(frozen=True, slots=True)
+class CensorshipPageFacts:
+    """What the CSV and the fixes trees say about one page of one volume.
+
+    Attributes:
+        cited_in_csv: The CSV records a fix for this page.
+        has_edited_image: A fixes tree holds an image for it whose original scan also
+            exists - an edit, rather than a page added to the volume.
+        added_page_allowed: The database says this page was added to the volume on
+            purpose, so the CSV may cite it even with no original scan behind it.
+
+    """
+
+    cited_in_csv: bool
+    has_edited_image: bool
+    added_page_allowed: bool
+
+
+def classify_censorship_page(facts: CensorshipPageFacts) -> CensorshipCsvFault | None:
+    """Say how a page and the censorship-fixes CSV disagree, or None if they agree.
+
+    Every fix recorded in the CSV should have an edited image behind it, and every
+    edited image should be recorded. The one asymmetry is an added page: a story
+    Fantagraphics cut entirely comes back as pages with no original scan, so the CSV may
+    cite one even though it is not an edit. The reverse does not follow - an added page
+    nobody cited is an addition, not an undocumented fix, so it is not reported.
+
+    Args:
+        facts: What the CSV and the trees say about the page.
+
+    Returns:
+        The fault, or None if the two agree.
+
+    """
+    if facts.cited_in_csv and not (facts.has_edited_image or facts.added_page_allowed):
+        return CensorshipCsvFault.NO_FIX_IMAGE
+
+    if facts.has_edited_image and not facts.cited_in_csv:
+        return CensorshipCsvFault.UNDOCUMENTED_FIX
+
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class FixesFileFacts:
     """What the filesystem says about one fixes file.
@@ -301,6 +357,55 @@ def classify_fixes_file(
         return FixesFault.ADDED_WITHOUT_ORIGINAL
 
     return None
+
+
+def iter_fix_images(images_dir: Path, spec: FixesTreeSpec) -> Iterator[tuple[str, Path]]:
+    """Yield the fixed images in one volume's fixes tree, as `(page num, file)`.
+
+    Only the images: `-fix.txt` notes and the `bounded` subdirectory are skipped, using
+    the same two predicates `check_fixes_tree` judges them by, so there is one idea of
+    what a fix image is. Anything else that does not belong there is skipped here and
+    reported by `check_fixes_tree`, whose job that is.
+
+    Args:
+        images_dir: The tree's images directory.
+        spec: Which of the two trees, and the extensions it allows.
+
+    Yields:
+        Each image's page num and path, in name order.
+
+    """
+    for file in sorted(images_dir.iterdir()):
+        if file.is_dir() or _is_fixes_note(file) or file.suffix not in spec.allowed_exts:
+            continue
+        yield file.stem, file
+
+
+def _censorship_fault_msg(fault: CensorshipCsvFault, volume: int, page_num: str) -> str:
+    """Word one disagreement between the censorship-fixes CSV and the fixes trees.
+
+    The CSV's path is not repeated here: `check_censorship_fixes_csv` names it once, and
+    every finding refers to the same file.
+
+    Args:
+        fault: How the two disagree.
+        volume: The Fantagraphics volume.
+        page_num: The page they disagree about.
+
+    Returns:
+        The message, ready to print.
+
+    """
+    if fault is CensorshipCsvFault.NO_FIX_IMAGE:
+        return (
+            f"{ERROR_MSG_PREFIX}Censorship fixes CSV records a fix for volume {volume}"
+            f' page "{page_num}", but no fixes tree holds an edited image for it.'
+        )
+
+    return (
+        f'{ERROR_MSG_PREFIX}Volume {volume} page "{page_num}" has an edited image in a'
+        f" fixes tree, but the censorship fixes CSV does not record it."
+    )
 
 
 def _fixes_fault_msg(fault: FixesFault, spec: FixesTreeSpec, file: Path, original: Path) -> str:
@@ -781,11 +886,13 @@ class ComicsIntegrityChecker:
         comics_db: ComicsDatabase,
         no_check_for_unexpected_files: bool,
         no_check_symlinks: bool,
+        no_check_censorship_csv: bool = False,
     ) -> None:
         self.comics_database = comics_db
 
         self._check_for_unexpected_files = not no_check_for_unexpected_files
         self._check_symlinks = not no_check_symlinks
+        self.check_censorship_fixes = not no_check_censorship_csv
 
     def check_comics_integrity(
         self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
@@ -908,6 +1015,10 @@ class ComicsIntegrityChecker:
         ret = self.check_all_fixes_and_additions_files()
         if ret != 0:
             ret_code = ret
+        if self.check_censorship_fixes:
+            ret = self.check_censorship_fixes_csv()
+            if ret != 0:
+                ret_code = ret
 
         if ret_code == 0:
             logger.info("All Fantagraphics files are OK.")
@@ -969,6 +1080,83 @@ class ComicsIntegrityChecker:
                 ret_code = 1
             if self.check_fixes_tree(volume, UPSCAYLED_FIXES) != 0:
                 ret_code = 1
+
+        return ret_code
+
+    def check_censorship_fixes_csv(self) -> int:
+        """Check the censorship-fixes CSV against the edited images in the fixes trees.
+
+        Whole-library rather than per-title: a fix image on a page no ini file references
+        would be invisible to a title-scoped walk, and those are exactly the ones worth
+        finding.
+
+        Returns:
+            0 if the CSV and the fixes trees agree, 1 otherwise.
+
+        """
+        logger.info(f'Checking the censorship fixes CSV: "{CENSORSHIP_FIXES_CSV}".')
+
+        try:
+            rows = read_censorship_fixes(CENSORSHIP_FIXES_CSV)
+        except CensorshipFixesError as e:
+            # The CSV ships inside barks_fantagraphics, so an unreadable one is a broken
+            # install rather than an unmounted media tree.
+            print(f"{ERROR_MSG_PREFIX}{e}")
+            logger.error("Could not read the censorship fixes CSV.")
+            return 1
+
+        cited_pages = censorship_fix_pages(rows)
+
+        ret_code = 0
+        for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
+            if self.check_censorship_fixes_volume(volume, cited_pages.get(volume, set())) != 0:
+                ret_code = 1
+
+        if ret_code == 0:
+            logger.info("The censorship fixes CSV matches the fixes trees.")
+        else:
+            logger.error("The censorship fixes CSV does not match the fixes trees.")
+
+        return ret_code
+
+    def check_censorship_fixes_volume(self, volume: int, cited_pages: set[str]) -> int:
+        """Check one volume's fixed pages against the pages the CSV records.
+
+        Args:
+            volume: The Fantagraphics volume.
+            cited_pages: The page nums the CSV records a fix for in this volume.
+
+        Returns:
+            0 if the CSV and this volume's fixes trees agree, 1 otherwise.
+
+        """
+        original_image_dir = self.comics_database.get_fantagraphics_volume_image_dir(volume)
+
+        edited_pages = set()
+        for spec in (STANDARD_FIXES, UPSCAYLED_FIXES):
+            _root_dir, images_dir, _other_tree_dir = self._fixes_tree_dirs(volume, spec)
+            if not images_dir.is_dir():
+                # Already reported by `check_basic_fixes`; nothing to add here.
+                continue
+            for page_num, _file in iter_fix_images(images_dir, spec):
+                # An edit replaces a scan; a page with no scan behind it was added to the
+                # volume, and additions are not censorship fixes.
+                if (original_image_dir / (page_num + JPG_FILE_EXT)).is_file():
+                    edited_pages.add(page_num)
+
+        ret_code = 0
+        for page_num in sorted(cited_pages | edited_pages):
+            facts = CensorshipPageFacts(
+                cited_in_csv=page_num in cited_pages,
+                has_edited_image=page_num in edited_pages,
+                added_page_allowed=ComicBook.is_fixes_special_case_added(volume, page_num),
+            )
+            fault = classify_censorship_page(facts)
+            if fault is None:
+                continue
+
+            print(_censorship_fault_msg(fault, volume, page_num))
+            ret_code = 1
 
         return ret_code
 

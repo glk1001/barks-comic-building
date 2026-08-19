@@ -19,6 +19,7 @@ def main(  # noqa: PLR0913
     log_level_str: LogLevelArg = "DEBUG",
     no_check_for_unexpected_files: bool = False,
     no_check_symlinks: bool = False,
+    no_check_censorship_csv: bool = False,
     fix_names: bool = False,
     apply: bool = False,
 ) -> None:
@@ -48,7 +49,10 @@ def main(  # noqa: PLR0913
         comics_database, titles = ComicsDatabase(), []
 
     integrity_checker = ComicsIntegrityChecker(
-        comics_database, no_check_for_unexpected_files, no_check_symlinks
+        comics_database,
+        no_check_for_unexpected_files,
+        no_check_symlinks,
+        no_check_censorship_csv,
     )
     exit_code = integrity_checker.check_comics_integrity(
         titles, fix_names=fix_names, apply_fixes=apply

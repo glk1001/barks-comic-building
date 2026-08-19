@@ -115,6 +115,7 @@ quantised
 rasterised
 rasterises
 recognise
+recoloured
 relativedelta
 rdonly
 rescanned
@@ -148,6 +149,7 @@ thepayments
 tilemask
 timespec
 tobytes
+uncited
 unrecognised
 ultramix
 unbuilt

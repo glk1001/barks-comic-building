@@ -46,6 +46,7 @@ import pytest
 from barks_fantagraphics.censorship_fixes import (
     CENSORSHIP_FIXES_HEADER,
     CensorshipFixesError,
+    CensorshipFixRow,
     read_censorship_fixes,
     story_page_offsets,
     story_page_offsets_disagree,
@@ -58,6 +59,7 @@ from barks_comic_building.build.comics_integrity import (
     CensorshipRowFault,
     classify_censorship_page,
     classify_censorship_row,
+    duplicate_censorship_rows,
 )
 
 
@@ -456,3 +458,65 @@ class TestAMalformedRow:
         file = self._write(tmp_path, "4,134,187,4,3,Frozen Gold,censorship,before,after")
 
         assert read_censorship_fixes(file)[0].story == "Frozen Gold"
+
+
+class TestADuplicatedRow:
+    """The same fix written down twice.
+
+    A copy of a correct row is correct in every way the other checks look at: it names
+    the right story, the right volume and the right image, and the page it cites has an
+    edited image behind it. Nothing but comparing the rows to each other finds one, and
+    the live CSV was carrying forty-six copies of one Lost in the Andes row when this
+    check went in.
+    """
+
+    def _row(self, panel: str = "5", change_from: str = "before") -> CensorshipFixRow:
+        return CensorshipFixRow(
+            volume=7,
+            image="039",
+            fanta_page="26",
+            comic_page="26",
+            panel=panel,
+            story="Lost in the Andes!",
+            error_type="censorship",
+            change_from=change_from,
+            change_to="after",
+        )
+
+    def test_distinct_rows_are_not_duplicates(self) -> None:
+        rows = [self._row(), self._row(panel="6"), self._row(change_from="elsewhere")]
+
+        assert duplicate_censorship_rows(rows) == []
+
+    def test_a_row_written_twice_is_reported_once(self) -> None:
+        row = self._row()
+
+        assert duplicate_censorship_rows([row, row]) == [(row, 2)]
+
+    def test_the_count_is_every_copy_including_the_first(self) -> None:
+        # The message says how many rows are there, not how many to delete.
+        row = self._row()
+
+        assert duplicate_censorship_rows([row, self._row(panel="6"), row, row]) == [(row, 3)]
+
+    def test_two_panels_of_one_page_are_two_fixes_not_a_duplicate(self) -> None:
+        # Rows are per panel, and a page usually has several.
+        rows = [self._row(panel="5"), self._row(panel="6"), self._row(panel="7")]
+
+        assert duplicate_censorship_rows(rows) == []
+
+    def test_one_panel_can_carry_two_different_fixes(self) -> None:
+        # Only every cell matching makes a copy; a second correction to the same panel
+        # differs in Change_From.
+        rows = [self._row(change_from="one line"), self._row(change_from="another line")]
+
+        assert duplicate_censorship_rows(rows) == []
+
+    def test_each_duplicated_row_is_reported_separately(self) -> None:
+        first, second = self._row(), self._row(panel="6")
+        rows = [first, second, first, second]
+
+        assert duplicate_censorship_rows(rows) == [(first, 2), (second, 2)]
+
+    def test_the_empty_csv_has_no_duplicates(self) -> None:
+        assert duplicate_censorship_rows([]) == []

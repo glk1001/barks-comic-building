@@ -4,6 +4,7 @@
 # ruff: noqa: T201
 import json
 import stat
+from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -358,6 +359,28 @@ def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | N
     return None
 
 
+def duplicate_censorship_rows(rows: list[CensorshipFixRow]) -> list[tuple[CensorshipFixRow, int]]:
+    """Return each row the CSV holds more than once, and how many copies it has.
+
+    A whole duplicated row is always a mistake - a paste that landed twice, or the same
+    fix written up again later. Two rows can legitimately share a page and even a panel,
+    since a panel can need more than one correction, so it takes every cell matching to
+    say a row is a copy rather than a second fix.
+
+    Duplicates are invisible to every other check here: a copy of a correct row agrees
+    with its story and with the fixes trees exactly as well as the original does, so
+    nothing else in this file would ever report one.
+
+    Args:
+        rows: The rows, from `read_censorship_fixes`.
+
+    Returns:
+        One `(row, count)` pair per duplicated row, in the order the rows first appear.
+
+    """
+    return [(row, count) for row, count in Counter(rows).items() if count > 1]
+
+
 class CensorshipCsvFault(StrEnum):
     """Why a fixed page and the censorship-fixes CSV do not agree."""
 
@@ -526,6 +549,27 @@ def _censorship_row_fault_msg(
     return (
         f'{ERROR_MSG_PREFIX}The {where} says image "{row.image}",'
         f' but that page was printed on image "{expected.expected_image}".'
+    )
+
+
+def _censorship_duplicate_row_msg(row: CensorshipFixRow, count: int) -> str:
+    """Word one row the censorship-fixes CSV holds more than once.
+
+    The whole row is printed back, since the story and page alone do not pick it out of
+    the other rows for that page - the cell that tells them apart is the changed text.
+
+    Args:
+        row: The duplicated row.
+        count: How many copies of it the CSV holds.
+
+    Returns:
+        The message, ready to print.
+
+    """
+    return (
+        f"{ERROR_MSG_PREFIX}The censorship fixes CSV holds {count} identical rows for"
+        f' "{row.story}" page "{row.comic_page}"; each fix belongs on one row.\n'
+        f"{BLANK_ERR_MSG_PREFIX}Row: {','.join(row.as_cells())}"
     )
 
 
@@ -1304,20 +1348,27 @@ class ComicsIntegrityChecker:
         return {volume: frozenset(nums) for volume, nums in page_nums.items()}
 
     def check_censorship_fixes_rows(self, rows: list[CensorshipFixRow]) -> int:
-        """Check each row's volume and image against the story and page it names.
+        """Check each row against the story it names, and against the other rows.
 
         Those two columns are worked out from the story and the page within it, so this
         is the CSV agreeing with itself rather than with the trees. A row that has drifted
         points the tree comparison at the wrong page, so it is checked first.
 
+        The rows are checked against each other too: a row written twice, and a story
+        whose rows do not agree on where it starts.
+
         Args:
             rows: The rows, from `read_censorship_fixes`.
 
         Returns:
-            0 if every row agrees with its own story, 1 otherwise.
+            0 if every row agrees with its own story and with the other rows, 1 otherwise.
 
         """
         ret_code = 0
+
+        for row, count in duplicate_censorship_rows(rows):
+            print(_censorship_duplicate_row_msg(row, count))
+            ret_code = 1
         pages_by_title: dict[str, CensorshipStoryPages | None] = {}
         page_pairs: dict[str, list[tuple[str, str]]] = {}
 

@@ -12,8 +12,14 @@ Covers are ``PageType.COVER``: they are built full-page (scaled with black bars,
 never cropped to panels or restored), so only two source files are worth staging
 (each linked only when it exists):
 
-* the original scan   -> FANTA_02 *fixes* dir      (``.jpg``)
+* the original scan   -> FANTA_02 *fixes* dir      (``.jpg`` or ``.png``)
 * the upscayled image -> FANTA_02 upscayled dir    (``.png``)
+
+Each is taken from the source volume's *fixes* tree when that volume has a fix for
+the page, and from its plain tree otherwise - the build's own precedence, and not
+obvious enough to leave implicit here; see `collection_sources` for what preferring
+the original instead silently produced. The original scan keeps whichever extension
+its source has, so a ``.png`` fix is not staged under a ``.jpg`` name.
 
 The original scan is linked into FANTA_02's *fixes* dir (read-write) rather than
 its read-only original dir, so no permission changes are needed. There is no
@@ -50,10 +56,16 @@ from barks_fantagraphics.barks_covers import (
 from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comic_book_info import COVER_COLLECTION_VOLUME
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.comic_consts import JPG_FILE_EXT, PNG_FILE_EXT
+from comic_utils.comic_consts import PNG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
+from barks_comic_building.build.collection_sources import (
+    original_scan_source,
+    staged_link_for,
+    superseded_links,
+    upscayled_scan_source,
+)
 from barks_comic_building.build.utils import links_to
 from barks_comic_building.cli_setup import init_logging
 
@@ -80,19 +92,17 @@ def _cover_candidate_links(
     src = get_page_str(page)
     dst = get_page_str(collection_page)
 
-    # The original scan: prefer the volume's original dir, fall back to its fixes dir.
-    original_source = comics_database.get_fantagraphics_volume_image_dir(volume) / (
-        src + JPG_FILE_EXT
-    )
-    if not original_source.is_file():
-        original_source = comics_database.get_fantagraphics_fixes_volume_image_dir(volume) / (
-            src + JPG_FILE_EXT
-        )
+    # The original scan: the volume's fixes file when it has one, else its original -
+    # the build's own precedence, see `collection_sources`.
+    original_source = original_scan_source(comics_database, volume, src)
     # ... linked into FANTA_02's read-write *fixes* dir (not its read-only original dir).
     candidates = [
         (
-            comics_database.get_fantagraphics_fixes_volume_image_dir(COLLECTION_VOLUME)
-            / (dst + JPG_FILE_EXT),
+            staged_link_for(
+                comics_database.get_fantagraphics_fixes_volume_image_dir(COLLECTION_VOLUME),
+                dst,
+                original_source,
+            ),
             original_source,
         ),
     ]
@@ -100,13 +110,11 @@ def _cover_candidate_links(
     # Covers are PageType.COVER: they are built full-page from the upscayled scan
     # (or the original), never restored or panel-processed, so only the upscayled
     # image is worth staging alongside the original.
-    upscayled_source_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(volume)
+    upscayled_source = upscayled_scan_source(comics_database, volume, src)
     upscayled_dest_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(
         COLLECTION_VOLUME
     )
-    candidates.append(
-        (upscayled_dest_dir / (dst + PNG_FILE_EXT), upscayled_source_dir / (src + PNG_FILE_EXT))
-    )
+    candidates.append((upscayled_dest_dir / (dst + PNG_FILE_EXT), upscayled_source))
 
     return candidates
 
@@ -172,6 +180,24 @@ def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path
     return sorted(missing.items())
 
 
+def _create_staged_file(link: Path, source: Path, *, copy: bool) -> None:
+    """Point ``link`` at ``source``, replacing whatever occupied that page's slot.
+
+    Any slot this one supersedes goes first - see `superseded_links` for why a stale
+    sibling is worse than untidy.
+    """
+    link.parent.mkdir(parents=True, exist_ok=True)
+    for superseded in superseded_links(link):
+        superseded.unlink()
+        logger.info(f'Removed superseded staged slot "{superseded}".')
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    if copy:
+        shutil.copy2(source, link)
+    else:
+        link.symlink_to(source)
+
+
 def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_02 cover links.
 
@@ -207,13 +233,7 @@ def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
             logger.debug(f'Already staged - leaving alone: "{link}".')
             continue
 
-        link.parent.mkdir(parents=True, exist_ok=True)
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        if copy:
-            shutil.copy2(source, link)
-        else:
-            link.symlink_to(source)
+        _create_staged_file(link, source, copy=copy)
         count += 1
         logger.info(f'Staged "{link}" -> "{source}".')
 

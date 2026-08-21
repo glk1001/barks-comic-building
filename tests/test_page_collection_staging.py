@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from barks_fantagraphics.barks_covers import (
     COVER_COLLECTION_PAGE_BASE,
+    get_cover_location,
     get_cover_title,
     get_located_covers,
 )
@@ -71,6 +72,9 @@ class FakeComicsDatabase:
 
     def get_fantagraphics_upscayled_volume_image_dir(self, volume_num: int) -> Path:
         return self._volume_images("upscayled", volume_num)
+
+    def get_fantagraphics_upscayled_fixes_volume_image_dir(self, volume_num: int) -> Path:
+        return self._volume_images("upscayled-fixes", volume_num)
 
     def get_fantagraphics_restored_volume_image_dir(self, volume_num: int) -> Path:
         return self._volume_images("restored", volume_num)
@@ -198,7 +202,15 @@ class TestOnePagerCollectionNumbering:
 
 
 class TestWhichSourceScanIsUsed:
-    """A volume's original scan may have been superseded by a fixed one."""
+    """A volume's original scan may have been superseded by a fixed one.
+
+    Precedence is the build's, not staging's: `ComicBook._get_final_story_file` treats a
+    fixes file as the edited version of that page, so staging must too. It did not, and
+    the covers collection shipped nine pages built from originals whose fixes had been
+    made weeks before - every image valid, every timestamp consistent, nothing to see.
+    Each way that can go wrong is constructed here, since the failure has no symptom of
+    its own to test for.
+    """
 
     @staticmethod
     def _original_scan_link(database: FakeComicsDatabase) -> tuple[Path, Path]:
@@ -209,16 +221,36 @@ class TestWhichSourceScanIsUsed:
         return next(
             (link, source)
             for link, source in links_by_title[title]
-            if link.suffix == JPG and source.suffix == JPG
+            if source.suffix in (JPG, PNG) and "upscayled" not in source.parts
         )
 
-    def test_the_volumes_own_original_is_preferred_when_it_exists(
-        self, database: FakeComicsDatabase
-    ) -> None:
+    @staticmethod
+    def _first_one_pager_location() -> tuple[int, int]:
         title = get_located_one_pagers()[0]
         volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+
+        return volume, page
+
+    def test_the_fixed_scan_supersedes_the_volumes_own_original(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The live bug: both exist, and the fix is the whole reason the page is in the
+        # fixes tree, so staging the original silently drops the edit.
+        volume, page = self._first_one_pager_location()
+        touch(database.get_fantagraphics_volume_image_dir(volume) / f"{page:03d}{JPG}")
+        fixed = touch(
+            database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{JPG}"
+        )
+
+        _link, source = self._original_scan_link(database)
+
+        assert source == fixed
+
+    def test_the_volumes_own_original_is_used_when_it_has_no_fix(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        volume, page = self._first_one_pager_location()
         original = touch(database.get_fantagraphics_volume_image_dir(volume) / f"{page:03d}{JPG}")
-        touch(database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{JPG}")
 
         _link, source = self._original_scan_link(database)
 
@@ -228,8 +260,7 @@ class TestWhichSourceScanIsUsed:
         self, database: FakeComicsDatabase
     ) -> None:
         # A censorship fix or a fresh scan: the volume's read-only original never existed.
-        title = get_located_one_pagers()[0]
-        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+        volume, page = self._first_one_pager_location()
         fixed = touch(
             database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{JPG}"
         )
@@ -237,6 +268,42 @@ class TestWhichSourceScanIsUsed:
         _link, source = self._original_scan_link(database)
 
         assert source == fixed
+
+    def test_a_png_fix_is_seen(self, database: FakeComicsDatabase) -> None:
+        # A fixes scan is saved in either extension, but staging only ever probed .jpg,
+        # so a .png fix was not lost so much as invisible - the original went in its
+        # place with nothing reporting a skip.
+        volume, page = self._first_one_pager_location()
+        touch(database.get_fantagraphics_volume_image_dir(volume) / f"{page:03d}{JPG}")
+        fixed = touch(
+            database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}"
+        )
+
+        _link, source = self._original_scan_link(database)
+
+        assert source == fixed
+
+    def test_a_png_fix_keeps_its_extension_in_the_collection(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # Staged under a fixed .jpg name it would be a png file that every later stage
+        # reads as a jpg. The collection's fixes dir is looked up by both extensions.
+        volume, page = self._first_one_pager_location()
+        touch(database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}")
+
+        link, _source = self._original_scan_link(database)
+
+        assert link.suffix == PNG
+
+    def test_both_fix_extensions_at_once_is_refused(self, database: FakeComicsDatabase) -> None:
+        # Which one supersedes the original is unanswerable, and either choice stages an
+        # image nobody picked. The build refuses the same pair.
+        volume, page = self._first_one_pager_location()
+        touch(database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{JPG}")
+        touch(database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}")
+
+        with pytest.raises(RuntimeError, match=r"both \.jpg and \.png fixes file"):
+            self._original_scan_link(database)
 
     def test_the_link_lands_in_the_collections_read_write_fixes_tree(
         self, database: FakeComicsDatabase
@@ -246,6 +313,46 @@ class TestWhichSourceScanIsUsed:
         link, _source = self._original_scan_link(database)
 
         assert "fixes" in link.parts
+
+
+class TestWhichUpscayledScanIsUsed:
+    """The upscayl has a fixes tree of its own, and so the same precedence again."""
+
+    @staticmethod
+    def _upscayled_source(database: FakeComicsDatabase) -> Path:
+        links_by_title = stage_covers.get_staged_links_by_title(as_database(database))
+        title = get_cover_title(get_located_covers()[0])
+
+        return next(
+            source
+            for _link, source in links_by_title[title]
+            if source.suffix == PNG and "upscayled" in "/".join(source.parts)
+        )
+
+    @staticmethod
+    def _first_cover_location() -> tuple[int, int]:
+        location = get_cover_location(get_located_covers()[0])
+        assert location is not None
+
+        return location
+
+    def test_a_fixed_upscayl_supersedes_the_plain_one(self, database: FakeComicsDatabase) -> None:
+        volume, page = self._first_cover_location()
+        touch(database.get_fantagraphics_upscayled_volume_image_dir(volume) / f"{page:03d}{PNG}")
+        fixed = touch(
+            database.get_fantagraphics_upscayled_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}"
+        )
+
+        assert self._upscayled_source(database) == fixed
+
+    def test_the_plain_upscayl_is_used_when_it_has_no_fix(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        volume, page = self._first_cover_location()
+        plain = database.get_fantagraphics_upscayled_volume_image_dir(volume) / f"{page:03d}{PNG}"
+        touch(plain)
+
+        assert self._upscayled_source(database) == plain
 
 
 class TestStagingLinks:

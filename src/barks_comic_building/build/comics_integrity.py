@@ -931,8 +931,9 @@ def check_collection_staged_links(
                     f' "{get_relpath(link)}"\n'
                     f'{BLANK_ERR_MSG_PREFIX}points at "{link.readlink()}"\n'
                     f'{BLANK_ERR_MSG_PREFIX}expected  "{get_relpath(source)}"\n'
-                    f"{BLANK_ERR_MSG_PREFIX}The location table has changed without a"
-                    f" restage, so members may be under each other's pages."
+                    f"{BLANK_ERR_MSG_PREFIX}Either the location table has changed"
+                    f" without a restage, so members may be under each other's pages,"
+                    f" or the page has gained a fix that supersedes what is staged."
                     f" {restage_msg}.",
                 )
                 ret_code = 1

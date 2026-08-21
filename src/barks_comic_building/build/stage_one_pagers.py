@@ -9,11 +9,16 @@ One-Pagers`` like any other title - and reuses whatever work is already done.
 
 For each located one-pager it links (only when the source file exists):
 
-* the original scan       -> FANTA_01 *fixes* dir          (``.jpg``)
+* the original scan       -> FANTA_01 *fixes* dir          (``.jpg`` or ``.png``)
 * the upscayled image     -> FANTA_01 upscayled dir        (``.png``)
 * the restored image      -> FANTA_01 restored dir         (``.png``)
 * the restored-svg files  -> FANTA_01 restored-svg dir     (``.svg`` + ``.svg.png``)
 * the panel-segments      -> FANTA_01 panel-segments dir   (``.json``)
+
+The first two are taken from the source volume's *fixes* tree when that volume has a
+fix for the page, and from its plain tree otherwise - the build's own precedence; see
+`collection_sources` for what preferring the plain tree instead silently produced. The
+original scan keeps whichever extension its source has.
 
 Many one-pagers are already processed (their pages were built as part of other
 work), so most of these already exist and are simply reused; only genuinely missing
@@ -44,10 +49,16 @@ from barks_fantagraphics.comic_book_info import (
     get_located_one_pagers,
 )
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.comic_consts import JPG_FILE_EXT, JSON_FILE_EXT, PNG_FILE_EXT, SVG_FILE_EXT
+from comic_utils.comic_consts import JSON_FILE_EXT, PNG_FILE_EXT, SVG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
+from barks_comic_building.build.collection_sources import (
+    original_scan_source,
+    staged_link_for,
+    superseded_links,
+    upscayled_scan_source,
+)
 from barks_comic_building.build.utils import links_to
 from barks_comic_building.cli_setup import init_logging
 
@@ -74,30 +85,34 @@ def _one_pager_candidate_links(
     src = get_page_str(page)
     dst = get_page_str(collection_page)
 
-    # The original scan: prefer the volume's original dir, fall back to its fixes dir.
-    original_source = comics_database.get_fantagraphics_volume_image_dir(volume) / (
-        src + JPG_FILE_EXT
-    )
-    if not original_source.is_file():
-        original_source = comics_database.get_fantagraphics_fixes_volume_image_dir(volume) / (
-            src + JPG_FILE_EXT
-        )
+    # The original scan: the volume's fixes file when it has one, else its original -
+    # the build's own precedence, see `collection_sources`.
+    original_source = original_scan_source(comics_database, volume, src)
     # ... linked into FANTA_01's read-write *fixes* dir (not its read-only original dir).
     candidates = [
         (
-            comics_database.get_fantagraphics_fixes_volume_image_dir(COLLECTION_VOLUME)
-            / (dst + JPG_FILE_EXT),
+            staged_link_for(
+                comics_database.get_fantagraphics_fixes_volume_image_dir(COLLECTION_VOLUME),
+                dst,
+                original_source,
+            ),
             original_source,
         ),
     ]
 
-    # The already-built artifacts: (per-volume source dir, FANTA_01 dest dir, suffixes).
-    artifact_dirs: list[tuple[Path, Path, list[str]]] = [
+    # The upscayl, which has a fixes tree of its own and so the same precedence again.
+    candidates.append(
         (
-            comics_database.get_fantagraphics_upscayled_volume_image_dir(volume),
-            comics_database.get_fantagraphics_upscayled_volume_image_dir(COLLECTION_VOLUME),
-            [PNG_FILE_EXT],
-        ),
+            comics_database.get_fantagraphics_upscayled_volume_image_dir(COLLECTION_VOLUME)
+            / (dst + PNG_FILE_EXT),
+            upscayled_scan_source(comics_database, volume, src),
+        )
+    )
+
+    # The remaining built artifacts: (per-volume source dir, FANTA_01 dest dir, suffixes).
+    # No fixes tree exists beside any of these - a restore or a segments file is derived
+    # from the scan chosen above rather than hand-edited in place.
+    artifact_dirs: list[tuple[Path, Path, list[str]]] = [
         (
             comics_database.get_fantagraphics_restored_volume_image_dir(volume),
             comics_database.get_fantagraphics_restored_volume_image_dir(COLLECTION_VOLUME),
@@ -209,6 +224,9 @@ def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
             continue
 
         link.parent.mkdir(parents=True, exist_ok=True)
+        for superseded in superseded_links(link):
+            superseded.unlink()
+            logger.info(f'Removed superseded staged slot "{superseded}".')
         if link.is_symlink() or link.exists():
             link.unlink()
         link.symlink_to(source)

@@ -35,6 +35,10 @@ from barks_fantagraphics.comic_book_info import (
 from barks_fantagraphics.comics_consts import IMAGES_SUBDIR
 
 from barks_comic_building.build import stage_covers, stage_one_pagers
+from barks_comic_building.build.collection_sources import (
+    original_scan_source,
+    superseded_links,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,6 +52,8 @@ ONE_PAGER_ARTIFACTS = 6
 
 JPG = ".jpg"
 PNG = ".png"
+SVG = ".svg"
+JSON = ".json"
 
 
 class FakeComicsDatabase:
@@ -147,6 +153,50 @@ class TestCoverCollectionNumbering:
 
         assert len(links) == len(get_located_covers()) * COVER_ARTIFACTS
 
+    def test_each_cover_link_is_taken_from_its_own_volume_and_page(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The other half of the mapping: the collection page is `base + i`, but the
+        # source page is whatever the location table says, in whichever volume.
+        links_by_title = stage_covers.get_staged_links_by_title(as_database(database))
+        cover = get_located_covers()[0]
+        location = get_cover_location(cover)
+        assert location is not None
+        volume, page = location
+
+        for _link, source in links_by_title[get_cover_title(cover)]:
+            assert f"volume-{volume:02d}" in source.parts
+            assert source.name.startswith(f"{page:03d}")
+
+    def test_each_cover_artifact_is_staged_into_its_own_tree(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # Counting the artifacts and checking their page stems says nothing about which
+        # of the trees each one lands in, and a slot wired to the wrong tree is invisible
+        # until the build reads a file that is not there. Pin both ends of every pair.
+        cover = get_located_covers()[0]
+        location = get_cover_location(cover)
+        assert location is not None
+        volume, page = location
+        src = f"{page:03d}"
+        dst = f"{COVER_COLLECTION_PAGE_BASE:03d}"
+        collection = stage_covers.COLLECTION_VOLUME
+
+        links = stage_covers.get_staged_links_by_title(as_database(database))[
+            get_cover_title(cover)
+        ]
+
+        assert links == [
+            (
+                database.get_fantagraphics_fixes_volume_image_dir(collection) / f"{dst}{JPG}",
+                database.get_fantagraphics_volume_image_dir(volume) / f"{src}{JPG}",
+            ),
+            (
+                database.get_fantagraphics_upscayled_volume_image_dir(collection) / f"{dst}{PNG}",
+                database.get_fantagraphics_upscayled_volume_image_dir(volume) / f"{src}{PNG}",
+            ),
+        ]
+
 
 class TestOnePagerCollectionNumbering:
     def test_the_first_located_one_pager_takes_the_base_page(
@@ -199,6 +249,50 @@ class TestOnePagerCollectionNumbering:
 
         assert f"{expected}.svg" in names
         assert f"{expected}.svg{PNG}" in names
+
+    def test_each_one_pager_artifact_is_staged_into_its_own_tree(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # Six artifacts across five trees, and nothing above pins which tree each lands
+        # in - swapping two dest dirs kept every other test in this file passing. The
+        # panel-segments pair is the one that must *not* gain the images subdir.
+        title = get_located_one_pagers()[0]
+        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+        src = f"{page:03d}"
+        dst = f"{ONE_PAGER_COLLECTION_PAGE_BASE:03d}"
+        collection = stage_one_pagers.COLLECTION_VOLUME
+
+        links = stage_one_pagers.get_staged_links_by_title(as_database(database))[title]
+
+        assert links == [
+            (
+                database.get_fantagraphics_fixes_volume_image_dir(collection) / f"{dst}{JPG}",
+                database.get_fantagraphics_volume_image_dir(volume) / f"{src}{JPG}",
+            ),
+            (
+                database.get_fantagraphics_upscayled_volume_image_dir(collection) / f"{dst}{PNG}",
+                database.get_fantagraphics_upscayled_volume_image_dir(volume) / f"{src}{PNG}",
+            ),
+            (
+                database.get_fantagraphics_restored_volume_image_dir(collection) / f"{dst}{PNG}",
+                database.get_fantagraphics_restored_volume_image_dir(volume) / f"{src}{PNG}",
+            ),
+            (
+                database.get_fantagraphics_restored_svg_volume_image_dir(collection)
+                / f"{dst}{SVG}",
+                database.get_fantagraphics_restored_svg_volume_image_dir(volume) / f"{src}{SVG}",
+            ),
+            (
+                database.get_fantagraphics_restored_svg_volume_image_dir(collection)
+                / f"{dst}{SVG}{PNG}",
+                database.get_fantagraphics_restored_svg_volume_image_dir(volume)
+                / f"{src}{SVG}{PNG}",
+            ),
+            (
+                database.get_fantagraphics_panel_segments_volume_dir(collection) / f"{dst}{JSON}",
+                database.get_fantagraphics_panel_segments_volume_dir(volume) / f"{src}{JSON}",
+            ),
+        ]
 
 
 class TestWhichSourceScanIsUsed:
@@ -476,6 +570,202 @@ class TestStagingLinks:
         stage_one_pagers.stage(as_database(database), remove=True)
 
         assert not link.is_symlink()
+
+
+class TestSupersededSlots:
+    """A page's staged slot is named after its source, so that name can change.
+
+    `staged_link_for` gives the slot the source's own extension, so a page staged while
+    its fix was a `.png` occupies `NNN.png`. Once that fix changes extension or is
+    reverted, the slot that has to go is the *old* one, which neither staging nor
+    removal can find by recomputing the source. Leaving it is not untidy but wrong: two
+    fixes files for one page is the pair `_sole_fixes_file` and the build both refuse,
+    and a leftover from a reverted fix is a dangling symlink the build still looks for.
+
+    None of this was covered - deleting the whole superseded-slot cleanup from both
+    stagers left every other test in the suite passing.
+    """
+
+    @staticmethod
+    def _first_one_pager_location() -> tuple[int, int]:
+        title = get_located_one_pagers()[0]
+        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+
+        return volume, page
+
+    @staticmethod
+    def _first_cover_location() -> tuple[int, int]:
+        location = get_cover_location(get_located_covers()[0])
+        assert location is not None
+
+        return location
+
+    @staticmethod
+    def _staged_names(fixes_dir: Path, stem: str) -> list[str]:
+        """Return what is staged in `fixes_dir` for collection page `stem`.
+
+        Filtered by stem rather than listing the dir, so the assertions stay about this
+        one page even if a member's own volume is also the collection volume.
+        """
+        if not fixes_dir.is_dir():
+            return []
+
+        return sorted(path.name for path in fixes_dir.iterdir() if path.name.startswith(stem))
+
+    def test_restaging_a_fix_that_changed_extension_removes_the_old_slot(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The reason `superseded_links` exists. Restaging writes the new NNN.png; without
+        # the cleanup the NNN.jpg from the previous staging stays beside it.
+        volume, page = self._first_one_pager_location()
+        volume_fixes = database.get_fantagraphics_fixes_volume_image_dir(volume)
+        jpg_fix = touch(volume_fixes / f"{page:03d}{JPG}")
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        collection_fixes = database.get_fantagraphics_fixes_volume_image_dir(
+            stage_one_pagers.COLLECTION_VOLUME
+        )
+        stem = f"{ONE_PAGER_COLLECTION_PAGE_BASE:03d}"
+        assert self._staged_names(collection_fixes, stem) == [f"{stem}{JPG}"]
+
+        # The editor re-saved the fix as a png, so the jpg it replaces is gone.
+        jpg_fix.unlink()
+        touch(volume_fixes / f"{page:03d}{PNG}")
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert self._staged_names(collection_fixes, stem) == [f"{stem}{PNG}"]
+
+    def test_the_build_reads_the_new_extension_after_a_restage(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The consequence the cleanup buys, from the build's side rather than the
+        # directory's: `original_scan_source` is how the collection's own fixes dir gets
+        # read, and it refuses a page holding both extensions. Here the leftover would be
+        # a dangling .jpg, which it skips - but once the collection page changes hands
+        # (the table gained an entry, so this page now belongs to a different member) the
+        # leftover still resolves, and this same call raises on a pair nobody authored.
+        volume, page = self._first_one_pager_location()
+        volume_fixes = database.get_fantagraphics_fixes_volume_image_dir(volume)
+        jpg_fix = touch(volume_fixes / f"{page:03d}{JPG}")
+        stage_one_pagers.stage(as_database(database), remove=False)
+        jpg_fix.unlink()
+        touch(volume_fixes / f"{page:03d}{PNG}")
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        staged = original_scan_source(
+            as_database(database),
+            stage_one_pagers.COLLECTION_VOLUME,
+            f"{ONE_PAGER_COLLECTION_PAGE_BASE:03d}",
+        )
+
+        assert staged.suffix == PNG
+
+    def test_remove_deletes_a_slot_staged_under_the_other_extension(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # Staged from a .png fix, so the slot is NNN.png. Reverting the fix leaves the
+        # volume's plain .jpg original, so a remove that recomputes the source looks for
+        # NNN.jpg, deletes nothing, and reports success - and the collection's fixes dir
+        # keeps a dangling NNN.png that `get_srce_original_fixes_story_file` still finds.
+        volume, page = self._first_one_pager_location()
+        png_fix = touch(
+            database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}"
+        )
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        collection_fixes = database.get_fantagraphics_fixes_volume_image_dir(
+            stage_one_pagers.COLLECTION_VOLUME
+        )
+        stem = f"{ONE_PAGER_COLLECTION_PAGE_BASE:03d}"
+        assert self._staged_names(collection_fixes, stem) == [f"{stem}{PNG}"]
+
+        png_fix.unlink()
+        touch(database.get_fantagraphics_volume_image_dir(volume) / f"{page:03d}{JPG}")
+
+        stage_one_pagers.stage(as_database(database), remove=True)
+
+        assert self._staged_names(collection_fixes, stem) == []
+
+    def test_remove_deletes_a_cover_slot_staged_under_the_other_extension(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The same through the covers wiring, since the bug was in both stagers.
+        volume, page = self._first_cover_location()
+        png_fix = touch(
+            database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}"
+        )
+        stage_covers.stage(as_database(database), remove=False, copy=False)
+
+        collection_fixes = database.get_fantagraphics_fixes_volume_image_dir(
+            stage_covers.COLLECTION_VOLUME
+        )
+        stem = f"{COVER_COLLECTION_PAGE_BASE:03d}"
+        assert self._staged_names(collection_fixes, stem) == [f"{stem}{PNG}"]
+
+        png_fix.unlink()
+        touch(database.get_fantagraphics_volume_image_dir(volume) / f"{page:03d}{JPG}")
+
+        stage_covers.stage(as_database(database), remove=True, copy=False)
+
+        assert self._staged_names(collection_fixes, stem) == []
+
+    def test_a_slot_supersedes_the_same_page_in_the_other_fix_extension(
+        self, tmp_path: Path
+    ) -> None:
+        # The fixes pair, which is the whole point: either extension supersedes the
+        # other, and neither supersedes itself.
+        touch(tmp_path / f"519{JPG}")
+        touch(tmp_path / f"519{PNG}")
+
+        assert superseded_links(tmp_path / f"519{JPG}") == [tmp_path / f"519{PNG}"]
+        assert superseded_links(tmp_path / f"519{PNG}") == [tmp_path / f"519{JPG}"]
+
+    def test_the_restored_svg_pair_supersedes_only_its_own_double_suffix(
+        self, tmp_path: Path
+    ) -> None:
+        # Only the last suffix is replaced, so "NNN.svg.png" yields "NNN.svg.jpg" and not
+        # "NNN.jpg". Nothing writes a .svg.jpg, which is why staging the svg pair never
+        # disturbs anything - the cleanup is only ever live in the fixes tree.
+        for name in (f"519{JPG}", f"519{PNG}", f"519{SVG}", f"519{SVG}{PNG}"):
+            touch(tmp_path / name)
+
+        assert superseded_links(tmp_path / f"519{SVG}{PNG}") == []
+
+        touch(tmp_path / f"519{SVG}{JPG}")
+
+        assert superseded_links(tmp_path / f"519{SVG}{PNG}") == [tmp_path / f"519{SVG}{JPG}"]
+
+    def test_a_slot_with_a_non_image_suffix_supersedes_both_image_names(
+        self, tmp_path: Path
+    ) -> None:
+        # The panel-segments slot. Both image names are named, and neither is ever there
+        # - that tree holds only .json, which is what keeps the cleanup safe to run over
+        # every artifact rather than just the fixes one.
+        touch(tmp_path / f"519{JSON}")
+
+        assert superseded_links(tmp_path / f"519{JSON}") == []
+
+        touch(tmp_path / f"519{JPG}")
+        touch(tmp_path / f"519{PNG}")
+
+        assert superseded_links(tmp_path / f"519{JSON}") == [
+            tmp_path / f"519{JPG}",
+            tmp_path / f"519{PNG}",
+        ]
+
+    def test_superseded_links_ignores_absent_siblings(self, tmp_path: Path) -> None:
+        touch(tmp_path / f"519{JPG}")
+
+        assert superseded_links(tmp_path / f"519{JPG}") == []
+
+    def test_superseded_links_names_a_dangling_sibling(self, tmp_path: Path) -> None:
+        # The leftover a reverted fix produces is a dangling symlink, and `exists()`
+        # alone would not see it - which is the state `--remove` has to clean up.
+        dangling = tmp_path / f"519{PNG}"
+        dangling.symlink_to(tmp_path / "gone.png")
+
+        assert superseded_links(tmp_path / f"519{JPG}") == [dangling]
 
 
 class TestStagingCoversByCopy:

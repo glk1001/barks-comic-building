@@ -53,13 +53,7 @@ from comic_utils.comic_consts import JSON_FILE_EXT, PNG_FILE_EXT, SVG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
-from barks_comic_building.build.collection_sources import (
-    original_scan_source,
-    staged_link_for,
-    superseded_links,
-    upscayled_scan_source,
-)
-from barks_comic_building.build.utils import links_to
+from barks_comic_building.build import collection_staging
 from barks_comic_building.cli_setup import init_logging
 
 if TYPE_CHECKING:
@@ -67,10 +61,30 @@ if TYPE_CHECKING:
 
     from barks_fantagraphics.barks_titles import Titles
 
+    from barks_comic_building.build.collection_staging import Member
+
 APP_LOGGING_NAME = "1pgr"
 
 # Nominal volume the collection is built as (matches All One-Pagers.ini's source_comic).
 COLLECTION_VOLUME = ONE_PAGER_COLLECTION_VOLUME
+
+# What `stage` calls one member, and what it says when the table yields none.
+_NOUN = "one-pager"
+_NOTHING_TO_DO = "No located one-pagers (ONE_PAGER_LOCATIONS is all _TODO). Nothing to do."
+
+
+def _located_members() -> list[Member]:
+    """Return the located one-pagers as ``(title, volume, page)``, in table order.
+
+    The table's third field is the page in the original issue, which staging has no use
+    for - the collection is assembled out of the Fantagraphics volumes.
+    """
+    members: list[Member] = []
+    for title in get_located_one_pagers():
+        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+        members.append((title, volume, page))
+
+    return members
 
 
 def _one_pager_candidate_links(
@@ -85,29 +99,16 @@ def _one_pager_candidate_links(
     src = get_page_str(page)
     dst = get_page_str(collection_page)
 
-    # The original scan: the volume's fixes file when it has one, else its original -
-    # the build's own precedence, see `collection_sources`.
-    original_source = original_scan_source(comics_database, volume, src)
-    # ... linked into FANTA_01's read-write *fixes* dir (not its read-only original dir).
+    # The scan and its upscayl each have a fixes tree beside them, and so a precedence
+    # to honour; `collection_staging` names the source and the slot for both.
     candidates = [
-        (
-            staged_link_for(
-                comics_database.get_fantagraphics_fixes_volume_image_dir(COLLECTION_VOLUME),
-                dst,
-                original_source,
-            ),
-            original_source,
+        collection_staging.original_scan_candidate(
+            comics_database, COLLECTION_VOLUME, volume, src, dst
+        ),
+        collection_staging.upscayled_candidate(
+            comics_database, COLLECTION_VOLUME, volume, src, dst
         ),
     ]
-
-    # The upscayl, which has a fixes tree of its own and so the same precedence again.
-    candidates.append(
-        (
-            comics_database.get_fantagraphics_upscayled_volume_image_dir(COLLECTION_VOLUME)
-            / (dst + PNG_FILE_EXT),
-            upscayled_scan_source(comics_database, volume, src),
-        )
-    )
 
     # The remaining built artifacts: (per-volume source dir, FANTA_01 dest dir, suffixes).
     # No fixes tree exists beside any of these - a restore or a segments file is derived
@@ -147,14 +148,13 @@ def get_staged_links_by_title(
     status report can grade one one-pager's staging against the same rules this
     module stages by, rather than restating them.
     """
-    links_by_title: dict[Titles, list[tuple[Path, Path]]] = {}
-    for i, title in enumerate(get_located_one_pagers()):
-        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
-        collection_page = ONE_PAGER_COLLECTION_PAGE_BASE + i
-        links_by_title[title] = _one_pager_candidate_links(
-            comics_database, volume, page, collection_page
-        )
-    return links_by_title
+
+    def candidate_links(volume: int, page: int, collection_page: int) -> list[tuple[Path, Path]]:
+        return _one_pager_candidate_links(comics_database, volume, page, collection_page)
+
+    return collection_staging.staged_links_by_title(
+        _located_members(), ONE_PAGER_COLLECTION_PAGE_BASE, candidate_links
+    )
 
 
 def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]:
@@ -163,7 +163,7 @@ def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]
     Order follows ``get_located_one_pagers()`` so the ``base + i`` numbering matches
     the collection ``ComicBook`` and the reader's override.
     """
-    return [link for links in get_staged_links_by_title(comics_database).values() for link in links]
+    return collection_staging.flatten(get_staged_links_by_title(comics_database))
 
 
 def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path]]:
@@ -182,60 +182,23 @@ def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path
         One pair per offending volume, ordered by volume number; empty when all are present.
 
     """
-    missing: dict[int, Path] = {}
-    for title in get_located_one_pagers():
-        volume = ONE_PAGER_LOCATIONS[title][0]
-        image_dir = comics_database.get_fantagraphics_volume_image_dir(volume)
-        if not image_dir.is_dir():
-            missing[volume] = image_dir
-
-    return sorted(missing.items())
+    return collection_staging.missing_volume_dirs(comics_database, _located_members())
 
 
 def stage(comics_database: ComicsDatabase, *, remove: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_01 one-pager symlinks.
 
-    On create, a link is made only when its source file exists (so already-built
-    artifacts are reused and missing ones are simply left for the pipeline), and only
-    when it is not already pointing where it should - see `links_to`. On remove, any
-    existing link is deleted regardless of its source.
+    See `collection_staging.stage` for the create and remove rules, which both
+    collections share. There is no ``--copy`` here: unlike the covers collection, this
+    one is not staged onto filesystems that cannot hold the links.
     """
-    candidates = get_staged_links(comics_database)
-    if not candidates:
-        logger.warning("No located one-pagers (ONE_PAGER_LOCATIONS is all _TODO). Nothing to do.")
-        return
-
-    count = 0
-    unchanged = 0
-    for link, source in candidates:
-        if remove:
-            if link.is_symlink() or link.exists():
-                link.unlink()
-                count += 1
-                logger.info(f'Removed staged link "{link}".')
-            continue
-
-        if not source.is_file():
-            continue
-
-        if links_to(link, source):
-            unchanged += 1
-            logger.debug(f'Already staged - leaving alone: "{link}".')
-            continue
-
-        link.parent.mkdir(parents=True, exist_ok=True)
-        for superseded in superseded_links(link):
-            superseded.unlink()
-            logger.info(f'Removed superseded staged slot "{superseded}".')
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(source)
-        count += 1
-        logger.info(f'Staged "{link}" -> "{source}".')
-
-    logger.info(f"{'Removed' if remove else 'Staged'} {count} one-pager links.")
-    if unchanged:
-        logger.info(f"Left {unchanged} already-correct links untouched.")
+    collection_staging.stage(
+        get_staged_links(comics_database),
+        remove=remove,
+        copy=False,
+        noun=_NOUN,
+        nothing_to_do=_NOTHING_TO_DO,
+    )
 
 
 app = typer.Typer()

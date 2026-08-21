@@ -139,8 +139,11 @@ def superseded_links(link: Path) -> list[Path]:
 
     Restaging a page whose fix changed extension would otherwise leave the old slot
     beside the new one, and two fixes files for one page is exactly the pair
-    `_sole_fixes_file` and the build both refuse. Only the stagers write these
-    directories, so a same-stem sibling is always a previous staging of this page.
+    `_sole_fixes_file` and the build both refuse. A same-stem sibling is always a
+    previous staging of this page: the fixes tree is the only one a collection is staged
+    into that holds both extensions, and the pipeline's own output beside it -
+    ``barks-batch-upscayl`` writes a real ``.png`` into the collection's upscayled dir -
+    is never named here, because a slot never lists its own extension as superseded.
 
     Args:
         link: The slot about to be staged.

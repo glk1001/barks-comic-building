@@ -43,7 +43,6 @@ Usage::
 
 from __future__ import annotations
 
-import shutil
 from typing import TYPE_CHECKING
 
 import typer
@@ -56,17 +55,10 @@ from barks_fantagraphics.barks_covers import (
 from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comic_book_info import COVER_COLLECTION_VOLUME
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.comic_consts import PNG_FILE_EXT
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
 from loguru import logger
 
-from barks_comic_building.build.collection_sources import (
-    original_scan_source,
-    staged_link_for,
-    superseded_links,
-    upscayled_scan_source,
-)
-from barks_comic_building.build.utils import links_to
+from barks_comic_building.build import collection_staging
 from barks_comic_building.cli_setup import init_logging
 
 if TYPE_CHECKING:
@@ -74,10 +66,43 @@ if TYPE_CHECKING:
 
     from barks_fantagraphics.barks_titles import Titles
 
+    from barks_comic_building.build.collection_staging import Member
+
 APP_LOGGING_NAME = "cvrs"
 
 # Nominal volume the collection is built as (matches All Covers.ini's source_comic).
 COLLECTION_VOLUME = COVER_COLLECTION_VOLUME
+
+# What `stage` calls one member, and what it says when the table yields none.
+_NOUN = "cover"
+_NOTHING_TO_DO = "No located covers (COVER_LOCATIONS is empty). Nothing to do."
+
+
+def _located_members() -> list[Member]:
+    """Return the located covers as ``(title, volume, page)``, in table order.
+
+    `get_cover_location` is typed optional because `COVER_LOCATIONS` allows a cover with
+    no location yet, but `get_located_covers` has already filtered those out. Narrowing
+    at this one point of production - rather than asserting it again at each use - is
+    what lets the rest of this module and the shared engine work in plain tuples.
+
+    Raises:
+        RuntimeError: If a cover `get_located_covers` returned has no location after
+            all, which is a contradiction inside `barks_covers` rather than a cover
+            still waiting to be placed.
+
+    """
+    members: list[Member] = []
+    for cover in get_located_covers():
+        location = get_cover_location(cover)
+        title = get_cover_title(cover)
+        if location is None:
+            msg = f'Located cover "{title}" has no location.'
+            raise RuntimeError(msg)
+        volume, page = location
+        members.append((title, volume, page))
+
+    return members
 
 
 def _cover_candidate_links(
@@ -86,37 +111,22 @@ def _cover_candidate_links(
     """Return all ``(link, source)`` candidates for one located cover.
 
     Each pair maps a FANTA_02 page-``collection_page`` slot to the cover's
-    page-``page`` file in ``volume``, across every artifact dir. Not filtered by
+    page-``page`` file in ``volume``. Covers are PageType.COVER: they are built
+    full-page from the upscayled scan (or the original), never restored or
+    panel-processed, so those two are the only artifacts worth staging. Not filtered by
     existence - the caller decides (create only existing sources; remove any link).
     """
     src = get_page_str(page)
     dst = get_page_str(collection_page)
 
-    # The original scan: the volume's fixes file when it has one, else its original -
-    # the build's own precedence, see `collection_sources`.
-    original_source = original_scan_source(comics_database, volume, src)
-    # ... linked into FANTA_02's read-write *fixes* dir (not its read-only original dir).
-    candidates = [
-        (
-            staged_link_for(
-                comics_database.get_fantagraphics_fixes_volume_image_dir(COLLECTION_VOLUME),
-                dst,
-                original_source,
-            ),
-            original_source,
+    return [
+        collection_staging.original_scan_candidate(
+            comics_database, COLLECTION_VOLUME, volume, src, dst
+        ),
+        collection_staging.upscayled_candidate(
+            comics_database, COLLECTION_VOLUME, volume, src, dst
         ),
     ]
-
-    # Covers are PageType.COVER: they are built full-page from the upscayled scan
-    # (or the original), never restored or panel-processed, so only the upscayled
-    # image is worth staging alongside the original.
-    upscayled_source = upscayled_scan_source(comics_database, volume, src)
-    upscayled_dest_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(
-        COLLECTION_VOLUME
-    )
-    candidates.append((upscayled_dest_dir / (dst + PNG_FILE_EXT), upscayled_source))
-
-    return candidates
 
 
 def get_staged_links_by_title(
@@ -129,16 +139,13 @@ def get_staged_links_by_title(
     report can grade one cover's staging against the same rules this module stages
     by, rather than restating them.
     """
-    links_by_title: dict[Titles, list[tuple[Path, Path]]] = {}
-    for i, cover in enumerate(get_located_covers()):
-        location = get_cover_location(cover)
-        assert location is not None  # located by construction
-        volume, page = location
-        collection_page = COVER_COLLECTION_PAGE_BASE + i
-        links_by_title[get_cover_title(cover)] = _cover_candidate_links(
-            comics_database, volume, page, collection_page
-        )
-    return links_by_title
+
+    def candidate_links(volume: int, page: int, collection_page: int) -> list[tuple[Path, Path]]:
+        return _cover_candidate_links(comics_database, volume, page, collection_page)
+
+    return collection_staging.staged_links_by_title(
+        _located_members(), COVER_COLLECTION_PAGE_BASE, candidate_links
+    )
 
 
 def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]:
@@ -147,7 +154,7 @@ def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]
     Order follows ``get_located_covers()`` so the ``base + i`` numbering matches
     the collection ``ComicBook`` and the reader's override.
     """
-    return [link for links in get_staged_links_by_title(comics_database).values() for link in links]
+    return collection_staging.flatten(get_staged_links_by_title(comics_database))
 
 
 def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path]]:
@@ -168,78 +175,22 @@ def missing_volume_dirs(comics_database: ComicsDatabase) -> list[tuple[int, Path
         One pair per offending volume, ordered by volume number; empty when all are present.
 
     """
-    missing: dict[int, Path] = {}
-    for cover in get_located_covers():
-        location = get_cover_location(cover)
-        assert location is not None  # located by construction
-        volume = location[0]
-        image_dir = comics_database.get_fantagraphics_volume_image_dir(volume)
-        if not image_dir.is_dir():
-            missing[volume] = image_dir
-
-    return sorted(missing.items())
-
-
-def _create_staged_file(link: Path, source: Path, *, copy: bool) -> None:
-    """Point ``link`` at ``source``, replacing whatever occupied that page's slot.
-
-    Any slot this one supersedes goes first - see `superseded_links` for why a stale
-    sibling is worse than untidy.
-    """
-    link.parent.mkdir(parents=True, exist_ok=True)
-    for superseded in superseded_links(link):
-        superseded.unlink()
-        logger.info(f'Removed superseded staged slot "{superseded}".')
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    if copy:
-        shutil.copy2(source, link)
-    else:
-        link.symlink_to(source)
+    return collection_staging.missing_volume_dirs(comics_database, _located_members())
 
 
 def stage(comics_database: ComicsDatabase, *, remove: bool, copy: bool) -> None:
     """Create (or with ``remove``, delete) the FANTA_02 cover links.
 
-    On create, a link is made only when its source file exists (so already-built
-    artifacts are reused and missing ones are simply left for the pipeline), and only
-    when it is not already pointing where it should - see `links_to`; with ``copy``,
-    files are copied instead of symlinked. On remove, any existing staged file is
-    deleted regardless of its source or whether it was a symlink.
+    See `collection_staging.stage` for the create, remove and copy rules, which both
+    collections share.
     """
-    candidates = get_staged_links(comics_database)
-    if not candidates:
-        logger.warning("No located covers (COVER_LOCATIONS is empty). Nothing to do.")
-        return
-
-    count = 0
-    unchanged = 0
-    for link, source in candidates:
-        if remove:
-            if link.is_symlink() or link.exists():
-                link.unlink()
-                count += 1
-                logger.info(f'Removed staged link "{link}".')
-            continue
-
-        if not source.is_file():
-            continue
-
-        # Only for symlinks: `--copy` asked for a file, so an existing link is not what
-        # was asked for however well it points, and `copy2` carries the source's mtime
-        # over anyway, which leaves a re-copy idempotent as far as staleness goes.
-        if not copy and links_to(link, source):
-            unchanged += 1
-            logger.debug(f'Already staged - leaving alone: "{link}".')
-            continue
-
-        _create_staged_file(link, source, copy=copy)
-        count += 1
-        logger.info(f'Staged "{link}" -> "{source}".')
-
-    logger.info(f"{'Removed' if remove else 'Staged'} {count} cover links.")
-    if unchanged:
-        logger.info(f"Left {unchanged} already-correct links untouched.")
+    collection_staging.stage(
+        get_staged_links(comics_database),
+        remove=remove,
+        copy=copy,
+        noun=_NOUN,
+        nothing_to_do=_NOTHING_TO_DO,
+    )
 
 
 app = typer.Typer()

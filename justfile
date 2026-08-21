@@ -99,6 +99,11 @@ check-title title *flags:
 check-volume volume *flags:
     {{uv_run}} barks-check-build --log-level SUCCESS --volume "{{volume}}" {{flags}}
 
+# Check the censorship csv integrity
+[group('comics')]
+check-censorship-csv:
+    {{uv_run}} barks-check-build --log-level SUCCESS --censorship-only
+
 # Rename stale built artifacts onto their current chronological numbers, instead of
 # rebuilding them. Dry run: pass --apply to actually perform the renames.
 [group('comics')]

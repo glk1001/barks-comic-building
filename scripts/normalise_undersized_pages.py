@@ -17,6 +17,7 @@ from pathlib import Path
 
 import typer
 from comic_utils.common_typer_options import LogLevelArg
+from comic_utils.pil_image_utils import downscale_to_exact_size
 from loguru import logger
 from loguru_config import LoguruConfig
 from PIL import Image
@@ -57,10 +58,14 @@ TARGET_SIZES: dict[tuple[int, int], tuple[int, int]] = {
     (1542, 2100): (2203, 3000),  # cover
 }
 
-# Volume 30's pages are png data under a .jpg name, and the name has to stay .jpg because
-# the original tree's page paths are built as `page_num + JPG_FILE_EXT`. The data stays png
-# so that normalising does not add a lossy generation ahead of the 4x upscale still to come.
+# Volume 30's pages come in under .jpg names, and the names have to stay .jpg because the
+# original tree's page paths are built as `page_num + JPG_FILE_EXT`. Each normalised page is
+# written in whatever format its own name gives, so those pages come out as real jpg and the
+# 4x upscale still to come starts from jpg data.
 PAGE_GLOB = "*.jpg"
+
+# The enlarged intermediate is always png whatever the page is: it is thrown away as soon as
+# the resize below has read it, so a lossy generation there would cost quality for nothing.
 INTERMEDIATE_EXTENSION = ".png"
 
 
@@ -97,7 +102,7 @@ def _normalise_page(in_file: Path, out_file: Path, temp_dir: Path, upscaler: Ups
 
     Args:
         in_file: The undersized source page.
-        out_file: Where the normalised page is written.
+        out_file: Where the normalised page is written. Its extension picks the format.
         temp_dir: Scratch space for the enlarged intermediate.
         upscaler: Which backend to enlarge with.
 
@@ -116,8 +121,7 @@ def _normalise_page(in_file: Path, out_file: Path, temp_dir: Path, upscaler: Ups
     try:
         upscale_image_file(in_file, upscaled_file, UPSCALE_FACTOR, upscaler)
 
-        with Image.open(upscaled_file) as upscaled_image:
-            upscaled_image.resize(target_size, Image.Resampling.LANCZOS).save(out_file, "PNG")
+        downscale_to_exact_size(target_size[0], target_size[1], upscaled_file, out_file)
     finally:
         upscaled_file.unlink(missing_ok=True)
 

@@ -572,6 +572,83 @@ class TestStagingLinks:
         assert not link.is_symlink()
 
 
+class TestASlotWhoseSourceIsNotThere:
+    """A member with nothing to stage must not inherit the previous occupant's links.
+
+    Skipping a candidate with no source used to mean leaving the slot exactly as it was,
+    which is only harmless while the slot is empty. It is not empty after the location
+    table grows: member *i* is page ``base + i``, so locating one more member shifts
+    every later page down one and each one inherits a slot the member before it filled.
+
+    That is what happened when four one-pagers were newly located. Their own volumes had
+    no upscayl, restore, svg or segments yet, so all five derived slots were passed over
+    and stayed pointing at the next member along - which was also correctly staged one
+    page later, so the collection carried that member's art twice and the new one's not
+    at all. Only the original-scan slots restaged, because an original scan always
+    exists.
+    """
+
+    @staticmethod
+    def _first_member_restored_link(database: FakeComicsDatabase) -> Path:
+        """Return the first located one-pager's restored slot - an artifact with no source."""
+        links_by_title = stage_one_pagers.get_staged_links_by_title(as_database(database))
+        title = get_located_one_pagers()[0]
+
+        return next(
+            link
+            for link, source in links_by_title[title]
+            if "restored" in source.parts and source.suffix == PNG
+        )
+
+    @staticmethod
+    def _stale_link_at(link: Path, target: Path) -> Path:
+        """Leave ``link`` staged to ``target``, as the slot's previous occupant would."""
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(target)
+
+        return link
+
+    def test_a_stale_link_is_removed(self, database: FakeComicsDatabase, tmp_path: Path) -> None:
+        link = self._stale_link_at(
+            self._first_member_restored_link(database),
+            touch(tmp_path / "previous-occupant" / "162.png"),
+        )
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert not link.is_symlink()
+        assert not link.exists()
+
+    def test_a_stale_slot_under_the_other_extension_is_removed_too(
+        self, database: FakeComicsDatabase, tmp_path: Path
+    ) -> None:
+        # The scan slot is named after its source, so a member whose predecessor was
+        # staged from a `.png` fix inherits `NNN.png` while its own candidate is
+        # `NNN.jpg`. Clearing only the candidate would leave that behind.
+        stale = self._stale_link_at(
+            TestStagingLinks._first_member_link(database).with_suffix(PNG),  # noqa: SLF001
+            touch(tmp_path / "previous-occupant" / "162.png"),
+        )
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert not stale.is_symlink()
+
+    def test_a_file_the_pipeline_wrote_in_place_is_left_alone(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The counterweight, and why only symlinks go. A one-pager whose source volume
+        # never built an artifact has it computed against the collection instead, and
+        # that output is a real file in the same slot. Nothing staged it, and deleting it
+        # would throw away work the pipeline cannot cheaply redo.
+        link = touch(self._first_member_restored_link(database))
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert link.is_file()
+        assert not link.is_symlink()
+
+
 class TestSupersededSlots:
     """A page's staged slot is named after its source, so that name can change.
 

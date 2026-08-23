@@ -194,6 +194,39 @@ def _remove_staged_slot(link: Path) -> int:
     return removed
 
 
+def _clear_slot_with_no_source(link: Path) -> int:
+    """Delete this page's staged links when there is no source to stage into it.
+
+    A slot with no source is not simply "nothing to do". The collection numbers member
+    *i* as page ``base + i``, so locating one more member shifts every later page down
+    one, and the slot a member inherits already holds the *previous* occupant's links.
+    Skipping it leaves those in place: the page then shows the next member's gag, which
+    is also correctly staged one page along, so the collection carries it twice. That is
+    how `Luncheon Lament` came to share `Come As You Are`'s art - its own volume had no
+    upscayl or restore yet, so all five derived slots were passed over and stayed
+    pointing at the member that used to sit there.
+
+    Only symlinks go. A real file in one of these slots is the pipeline's own output,
+    written in place for a page whose source volume never built it (see
+    `superseded_links`), and nothing here staged it or may remove it.
+
+    Args:
+        link: The slot whose source is absent.
+
+    Returns:
+        How many stale links were removed; usually zero.
+
+    """
+    removed = 0
+    for path in [link, *superseded_links(link)]:
+        if path.is_symlink():
+            path.unlink()
+            removed += 1
+            logger.info(f'Removed stale staged link "{path}" - it has no source.')
+
+    return removed
+
+
 def stage(
     candidates: Sequence[tuple[Path, Path]],
     *,
@@ -207,7 +240,9 @@ def stage(
     On create, a link is made only when its source file exists (so already-built
     artifacts are reused and missing ones are simply left for the pipeline), and only
     when it is not already pointing where it should - see `links_to`; with ``copy``,
-    files are copied instead of symlinked. On remove, any existing staged file is
+    files are copied instead of symlinked. A slot whose source does not exist is not
+    left as it was but emptied of any *staged* link - see `_clear_slot_with_no_source` for
+    the wrong page that leaving it produced. On remove, any existing staged file is
     deleted regardless of its source or whether it was a symlink.
 
     Args:
@@ -224,12 +259,14 @@ def stage(
 
     count = 0
     unchanged = 0
+    stale = 0
     for link, source in candidates:
         if remove:
             count += _remove_staged_slot(link)
             continue
 
         if not source.is_file():
+            stale += _clear_slot_with_no_source(link)
             continue
 
         # Only for symlinks: `--copy` asked for a file, so an existing link is not what
@@ -247,3 +284,5 @@ def stage(
     logger.info(f"{'Removed' if remove else 'Staged'} {count} {noun} links.")
     if unchanged:
         logger.info(f"Left {unchanged} already-correct links untouched.")
+    if stale:
+        logger.info(f"Removed {stale} stale links whose {noun} has no source to stage.")

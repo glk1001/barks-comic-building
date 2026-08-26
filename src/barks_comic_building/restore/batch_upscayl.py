@@ -13,6 +13,7 @@ from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
+from barks_comic_building.log_setup import bind_run_id
 from barks_comic_building.restore.report_format import format_duration
 from barks_comic_building.restore.upscale_image import (
     DEFAULT_UPSCALER,
@@ -181,6 +182,10 @@ def upscayl(
     num_upscayled = 0
     consecutive_failures = 0
     with UpscaleLedgerWriter(ledger_file, recipe) as ledger:
+        # Every log line from here on carries this run id, so an entry in the errors file
+        # can be traced back to the page record the same run wrote.
+        bind_run_id(ledger.run_id)
+
         for job in jobs:
             if _upscayl_page(job, upscaler, ledger):
                 num_upscayled += 1

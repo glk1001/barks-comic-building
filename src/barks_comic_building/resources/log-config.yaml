@@ -15,3 +15,12 @@ handlers:
     enqueue: True
     backtrace: True
     diagnose: True
+  # Errors only, and never rotated, so that a long run cannot rotate its own errors out
+  # of reach and so that this run's errors sit next to the previous runs'. Each line
+  # leads with the ledger run id, which is what joins it back to the failed page.
+  - sink: fmt://{env://HOME}/Prj/github/barks-compleat-digital/barks-comic-building/logs/{ext://barks_comic_building.log_setup.log_error_filename}
+    level: "ERROR"
+    format: ext://barks_comic_building.log_setup.log_to_error_file_formatter
+    enqueue: True
+    backtrace: True
+    diagnose: True

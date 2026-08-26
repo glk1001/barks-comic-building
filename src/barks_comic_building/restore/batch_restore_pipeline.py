@@ -32,6 +32,7 @@ from comic_utils.pil_image_utils import copy_file_to_png
 from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
+from barks_comic_building.log_setup import bind_run_id
 from barks_comic_building.restore.page_state import (
     PageState,
     get_page_status,
@@ -173,6 +174,11 @@ def restore(  # noqa: PLR0913
 
     workers = {phase[0]: phase[2] or os.process_cpu_count() or 0 for phase in _PHASES}
     with LedgerWriter(ledger_file, recipe, workers) as ledger:
+        # From here on every log line, including those from the forked phase workers,
+        # carries this run id, so an error in the errors file can be traced back to the
+        # page record that the same run wrote.
+        bind_run_id(ledger.run_id)
+
         _write_non_comic_records(ledger, non_comic)
 
         num_done = 0

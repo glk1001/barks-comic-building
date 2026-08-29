@@ -17,15 +17,30 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from loguru import logger
 
-from barks_comic_building.restore.batch_panel_bounds import get_page_panel_bounds
+from barks_comic_building.restore.batch_panel_bounds import (
+    PageBoundsOutcome,
+    _log_run_summary,
+    get_page_panel_bounds,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 
-SEGMENT_INFO: dict[str, Any] = {"panels": [[0, 0, 100, 200]]}
+# A valid segments payload: one panel filling a 100x200 page.
+SEGMENT_INFO: dict[str, Any] = {
+    "filename": "042_orig.jpg",
+    "size": [100, 200],
+    "numbering": "ltr",
+    "gutters": [0, 0],
+    "license": None,
+    "panels": [[0, 0, 100, 200]],
+    "overall_bounds": [0, 0, 99, 199],
+}
 
 
 class FakeBoundingBoxProcessor:
@@ -36,16 +51,17 @@ class FakeBoundingBoxProcessor:
     running Kumiko.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, segment_info: dict[str, Any] = SEGMENT_INFO) -> None:
         self.kumiko_calls: list[Path] = []
         self.saved: list[Path] = []
+        self._segment_info = segment_info
 
     def get_panels_segment_info_from_kumiko(
         self, srce_file: Path, _override_dir: Path
     ) -> dict[str, Any]:
         self.kumiko_calls.append(srce_file)
 
-        return SEGMENT_INFO
+        return self._segment_info
 
     def save_panels_segment_info(self, dest_file: Path, segment_info: dict[str, Any]) -> None:
         self.saved.append(dest_file)
@@ -93,9 +109,9 @@ def page(tmp_path: Path) -> Page:
     return Page(tmp_path)
 
 
-def run(page: Page, processor: FakeBoundingBoxProcessor, *, force: bool) -> None:
+def run(page: Page, processor: FakeBoundingBoxProcessor, *, force: bool) -> PageBoundsOutcome:
     """Run the per-page bounds step for one page."""
-    get_page_panel_bounds(
+    return get_page_panel_bounds(
         as_processor(processor),
         page.override_dir,
         page.srce_file,
@@ -263,3 +279,123 @@ class TestAPageWithNoSourceScan:
         page.srce_file.unlink()
 
         run(page, FakeBoundingBoxProcessor(), force=True)
+
+
+@pytest.fixture
+def error_log() -> Iterator[list[str]]:
+    """Collect loguru ERROR messages emitted while a test runs."""
+    messages: list[str] = []
+    handler_id = logger.add(lambda msg: messages.append(str(msg)), level="ERROR")
+    yield messages
+    logger.remove(handler_id)
+
+
+# Vol 10 p020's panels in kumiko's column-wise order; the reading order is 1,3,2,4.
+UNSORTED_SEGMENT_INFO: dict[str, Any] = {
+    **SEGMENT_INFO,
+    "size": [2216, 3056],
+    "panels": [[222, 194, 965, 511], [222, 731, 994, 780], [1189, 194, 885, 648]],
+    "overall_bounds": [222, 194, 2073, 1510],
+}
+
+
+class TestInvalidBoundsAreStillWritten:
+    """A faulty result is saved and shouted about, not dropped.
+
+    The integrity checker is the gate. Dropping the file would turn one loud fault into a
+    quiet "missing dest file" later, and would stall a whole-volume run on one page.
+    """
+
+    def test_unsorted_panels_are_saved_and_logged(self, page: Page, error_log: list[str]) -> None:
+        processor = FakeBoundingBoxProcessor(UNSORTED_SEGMENT_INFO)
+
+        run(page, processor, force=False)
+
+        assert processor.saved == [page.dest_file]
+        assert json.loads(page.dest_file.read_text()) == UNSORTED_SEGMENT_INFO
+        assert any("not in reading order" in msg for msg in error_log)
+        assert any("anyway" in msg for msg in error_log)
+
+    def test_a_panel_order_override_makes_that_order_valid(
+        self, page: Page, error_log: list[str]
+    ) -> None:
+        page.override_dir.mkdir(parents=True)
+        (page.override_dir / "042-panel-order.json").write_text("[1, 3, 2]")
+
+        run(page, FakeBoundingBoxProcessor(UNSORTED_SEGMENT_INFO), force=False)
+
+        assert error_log == []
+
+    def test_overall_bounds_override_allows_a_mismatch(
+        self, page: Page, error_log: list[str]
+    ) -> None:
+        info = {**SEGMENT_INFO, "overall_bounds": [0, 0, 50, 50]}
+        run(page, FakeBoundingBoxProcessor(info), force=False)
+        assert any("Overall bounds" in msg for msg in error_log)
+
+        error_log.clear()
+        page.override_dir.mkdir(parents=True)
+        (page.override_dir / "042-overall-bounds-only.jpg").touch()
+        run(page, FakeBoundingBoxProcessor(info), force=True)
+        assert error_log == []
+
+    def test_a_clean_result_logs_no_errors(self, page: Page, error_log: list[str]) -> None:
+        run(page, FakeBoundingBoxProcessor(), force=False)
+        assert error_log == []
+
+
+class TestEachPageReportsItsOutcome:
+    """The return value is a page's only route to the run summary and the exit code.
+
+    The batch driver runs pages in worker processes, so nothing else about a page's fate
+    reaches the parent.
+    """
+
+    def test_a_fresh_page(self, page: Page) -> None:
+        assert run(page, FakeBoundingBoxProcessor(), force=False) == PageBoundsOutcome.OK
+
+    def test_an_already_bounded_page(self, page: Page) -> None:
+        page.already_bounded()
+        assert run(page, FakeBoundingBoxProcessor(), force=False) == PageBoundsOutcome.SKIPPED
+
+    def test_a_staged_page(self, page: Page) -> None:
+        page.staged_from_home_volume()
+        assert run(page, FakeBoundingBoxProcessor(), force=False) == PageBoundsOutcome.SKIPPED
+
+    def test_a_faulty_result(self, page: Page) -> None:
+        outcome = run(page, FakeBoundingBoxProcessor(UNSORTED_SEGMENT_INFO), force=False)
+        assert outcome == PageBoundsOutcome.SAVED_WITH_FAULTS
+        assert outcome.is_error
+
+    def test_a_missing_source_scan(self, page: Page, error_log: list[str]) -> None:
+        page.srce_file.unlink()
+        outcome = run(page, FakeBoundingBoxProcessor(), force=False)
+        assert outcome == PageBoundsOutcome.FAILED
+        assert outcome.is_error
+        assert any("042.png" in msg for msg in error_log)
+
+
+class TestTheRunSummary:
+    def test_no_errors(self) -> None:
+        messages: list[str] = []
+        handler_id = logger.add(lambda msg: messages.append(str(msg)), level="SUCCESS")
+        try:
+            _log_run_summary(3, [])
+        finally:
+            logger.remove(handler_id)
+        assert len(messages) == 1
+        assert "All 3 pages" in messages[0]
+
+    def test_lists_every_error_page(self, tmp_path: Path, error_log: list[str]) -> None:
+        _log_run_summary(
+            5,
+            [
+                (tmp_path / "b" / "007.json", PageBoundsOutcome.FAILED),
+                (tmp_path / "a" / "003.json", PageBoundsOutcome.SAVED_WITH_FAULTS),
+            ],
+        )
+        assert "2 of 5 pages had errors" in error_log[0]
+        assert "saved_with_faults" in error_log[1]
+        assert "003.json" in error_log[1]
+        assert "failed" in error_log[2]
+        assert "007.json" in error_log[2]

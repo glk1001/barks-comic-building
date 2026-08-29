@@ -8,7 +8,7 @@ from barks_fantagraphics.comic_book import ComicBook, get_page_str
 from barks_fantagraphics.fanta_comics_info import get_fanta_volume_str
 from barks_fantagraphics.pages import PageType, get_sorted_srce_and_dest_pages
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
-from comic_utils.panel_segmentation import BIG_NUM, get_kumiko_panel_bound
+from comic_utils.panel_segmentation import get_kumiko_panel_bound
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
 
@@ -49,20 +49,14 @@ MIN_MAX_MARGIN = 200
 
 
 def has_splash_page(panels: list[tuple[int, int, int, int]]) -> bool:
-    if len(panels) > MAX_NUM_PANELS_FOR_SPLASH:
+    if not panels or len(panels) > MAX_NUM_PANELS_FOR_SPLASH:
         return False
 
-    max_width = -1
-    max_height = -1
-    min_width = BIG_NUM
-    min_height = BIG_NUM
-    for _index, panel in enumerate(panels):
-        bound = get_kumiko_panel_bound(panel)
-
-        min_width = min(min_width, bound.width)
-        min_height = min(min_height, bound.height)
-        max_width = max(max_width, bound.width)
-        max_height = max(max_height, bound.height)
+    bounds = [get_kumiko_panel_bound(panel) for panel in panels]
+    widths = [bound.width for bound in bounds]
+    heights = [bound.height for bound in bounds]
+    min_width, max_width = min(widths), max(widths)
+    min_height, max_height = min(heights), max(heights)
 
     return (
         abs(max_width - min_width) > MIN_MAX_MARGIN

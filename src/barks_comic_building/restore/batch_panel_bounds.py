@@ -1,18 +1,42 @@
 import concurrent.futures
+import sys
 import time
+from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 import typer
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_abbrev_path
+from comic_utils.comic_consts import JPG_FILE_EXT, OVERALL_BOUNDS_ONLY_SUFFIX
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
+from comic_utils.panel_segmentation import (
+    get_panel_segments_finding_msg,
+    validate_panel_segments,
+)
 from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
+from barks_comic_building.log_setup import bind_run_id
+from barks_comic_building.restore.ledger_common import new_run_id, now
 
 APP_LOGGING_NAME = "bpan"
+
+
+class PageBoundsOutcome(StrEnum):
+    """What happened to one page."""
+
+    SKIPPED = "skipped"  # Already bounded, or linked from another volume.
+    OK = "ok"
+    SAVED_WITH_FAULTS = "saved_with_faults"  # Written, but the validator objected.
+    FAILED = "failed"  # An exception; nothing written.
+
+    @property
+    def is_error(self) -> bool:
+        return self in (PageBoundsOutcome.SAVED_WITH_FAULTS, PageBoundsOutcome.FAILED)
+
 
 COMIC_BUILDING_DIR = Path(__file__).parent.parent.parent.parent
 
@@ -23,7 +47,7 @@ def panel_bounds(
     work_dir: Path,
     *,
     force: bool,
-) -> None:
+) -> int:
     """Make the panel bounds file for every restorable page of each title.
 
     Args:
@@ -32,10 +56,19 @@ def panel_bounds(
         work_dir: Where Kumiko's intermediate files go.
         force: Remake panel bounds files that already exist.
 
+    Returns:
+        The number of pages that had errors - failed outright, or saved with faults.
+
     """
     start = time.time()
 
+    # Every error line from here on, including those from the forked page workers,
+    # carries this run id, so one run's errors can be told apart from the next in the
+    # never-rotated errors file.
+    bind_run_id(new_run_id(now()))
+
     num_page_files = 0
+    error_pages: list[tuple[Path, PageBoundsOutcome]] = []
     for title in title_list:
         logger.info(f'Getting panel bounds for all pages in "{title}"...')
 
@@ -64,7 +97,7 @@ def panel_bounds(
         srce_panels_bounds_override_dir = comic.get_srce_original_fixes_image_dir() / "bounded"
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            for (srce_file, _), dest_file in zip(srce_files, dest_files, strict=True):
+            futures = {
                 executor.submit(
                     get_page_panel_bounds,
                     bounding_box_processor,
@@ -72,11 +105,37 @@ def panel_bounds(
                     srce_file,
                     dest_file,
                     force=force,
-                )
+                ): dest_file
+                for (srce_file, _), dest_file in zip(srce_files, dest_files, strict=True)
+            }
+            for future, dest_file in futures.items():
+                outcome = future.result()
+                if outcome.is_error:
+                    error_pages.append((dest_file, outcome))
 
         num_page_files += len(srce_files)
 
     logger.info(f"\nTime taken to process all {num_page_files} files: {int(time.time() - start)}s.")
+
+    _log_run_summary(num_page_files, error_pages)
+
+    return len(error_pages)
+
+
+def _log_run_summary(num_pages: int, error_pages: list[tuple[Path, PageBoundsOutcome]]) -> None:
+    """Say at the end how many pages went wrong, and which - one line per page.
+
+    The per-page errors are logged as they happen, from worker processes, so they land in
+    the errors file interleaved with other pages'. This summary is the one place the
+    run's failures are listed together.
+    """
+    if not error_pages:
+        logger.success(f"All {num_pages} pages bounded without errors.")
+        return
+
+    logger.error(f"{len(error_pages)} of {num_pages} pages had errors:")
+    for dest_file, outcome in sorted(error_pages):
+        logger.error(f'    {outcome}: "{get_abbrev_path(dest_file)}"')
 
 
 def get_page_panel_bounds(
@@ -86,7 +145,7 @@ def get_page_panel_bounds(
     dest_file: Path,
     *,
     force: bool,
-) -> None:
+) -> PageBoundsOutcome:
     """Make one page's panel bounds file.
 
     Args:
@@ -95,6 +154,9 @@ def get_page_panel_bounds(
         srce_file: The page to find panels in.
         dest_file: Where to write the panel segments.
         force: Remake the panel bounds file if it already exists.
+
+    Returns:
+        What happened. Never raises: an exception is logged and reported as `FAILED`.
 
     """
     # noinspection PyBroadException
@@ -123,7 +185,7 @@ def get_page_panel_bounds(
                 f' "{get_abbrev_path(linked_file)}".'
                 f" Run the panel bounds for the volume it lives in instead."
             )
-            return
+            return PageBoundsOutcome.SKIPPED
 
         if not srce_file.is_file():
             msg = f'Could not find srce file: "{srce_file}".'
@@ -131,7 +193,7 @@ def get_page_panel_bounds(
         if dest_file.is_file():
             if not force:
                 logger.warning(f'Dest file exists - skipping: "{get_abbrev_path(dest_file)}".')
-                return
+                return PageBoundsOutcome.SKIPPED
             logger.info(f'Dest file exists - remaking: "{get_abbrev_path(dest_file)}".')
 
         logger.info(
@@ -144,11 +206,51 @@ def get_page_panel_bounds(
             srce_panels_bounds_override_dir,
         )
 
+        has_faults = _log_segment_faults(segment_info, srce_panels_bounds_override_dir, srce_file)
+
         bounding_box_processor.save_panels_segment_info(dest_file, segment_info)
 
     except Exception:  # noqa: BLE001
-        logger.exception("Error: ")
-        return
+        logger.exception(f'Error getting panel bounds for "{get_abbrev_path(srce_file)}": ')
+        return PageBoundsOutcome.FAILED
+
+    return PageBoundsOutcome.SAVED_WITH_FAULTS if has_faults else PageBoundsOutcome.OK
+
+
+def _log_segment_faults(
+    segment_info: dict[str, Any],
+    srce_panels_bounds_override_dir: Path,
+    srce_file: Path,
+) -> bool:
+    """Log every validation fault in the fresh segments; return whether there were any.
+
+    The file is saved regardless. The integrity checker is the gate; saving keeps the
+    batch moving and leaves the faulty file where `barks-check-build` will report it with
+    the same messages.
+    """
+    overall_bounds_override = srce_panels_bounds_override_dir / (
+        srce_file.stem + OVERALL_BOUNDS_ONLY_SUFFIX + JPG_FILE_EXT
+    )
+    findings = validate_panel_segments(
+        segment_info,
+        has_overall_bounds_override=overall_bounds_override.is_file(),
+        panel_order_override=BoundingBoxProcessor.get_panel_order_override(
+            srce_panels_bounds_override_dir, srce_file
+        ),
+    )
+    if not findings:
+        return False
+
+    for finding in findings:
+        logger.error(
+            f'Panel segments fault for "{get_abbrev_path(srce_file)}":'
+            f" {get_panel_segments_finding_msg(finding)}"
+        )
+    logger.error(
+        f'Saving the panel segments for "{get_abbrev_path(srce_file)}" anyway'
+        f' - fix the panels with a "bounded" override and re-run.'
+    )
+    return True
 
 
 app = typer.Typer()
@@ -171,7 +273,9 @@ def main(
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    panel_bounds(comics_database, titles, work_dir, force=force)
+    num_error_pages = panel_bounds(comics_database, titles, work_dir, force=force)
+    if num_error_pages:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

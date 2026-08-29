@@ -63,6 +63,12 @@ from barks_fantagraphics.pages import (
     get_sorted_srce_and_dest_pages,
 )
 from comic_utils.comic_consts import JPG_FILE_EXT, JSON_FILE_EXT, SVG_FILE_EXT
+from comic_utils.panel_segmentation import (
+    get_panel_segments_finding_msg,
+    read_panel_order_override,
+    validate_panel_segments,
+)
+from comic_utils.pil_image_utils import get_image_size
 from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 
@@ -823,6 +829,58 @@ def has_restored_file_in_chain(
     )
 
 
+def check_panel_segments_file(
+    segments_file: Path,
+    *,
+    has_overall_bounds_override: bool,
+    panel_order_file: Path | None,
+    restored_image: Path | None,
+) -> tuple[str, ...]:
+    """Return every fault in a panel segments json, as messages.
+
+    A missing file is not a fault here - the dependency chain reports that. The panel
+    order is the public panel numbering, so the file must hold the panels in our reading
+    order (plus any `NNN-panel-order.json` override), not kumiko's.
+
+    Args:
+        segments_file: The panel segments json.
+        has_overall_bounds_override: A `NNN-overall-bounds-only.jpg` fix exists.
+        panel_order_file: The page's `NNN-panel-order.json` fix, if any.
+        restored_image: When given, the json's page size must match this image's.
+
+    Returns:
+        The fault messages, empty when the file is good.
+
+    """
+    if not segments_file.is_file():
+        return ()
+
+    try:
+        with segments_file.open() as f:
+            segment_info = json.load(f)
+    except json.JSONDecodeError as e:
+        return (f"Not valid JSON: {e}.",)
+    if not isinstance(segment_info, dict):
+        return ("The top-level JSON value is not an object.",)
+
+    panel_order = None
+    if panel_order_file is not None:
+        try:
+            panel_order = read_panel_order_override(panel_order_file)
+        except (ValueError, json.JSONDecodeError) as e:
+            return (f'Bad panel order override "{get_relpath(panel_order_file)}": {e}',)
+
+    actual_page_size = None if restored_image is None else get_image_size(restored_image)
+
+    findings = validate_panel_segments(
+        segment_info,
+        has_overall_bounds_override=has_overall_bounds_override,
+        panel_order_override=panel_order,
+        actual_page_size=actual_page_size,
+    )
+    return tuple(get_panel_segments_finding_msg(finding) for finding in findings)
+
+
 def panel_segments_are_stale(segments_file: Path, bounds_file: Path | None) -> bool:
     """Return whether a panel segments json predates the bounds override it was drawn from.
 
@@ -1024,6 +1082,9 @@ class OutOfDateErrors:
     # `(bounds override, segments json)` - the segments were computed before the
     # hand-drawn override they should have been computed from.
     stale_panel_segments: list[tuple[Path, Path]]
+    # `(segments json, fault messages)` - the segments file's content is wrong: panels out
+    # of reading order, overlapping, outside the page, or bounds that do not add up.
+    invalid_panel_segments: list[tuple[Path, tuple[str, ...]]]
     unexpected_dest_image_files: list[Path]
     exception_errors: list[str]
     zip_errors: ZipOutOfDateErrors
@@ -1044,6 +1105,7 @@ class OutOfDateErrors:
             or self.srce_and_dest_files_out_of_date
             or self.pages_built_without_restored_file
             or self.stale_panel_segments
+            or self.invalid_panel_segments
             or self.dest_dir_files_missing
             or self.dest_dir_files_out_of_date
             or self.exception_errors
@@ -1085,12 +1147,16 @@ class ComicsIntegrityChecker:
         no_check_for_unexpected_files: bool,
         no_check_symlinks: bool,
         no_check_censorship_csv: bool = False,
+        *,
+        check_panel_segment_image_size: bool = False,
     ) -> None:
         self.comics_database = comics_db
 
         self._check_for_unexpected_files = not no_check_for_unexpected_files
         self._check_symlinks = not no_check_symlinks
         self.check_censorship_fixes = not no_check_censorship_csv
+        # Opens every restorable page image, so it is opt-in.
+        self._check_panel_segment_image_size = check_panel_segment_image_size
 
     def check_comics_integrity(
         self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
@@ -1185,6 +1251,7 @@ class ComicsIntegrityChecker:
             srce_and_dest_files_missing=[],
             pages_built_without_restored_file=[],
             stale_panel_segments=[],
+            invalid_panel_segments=[],
             unexpected_dest_image_files=[],
             exception_errors=[],
             zip_errors=ZipOutOfDateErrors(),
@@ -2271,6 +2338,7 @@ class ComicsIntegrityChecker:
         errors.srce_and_dest_files_out_of_date = []
         errors.pages_built_without_restored_file = []
         errors.stale_panel_segments = []
+        errors.invalid_panel_segments = []
         errors.exception_errors = []
         errors.checks_skipped = False
 
@@ -2296,7 +2364,12 @@ class ComicsIntegrityChecker:
             errors.checks_skipped = True
             return
 
-        self.check_missing_or_out_of_date_dest_files(comic, srce_and_dest_pages, errors)
+        self.check_missing_or_out_of_date_dest_files(
+            comic,
+            srce_and_dest_pages,
+            errors,
+            check_image_size=self._check_panel_segment_image_size,
+        )
         self.check_unexpected_dest_image_files(comic, srce_and_dest_pages, errors)
 
     @staticmethod
@@ -2304,6 +2377,8 @@ class ComicsIntegrityChecker:
         comic: ComicBook,
         srce_and_dest_pages: SrceAndDestPages,
         errors: OutOfDateErrors,
+        *,
+        check_image_size: bool = False,
     ) -> None:
         is_a_comic = comic.get_title_enum() not in NON_COMIC_TITLES
         # "Good Deeds" and "Silent Night" are built out of the fixes tree by design -
@@ -2340,6 +2415,18 @@ class ComicsIntegrityChecker:
                 segments_file = comic.get_srce_panel_segments_file(get_page_str(srce_page.page_num))
                 if panel_segments_are_stale(segments_file, bounds_file) and bounds_file:
                     errors.stale_panel_segments.append((bounds_file, segments_file))
+
+                faults = check_panel_segments_file(
+                    segments_file,
+                    has_overall_bounds_override=(
+                        comic.get_final_fixes_overall_panel_bounds_file(srce_page.page_num)
+                        is not None
+                    ),
+                    panel_order_file=comic.get_final_fixes_panel_order_file(srce_page.page_num),
+                    restored_image=Path(srce_page.page_filename) if check_image_size else None,
+                )
+                if faults:
+                    errors.invalid_panel_segments.append((segments_file, faults))
 
             dest_timestamp = get_timestamp(dest_file)
             chain = walk_srce_dependency_chain(
@@ -2639,6 +2726,7 @@ class ComicsIntegrityChecker:
                     "restorable pages built from outside the restored tree",
                 ),
                 (errors.stale_panel_segments, "stale panel segments"),
+                (errors.invalid_panel_segments, "invalid panel segments files"),
             )
             if findings
         ]
@@ -2677,6 +2765,17 @@ class ComicsIntegrityChecker:
                 f"{BLANK_ERR_MSG_PREFIX}The hand-drawn bounds override was edited after the"
                 f" panel segments were computed from it.\n"
                 f"{BLANK_ERR_MSG_PREFIX}Re-run barks-batch-panel-bounds for that page.",
+            )
+        for segments_file, faults in errors.invalid_panel_segments:
+            print(
+                f'{ERROR_MSG_PREFIX} The panel segments file "{get_relpath(segments_file)}"'
+                f" is invalid:"
+            )
+            for fault in faults:
+                print(f"{BLANK_ERR_MSG_PREFIX}- {fault}")
+            print(
+                f'{BLANK_ERR_MSG_PREFIX}Fix the page\'s "bounded" override (a "NNN.jpg", or a'
+                f' "NNN-panel-order.json" for the order) and re-run barks-batch-panel-bounds.',
             )
 
         if errors.file_findings:

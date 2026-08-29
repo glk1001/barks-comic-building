@@ -23,6 +23,11 @@ def main(  # noqa: PLR0913
     censorship_only: bool = False,
     fix_names: bool = False,
     apply: bool = False,
+    check_panel_segment_image_size: bool = typer.Option(
+        default=False,
+        help="Also check each panel segments file's page size against the restored image"
+        " (opens every restorable page, so it is slow).",
+    ),
 ) -> None:
     init_logging(APP_LOGGING_NAME, "check-build-comics-integrity.log", log_level_str)
 
@@ -78,6 +83,7 @@ def main(  # noqa: PLR0913
         no_check_for_unexpected_files,
         no_check_symlinks,
         no_check_censorship_csv,
+        check_panel_segment_image_size=check_panel_segment_image_size,
     )
     exit_code = integrity_checker.check_comics_integrity(
         titles, fix_names=fix_names, apply_fixes=apply

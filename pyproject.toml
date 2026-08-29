@@ -73,6 +73,7 @@ barks-check-build = "barks_comic_building.build.check_build_comics_integrity:app
 barks-stage-covers = "barks_comic_building.build.stage_covers:app"
 barks-stage-one-pagers = "barks_comic_building.build.stage_one_pagers:app"
 barks-batch-panel-bounds = "barks_comic_building.restore.batch_panel_bounds:app"
+barks-resort-panel-segments = "barks_comic_building.restore.resort_panel_segments:app"
 barks-batch-restore = "barks_comic_building.restore.batch_restore_pipeline:app"
 barks-batch-svg-to-png = "barks_comic_building.restore.batch_svg_to_png:app"
 barks-batch-upscayl = "barks_comic_building.restore.batch_upscayl:app"

@@ -17,12 +17,15 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+import typer
 from loguru import logger
 
 from barks_comic_building.restore.batch_panel_bounds import (
     PageBoundsOutcome,
+    _get_page_pairs,
     _log_run_summary,
     get_page_panel_bounds,
+    parse_fanta_pages,
 )
 
 if TYPE_CHECKING:
@@ -399,3 +402,77 @@ class TestTheRunSummary:
         assert "003.json" in error_log[1]
         assert "failed" in error_log[2]
         assert "007.json" in error_log[2]
+
+
+class TestTheFantaPageList:
+    """`--fanta-page` picks pages out of the batch by their Fanta volume page number."""
+
+    def test_no_list_means_every_page(self) -> None:
+        assert parse_fanta_pages("") is None
+        assert parse_fanta_pages("   ") is None
+
+    def test_single_pages(self) -> None:
+        assert parse_fanta_pages("202,205") == {"202", "205"}
+
+    def test_pages_are_zero_padded_to_match_the_filenames(self) -> None:
+        assert parse_fanta_pages("5") == {"005"}
+        assert parse_fanta_pages("005") == {"005"}
+
+    def test_a_range_is_inclusive_at_both_ends(self) -> None:
+        assert parse_fanta_pages("210-214") == {"210", "211", "212", "213", "214"}
+
+    def test_a_one_page_range(self) -> None:
+        assert parse_fanta_pages("210-210") == {"210"}
+
+    def test_ranges_and_singles_mix(self) -> None:
+        assert parse_fanta_pages(" 202 , 210-212 ") == {"202", "210", "211", "212"}
+
+    def test_overlapping_pages_are_asked_for_once(self) -> None:
+        assert parse_fanta_pages("210-212,211,212-213") == {"210", "211", "212", "213"}
+
+    @pytest.mark.parametrize("fanta_pages_str", ["abc", "202-abc", "202-", "202,205-203"])
+    def test_a_malformed_list_is_rejected(self, fanta_pages_str: str) -> None:
+        with pytest.raises(typer.BadParameter):
+            parse_fanta_pages(fanta_pages_str)
+
+    @pytest.mark.parametrize("fanta_pages_str", ["0", "-202", "202,0-3"])
+    def test_a_page_that_cannot_exist_is_rejected(self, fanta_pages_str: str) -> None:
+        """To `intspan`, "-202" is the page number -202, and zero is a fine page."""
+        with pytest.raises(typer.BadParameter):
+            parse_fanta_pages(fanta_pages_str)
+
+
+class TestSelectingThePagesToBound:
+    """Which source/segments pairs a page list leaves for the batch to work on."""
+
+    @staticmethod
+    def _files(tmp_path: Path, page_nums: list[str]) -> tuple[list[Any], list[Path]]:
+        srce_files = [(tmp_path / "srce" / f"{num}.png", None) for num in page_nums]
+        dest_files = [tmp_path / "segments" / f"{num}.json" for num in page_nums]
+        return srce_files, dest_files
+
+    def test_no_page_list_keeps_every_page(self, tmp_path: Path) -> None:
+        srce_files, dest_files = self._files(tmp_path, ["001", "002", "003"])
+
+        page_pairs = _get_page_pairs(srce_files, dest_files, None)
+
+        assert [dest.stem for _, dest in page_pairs] == ["001", "002", "003"]
+
+    def test_only_the_listed_pages_are_kept(self, tmp_path: Path) -> None:
+        srce_files, dest_files = self._files(tmp_path, ["001", "002", "003"])
+
+        page_pairs = _get_page_pairs(srce_files, dest_files, {"001", "003"})
+
+        assert [dest.stem for _, dest in page_pairs] == ["001", "003"]
+
+    def test_the_source_page_travels_with_its_segments_file(self, tmp_path: Path) -> None:
+        srce_files, dest_files = self._files(tmp_path, ["001", "002"])
+
+        page_pairs = _get_page_pairs(srce_files, dest_files, {"002"})
+
+        assert page_pairs == [(tmp_path / "srce" / "002.png", tmp_path / "segments" / "002.json")]
+
+    def test_a_page_in_no_title_leaves_nothing_to_do(self, tmp_path: Path) -> None:
+        srce_files, dest_files = self._files(tmp_path, ["001", "002"])
+
+        assert _get_page_pairs(srce_files, dest_files, {"999"}) == []

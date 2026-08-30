@@ -79,25 +79,25 @@ cover-info volume="":
 page-count volume:
     {{uv_run}} barks-fanta-story-page-count --log-level WARNING --volume {{volume}}
 
+# Build a volume or volumes
+[group('comics')]
+build volume:
+    {{uv_run}} barks-build --log-level INFO --volume "{{volume}}"
+
 # Build a title
 [group('comics')]
 build-title title:
     {{uv_run}} barks-build --log-level INFO --title "{{title}}"
 
-# Build a volume or volumes
+# Check the integrity of a volume or volumes
 [group('comics')]
-build-volume volume:
-    {{uv_run}} barks-build --log-level INFO --volume "{{volume}}"
+check-volume volume *flags:
+    {{uv_run}} barks-check-build --log-level SUCCESS --volume "{{volume}}" {{flags}}
 
 # Check the integrity of a title
 [group('comics')]
 check-title title *flags:
     {{uv_run}} barks-check-build --log-level SUCCESS --title "{{title}}" {{flags}}
-
-# Check the integrity of a volume or volumes
-[group('comics')]
-check-volume volume *flags:
-    {{uv_run}} barks-check-build --log-level SUCCESS --volume "{{volume}}" {{flags}}
 
 # Check the censorship csv integrity
 [group('comics')]
@@ -204,6 +204,11 @@ edit-title title type page-panel:
 [group('utils')]
 edit-comic title type comic-page-panel:
     {{uv_run}} barks-edit-page --log-level WARNING --title "{{title}}" --type {{type}} --cp-p {{comic-page-panel}}
+
+# Show panel bounds
+[group('utils')]
+show-panel-bounds volume page:
+    {{uv_run}} barks-show-panel-bounds -- --log-level WARNING --volume "{{volume}}" --fanta-page "{{page}}"
 
 # Verify/Find a title
 [group('utils')]

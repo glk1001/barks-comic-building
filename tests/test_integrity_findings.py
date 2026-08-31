@@ -42,7 +42,9 @@ LIST_FINDINGS: dict[str, object] = {
     "srce_and_dest_files_out_of_date": (SRCE, DEST),
     "pages_built_without_restored_file": (UNRESTORED_SRCE, DEST),
     "stale_panel_segments": (BOUNDS_OVERRIDE, SEGMENTS),
-    "invalid_panel_segments": (SEGMENTS, ("Panels are not in reading order.",)),
+    # The third element is where the page really lives when it is staged into a synthetic
+    # collection from another volume; None means it belongs to the volume being checked.
+    "invalid_panel_segments": (SEGMENTS, ("Panels are not in reading order.",), None),
     "dest_dir_files_missing": INFO_FILE,
     "dest_dir_files_out_of_date": INFO_FILE,
     "exception_errors": "the panel segments file could not be read",

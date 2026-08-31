@@ -911,6 +911,66 @@ def panel_segments_are_stale(segments_file: Path, bounds_file: Path | None) -> b
     return get_timestamp(segments_file) < get_timestamp(bounds_file)
 
 
+def _link_target(link: Path) -> Path | None:
+    """Return where `link` points, or None if it is not a symlink.
+
+    `Path.resolve` is not what is wanted and is actively wrong here: it resolves *every*
+    component, and the `Fantagraphics-*` library directories are themselves symlinks onto
+    another drive. A resolved page therefore lands outside `BARKS_ROOT_DIR`, where
+    `get_relpath` falls back to the last two components - so the volume, which is the
+    whole point of naming the path, is the part that gets cut, leaving "images/095.png".
+
+    Args:
+        link: The path to follow one step.
+
+    Returns:
+        The target, made absolute against the link's own directory if it is relative, or
+        None when `link` is not a symlink.
+
+    """
+    if not link.is_symlink():
+        return None
+
+    target = link.readlink()
+
+    return target if target.is_absolute() else link.parent / target
+
+
+def staged_page_source(segments_file: Path, restored_file: Path) -> Path | None:
+    """Return where a page staged from another volume really lives, or None if it is home.
+
+    A synthetic collection's pages are symlinks into the volumes the pages belong to, so
+    a finding against one names a path in the collection - `All One-Pagers` page 593 -
+    when the file to fix is page 095 of volume 20. Worse, the collection is the *only*
+    place these are checked at all: the per-volume walk goes title by title, and a
+    one-pager has no `.ini` of its own, so volume 20's own run never reaches page 095.
+    The finding is therefore both real and the only one there will be, and it has to say
+    where the work is.
+
+    Either side being a symlink is enough, which is the same rule
+    `barks-batch-panel-bounds` refuses on, and the two must agree or the report sends you
+    somewhere that tool will not act. The segments file alone is not enough: a page whose
+    home volume had not been bounded yet had nothing to link, so the segments were written
+    into the collection as a real file while the scan above them stayed a link - `The Big
+    Bobber` is in exactly that state. Those segments were computed against the
+    collection's own `bounded/` directory, keyed by the collection page number, so the
+    home volume's override was never seen.
+
+    Args:
+        segments_file: The page's panel segments json, as the collection names it.
+        restored_file: The restored scan those segments were computed from.
+
+    Returns:
+        The page's real path, naming the volume and page to fix, or None when the page
+        belongs to the volume being checked.
+
+    """
+    # The scan first: it is the page itself, it is a link whenever the page is staged at
+    # all, and the fix is a re-run of `barks-batch-panel-bounds` over it rather than an
+    # edit to the json.
+    return _link_target(restored_file) or _link_target(segments_file)
+
+
 def _has_staged_original_scan(links: list[tuple[Path, Path]]) -> bool:
     """Return whether a member's original scan is staged, in either extension.
 
@@ -1089,9 +1149,11 @@ class OutOfDateErrors:
     # `(bounds override, segments json)` - the segments were computed before the
     # hand-drawn override they should have been computed from.
     stale_panel_segments: list[tuple[Path, Path]]
-    # `(segments json, fault messages)` - the segments file's content is wrong: panels out
-    # of reading order, overlapping, outside the page, or bounds that do not add up.
-    invalid_panel_segments: list[tuple[Path, tuple[str, ...]]]
+    # `(segments json, fault messages, staged source)` - the segments file's content is
+    # wrong: panels out of reading order, overlapping, outside the page, or bounds that do
+    # not add up. The third is the page's real path when it is staged into a synthetic
+    # collection from another volume (see `staged_page_source`), and None when it is home.
+    invalid_panel_segments: list[tuple[Path, tuple[str, ...], Path | None]]
     unexpected_dest_image_files: list[Path]
     exception_errors: list[str]
     zip_errors: ZipOutOfDateErrors
@@ -2433,7 +2495,13 @@ class ComicsIntegrityChecker:
                     restored_image=Path(srce_page.page_filename) if check_image_size else None,
                 )
                 if faults:
-                    errors.invalid_panel_segments.append((segments_file, faults))
+                    errors.invalid_panel_segments.append(
+                        (
+                            segments_file,
+                            faults,
+                            staged_page_source(segments_file, Path(srce_page.page_filename)),
+                        )
+                    )
 
             dest_timestamp = get_timestamp(dest_file)
             chain = walk_srce_dependency_chain(
@@ -2773,17 +2841,29 @@ class ComicsIntegrityChecker:
                 f" panel segments were computed from it.\n"
                 f"{BLANK_ERR_MSG_PREFIX}Re-run barks-batch-panel-bounds for that page.",
             )
-        for segments_file, faults in errors.invalid_panel_segments:
+        for segments_file, faults, staged_from in errors.invalid_panel_segments:
             print(
                 f'{ERROR_MSG_PREFIX} The panel segments file "{get_relpath(segments_file)}"'
                 f" is invalid:"
             )
             for fault in faults:
                 print(f"{BLANK_ERR_MSG_PREFIX}- {fault}")
-            print(
-                f'{BLANK_ERR_MSG_PREFIX}Fix the page\'s "bounded" override (a "NNN.jpg", or a'
-                f' "NNN-panel-order.json" for the order) and re-run barks-batch-panel-bounds.',
-            )
+            if staged_from is None:
+                print(
+                    f'{BLANK_ERR_MSG_PREFIX}Fix the page\'s "bounded" override (a "NNN.jpg", or a'
+                    f' "NNN-panel-order.json" for the order) and re-run barks-batch-panel-bounds.',
+                )
+            else:
+                # Instead of the advice above, not beside it: this collection's `bounded/`
+                # directory is keyed by the collection page number, so an override put
+                # there is not the one the page is bounded against, and
+                # `barks-batch-panel-bounds` skips a linked page in any case.
+                print(
+                    f"{BLANK_ERR_MSG_PREFIX}This page is staged from another volume:\n"
+                    f'{BLANK_ERR_MSG_PREFIX}"{get_relpath(staged_from)}".\n'
+                    f'{BLANK_ERR_MSG_PREFIX}Fix that page\'s "bounded" override there and'
+                    f" re-run barks-batch-panel-bounds for that volume.",
+                )
 
         if errors.file_findings:
             print()

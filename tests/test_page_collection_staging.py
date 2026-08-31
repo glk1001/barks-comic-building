@@ -39,6 +39,7 @@ from barks_comic_building.build.collection_sources import (
     original_scan_source,
     superseded_links,
 )
+from barks_comic_building.build.collection_staging import original_scan_slot
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -407,6 +408,60 @@ class TestWhichSourceScanIsUsed:
         link, _source = self._original_scan_link(database)
 
         assert "fixes" in link.parts
+
+
+class TestFindingTheScanSlot:
+    """Which of a member's candidates is the original scan.
+
+    Positional, and pinned here against both real stagers rather than assumed: the
+    readers of that order - the integrity gate and the covers report - live in other
+    modules and cannot see it. They used to identify the scan by a `.jpg` suffix
+    instead, which is not a property the slot has: it takes its source's extension, so
+    a png-fixed member is staged as `NNN.png` and read as having no scan at all.
+    """
+
+    def test_the_one_pager_scan_is_the_first_candidate(self, database: FakeComicsDatabase) -> None:
+        title = get_located_one_pagers()[0]
+        links = stage_one_pagers.get_staged_links_by_title(as_database(database))[title]
+        dst = f"{ONE_PAGER_COLLECTION_PAGE_BASE:03d}"
+
+        assert original_scan_slot(links) == links[0][0]
+        assert (
+            original_scan_slot(links)
+            == database.get_fantagraphics_fixes_volume_image_dir(stage_one_pagers.COLLECTION_VOLUME)
+            / f"{dst}{JPG}"
+        )
+
+    def test_the_cover_scan_is_the_first_candidate(self, database: FakeComicsDatabase) -> None:
+        title = get_cover_title(get_located_covers()[0])
+        links = stage_covers.get_staged_links_by_title(as_database(database))[title]
+        dst = f"{COVER_COLLECTION_PAGE_BASE:03d}"
+
+        assert original_scan_slot(links) == links[0][0]
+        assert (
+            original_scan_slot(links)
+            == database.get_fantagraphics_fixes_volume_image_dir(stage_covers.COLLECTION_VOLUME)
+            / f"{dst}{JPG}"
+        )
+
+    def test_a_png_fixed_member_still_has_its_scan_slot_found(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The live failure: the member's volume grew a `.png` fix, so the slot is
+        # "NNN.png", and every suffix-based reader declared the member unstaged.
+        title = get_located_one_pagers()[0]
+        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+        touch(database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}")
+
+        links = stage_one_pagers.get_staged_links_by_title(as_database(database))[title]
+        slot = original_scan_slot(links)
+
+        assert slot is not None
+        assert slot.suffix == PNG
+        assert "fixes" in slot.parts
+
+    def test_a_member_with_no_candidates_has_no_scan_slot(self) -> None:
+        assert original_scan_slot([]) is None
 
 
 class TestWhichUpscayledScanIsUsed:

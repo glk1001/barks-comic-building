@@ -428,6 +428,18 @@ class TestProblemCodes:
 
         assert problems == ["link"]
 
+    def test_a_cover_staged_under_png_is_clean(self, tmp_path: Path) -> None:
+        # A cover whose volume grew a `.png` fix is staged as "500.png", because the slot
+        # takes the source's extension. Picking the scan out by a `.jpg` suffix reported
+        # it as unstaged forever, and no restage could clear it.
+        cover = next(c for c in BARKS_COVERS if not has_incomplete_submitted_date(c))
+        source = touch(tmp_path / "srce.png")
+        png = touch(tmp_path / "staged" / "500.png")
+
+        problems = get_cover_problems(cover, [(png, source), (tmp_path / "up" / "500.png", source)])
+
+        assert problems == []
+
     def test_a_cover_missing_only_its_upscayled_png_is_clean(self, tmp_path: Path) -> None:
         # Every located cover is in this state and builds fine, so it is not a problem.
         cover = next(c for c in BARKS_COVERS if not has_incomplete_submitted_date(c))

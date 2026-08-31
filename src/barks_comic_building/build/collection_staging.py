@@ -75,6 +75,36 @@ def flatten(links_by_title: dict[Titles, list[tuple[Path, Path]]]) -> list[tuple
     return [link for links in links_by_title.values() for link in links]
 
 
+def original_scan_slot(links: Sequence[tuple[Path, Path]]) -> Path | None:
+    """Return the slot a member's original scan is staged into, or None if it has none.
+
+    Positional by design, and the single place that says so: both stagers build their
+    candidate list with `original_scan_candidate` first - see `_one_pager_candidate_links`
+    and `_cover_candidate_links` - so the scan is ``links[0]``, whatever extension it
+    ended up under.
+
+    Identifying it by suffix instead is what this replaces, and it was wrong: the slot
+    takes the *source's* extension (see `staged_link_for`), so a member whose volume
+    grew a ``.png`` fix is staged as ``NNN.png`` and matched no ``.jpg`` filter. Every
+    caller then reported a correctly staged member as having no scan at all, and
+    restaging could not clear it. Widening the filter to both extensions is not the fix
+    either - the upscayl, restored and svg slots are ``.png`` too.
+
+    Args:
+        links: One member's ``(link, source)`` candidates, in stager order.
+
+    Returns:
+        The original-scan slot, or None when the member has no candidates.
+
+    """
+    if not links:
+        return None
+
+    link, _source = links[0]
+
+    return link
+
+
 def missing_volume_dirs(
     comics_database: ComicsDatabase, members: Sequence[Member]
 ) -> list[tuple[int, Path]]:

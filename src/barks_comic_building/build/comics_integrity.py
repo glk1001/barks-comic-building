@@ -73,6 +73,7 @@ from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 
 from barks_comic_building.build.artifact_renaming import run_artifact_rename_fix
+from barks_comic_building.build.collection_staging import original_scan_slot
 from barks_comic_building.build.stage_covers import (
     get_staged_links_by_title as get_cover_staged_links,
 )
@@ -911,12 +912,18 @@ def panel_segments_are_stale(segments_file: Path, bounds_file: Path | None) -> b
 
 
 def _has_staged_original_scan(links: list[tuple[Path, Path]]) -> bool:
-    """Return whether a member's original-scan jpg is staged.
+    """Return whether a member's original scan is staged, in either extension.
 
     Without the original scan the collection has no image for the member at all. Which
     of the *other* artifacts are required is decided by `unstaged_artifacts`.
+
+    `original_scan_slot` names the slot; this only asks whether it is filled. It used to
+    pick the slot out by a ``.jpg`` suffix, which reported every png-fixed member as
+    unstaged - see there.
     """
-    return any(link.exists() for link, _ in links if link.suffix == JPG_FILE_EXT)
+    slot = original_scan_slot(links)
+
+    return slot is not None and slot.exists()
 
 
 def unstaged_artifacts(links: list[tuple[Path, Path]]) -> list[tuple[Path, Path]]:

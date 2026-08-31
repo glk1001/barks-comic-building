@@ -24,13 +24,14 @@ from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comic_issues import SHORT_ISSUE_NAME
 from barks_fantagraphics.comics_database import ComicsDatabase
-from comic_utils.comic_consts import JPG_FILE_EXT, MONTH_AS_SHORT_STR
+from comic_utils.comic_consts import MONTH_AS_SHORT_STR
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
 from intspan import intspan
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from barks_comic_building.build.collection_staging import original_scan_slot
 from barks_comic_building.build.stage_covers import get_staged_links_by_title
 from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.query.build_state import (
@@ -156,11 +157,11 @@ def get_cover_problems(
 ) -> list[str]:
     """Get the actionable problems for a cover, independently of its ladder state.
 
-    Only the original-scan `.jpg` link is checked. The upscayled `.png` is absent for
-    every cover and a cover builds fine without it, so reporting it would redden every
-    located row permanently. Unlike one-pagers, a staged cover that is a real file
-    rather than a symlink is not a problem - `barks-stage-covers --copy` is a
-    supported mode.
+    Only the original-scan link is checked, in whichever extension it was staged under
+    (`original_scan_slot`). The upscayled `.png` is absent for every cover and a cover
+    builds fine without it, so reporting it would redden every located row permanently.
+    Unlike one-pagers, a staged cover that is a real file rather than a symlink is not a
+    problem - `barks-stage-covers --copy` is a supported mode.
 
     Args:
         cover: The cover record.
@@ -173,8 +174,10 @@ def get_cover_problems(
     problems = []
 
     if staged_links is not None:
-        jpgs = [link for link, _ in staged_links if link.suffix == JPG_FILE_EXT]
-        if not jpgs or not all(link.exists() for link in jpgs):
+        # By suffix until a `.png` cover fix showed up: the slot takes the source's
+        # extension, so such a cover matched no `.jpg` and read as permanently unstaged.
+        slot = original_scan_slot(staged_links)
+        if slot is None or not slot.exists():
             problems.append(LINK_PROBLEM)
 
     if has_incomplete_submitted_date(cover):

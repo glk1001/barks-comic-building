@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import typer
+from barks_fantagraphics import comic_book_info as cbi
+from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from loguru import logger
 
 from barks_comic_building.restore.batch_panel_bounds import (
@@ -25,6 +27,9 @@ from barks_comic_building.restore.batch_panel_bounds import (
     _get_page_pairs,
     _log_run_summary,
     get_page_panel_bounds,
+    one_pager_for_title,
+    one_pager_job,
+    one_pagers_on_pages,
     parse_fanta_pages,
 )
 
@@ -32,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
+    from barks_fantagraphics.comics_database import ComicsDatabase
     from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 
 # A valid segments payload: one panel filling a 100x200 page.
@@ -476,3 +482,129 @@ class TestSelectingThePagesToBound:
         srce_files, dest_files = self._files(tmp_path, ["001", "002"])
 
         assert _get_page_pairs(srce_files, dest_files, {"999"}) == []
+
+
+# One located one-pager, standing in for the real table so these tests do not move when
+# a location is authored. `The Big Bobber` is the page the gap was found on: volume 20
+# page 036, whose panel bounds could not be made anywhere.
+ONE_PAGER = Titles.BIG_BOBBER_THE
+ONE_PAGER_STR = ENUM_TO_STR_TITLE[ONE_PAGER]
+ONE_PAGER_VOLUME = 20
+ONE_PAGER_PAGE = "036"
+
+
+@pytest.fixture
+def one_pager_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reduce the location table to the single one-pager these tests speak about."""
+    monkeypatch.setattr(
+        cbi, "ONE_PAGER_LOCATIONS", {ONE_PAGER: (ONE_PAGER_VOLUME, int(ONE_PAGER_PAGE), 2)}
+    )
+
+
+class FakeVolumeDirs:
+    """The two volume directories a one-pager's job is built from, under `tmp_path`."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self._root = tmp_path
+
+    def get_fantagraphics_restored_volume_image_dir(self, volume_num: int) -> Path:
+        return self._root / "restored" / f"volume-{volume_num:02d}" / "images"
+
+    def get_fantagraphics_panel_segments_volume_dir(self, volume_num: int) -> Path:
+        # Deliberately not under the images subdirectory, as in the real database.
+        return self._root / "panel-segments" / f"volume-{volume_num:02d}"
+
+    def restore(self) -> Path:
+        """Put the restored png there, as a volume that has been restored would have."""
+        page = self.get_fantagraphics_restored_volume_image_dir(ONE_PAGER_VOLUME) / (
+            ONE_PAGER_PAGE + ".png"
+        )
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.touch()
+
+        return page
+
+
+@pytest.fixture
+def volume_dirs(tmp_path: Path) -> FakeVolumeDirs:
+    return FakeVolumeDirs(tmp_path)
+
+
+@pytest.mark.usefixtures("one_pager_table")
+class TestSpottingAOnePager:
+    """`--title` on a one-pager used to fail before reaching any of the work here."""
+
+    def test_a_located_one_pager_is_spotted(self) -> None:
+        assert one_pager_for_title(ONE_PAGER_STR) == ONE_PAGER
+
+    def test_an_ordinary_title_is_not(self) -> None:
+        assert one_pager_for_title("The Mines of King Solomon") is None
+
+    def test_a_title_that_is_not_a_title_at_all_is_not(self) -> None:
+        assert one_pager_for_title("Not A Title") is None
+        assert one_pager_for_title("") is None
+
+    def test_a_one_pager_with_no_authored_location_is_not(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A `_TODO` placeholder has no volume to bound anything in.
+        monkeypatch.setattr(cbi, "ONE_PAGER_LOCATIONS", {ONE_PAGER: (0, 0, 0)})
+
+        assert one_pager_for_title(ONE_PAGER_STR) is None
+
+
+@pytest.mark.usefixtures("one_pager_table")
+class TestWhichOnePagersAVolumeRunPicksUp:
+    """Only the pages `--fanta-page` names - never a bare volume run."""
+
+    def test_a_named_page_brings_its_one_pager_in(self) -> None:
+        assert one_pagers_on_pages([ONE_PAGER_VOLUME], {ONE_PAGER_PAGE}) == [ONE_PAGER]
+
+    def test_a_bare_volume_run_is_left_exactly_as_it_was(self) -> None:
+        # The whole point of the choice: `--volume 20 --force` must not sweep up
+        # one-pagers that are already bounded and were not asked for.
+        assert one_pagers_on_pages([ONE_PAGER_VOLUME], None) == []
+
+    def test_another_page_of_the_same_volume_does_not(self) -> None:
+        assert one_pagers_on_pages([ONE_PAGER_VOLUME], {"007"}) == []
+
+    def test_the_same_page_of_another_volume_does_not(self) -> None:
+        assert one_pagers_on_pages([21], {ONE_PAGER_PAGE}) == []
+
+    def test_a_title_run_brings_none_in(self) -> None:
+        # No volumes were chosen, so there is no volume whose one-pagers could apply.
+        assert one_pagers_on_pages([], {ONE_PAGER_PAGE}) == []
+
+
+@pytest.mark.usefixtures("one_pager_table")
+class TestTheOnePagersJob:
+    def test_it_bounds_the_page_in_its_own_volume(self, volume_dirs: FakeVolumeDirs) -> None:
+        # Its own volume, not the collection: `get_page_panel_bounds` refuses a linked
+        # page so that bounds are made against the volume's own `bounded/` override, and
+        # this is the run that refusal points at.
+        srce_file = volume_dirs.restore()
+
+        job = one_pager_job(cast("ComicsDatabase", volume_dirs), ONE_PAGER)
+
+        assert job is not None
+        assert job.title == ONE_PAGER_STR
+        assert job.volume == ONE_PAGER_VOLUME
+        assert job.page_pairs == [
+            (
+                srce_file,
+                volume_dirs.get_fantagraphics_panel_segments_volume_dir(ONE_PAGER_VOLUME)
+                / f"{ONE_PAGER_PAGE}.json",
+            )
+        ]
+
+    def test_a_page_with_no_restored_file_yields_no_job(self, volume_dirs: FakeVolumeDirs) -> None:
+        # The one-pagers whose volume never restored them live only in the collection,
+        # and there is nothing here to bound.
+        assert one_pager_job(cast("ComicsDatabase", volume_dirs), ONE_PAGER) is None
+
+    def test_a_placeholder_location_yields_no_job(
+        self, monkeypatch: pytest.MonkeyPatch, volume_dirs: FakeVolumeDirs
+    ) -> None:
+        monkeypatch.setattr(cbi, "ONE_PAGER_LOCATIONS", {ONE_PAGER: (0, 0, 0)})
+
+        assert one_pager_job(cast("ComicsDatabase", volume_dirs), ONE_PAGER) is None

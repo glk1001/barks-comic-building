@@ -7,11 +7,21 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from barks_fantagraphics.comic_book import ComicBook, ModifiedType, get_page_str
+from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, STR_TITLE_TO_ENUM, Titles
+from barks_fantagraphics.comic_book import ModifiedType, get_page_str
+from barks_fantagraphics.comic_book_info import (
+    get_located_one_pagers,
+    get_one_pager_fanta_vol_and_page,
+)
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_abbrev_path
-from comic_utils.comic_consts import JPG_FILE_EXT, OVERALL_BOUNDS_ONLY_SUFFIX
+from comic_utils.comic_consts import (
+    JPG_FILE_EXT,
+    JSON_FILE_EXT,
+    OVERALL_BOUNDS_ONLY_SUFFIX,
+    PNG_FILE_EXT,
+)
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.panel_bounding_box_processor import BoundingBoxProcessor
 from comic_utils.panel_segmentation import (
@@ -46,10 +56,16 @@ COMIC_BUILDING_DIR = Path(__file__).parent.parent.parent.parent
 
 @dataclass(frozen=True)
 class _TitlePages:
-    """One title's work: the comic, and the page files to bound in it."""
+    """One title's work: the volume it sits in, and the page files to bound.
+
+    The volume rather than the `ComicBook` it came from. The comic was only ever asked
+    for its fixes image dir, which is `get_fantagraphics_fixes_volume_image_dir` for the
+    same volume - so carrying the number instead lets a one-pager, which has no `.ini`
+    for `get_comic_book` to open, be just another job here.
+    """
 
     title: str
-    comic: ComicBook
+    volume: int
     page_pairs: list[tuple[Path, Path]]
 
 
@@ -113,6 +129,101 @@ def _get_page_pairs(
     ]
 
 
+def one_pager_for_title(title_str: str) -> Titles | None:
+    """Return the located one-pager `title_str` names, or None if it names something else.
+
+    A one-pager has no `.ini` of its own - it is a member of the `All One-Pagers`
+    collection - so it is absent from the volume title lists `get_comic_titles` builds,
+    and `--title` on one fails before reaching any of the work here.
+
+    Args:
+        title_str: The `--title` argument.
+
+    Returns:
+        The one-pager, or None for an ordinary title, an empty argument, or a one-pager
+        whose location is still a placeholder.
+
+    """
+    title = STR_TITLE_TO_ENUM.get(title_str)
+    if title is None:
+        return None
+
+    volume, _page = get_one_pager_fanta_vol_and_page(title)
+
+    return title if volume is not None else None
+
+
+def one_pagers_on_pages(volumes: list[int], fanta_pages: set[str] | None) -> list[Titles]:
+    """Return the located one-pagers of `volumes` whose page was asked for by number.
+
+    Only the pages `--fanta-page` names, never a bare volume run. A one-pager is a page
+    of its volume and could defensibly be bounded by one, but a volume's one-pagers are
+    already bounded, and sweeping nine of them into a `--force` run nobody asked for is
+    the kind of surprise this tool should not spring.
+
+    Args:
+        volumes: The volumes `--volume` chose.
+        fanta_pages: The pages `--fanta-page` named, or None for every page.
+
+    Returns:
+        The one-pagers to bound alongside the volumes' ordinary titles.
+
+    """
+    if not volumes or fanta_pages is None:
+        return []
+
+    wanted = []
+    for title in get_located_one_pagers():
+        volume, page = get_one_pager_fanta_vol_and_page(title)
+        if volume in volumes and page is not None and get_page_str(page) in fanta_pages:
+            wanted.append(title)
+
+    return wanted
+
+
+def one_pager_job(comics_database: ComicsDatabase, title: Titles) -> _TitlePages | None:
+    """Return the bounding job for a one-pager's single page, in the volume it lives in.
+
+    Its own volume, not the collection: the collection's copies are symlinks back to here
+    (or, where the volume never restored the page, files the collection owns outright),
+    and `get_page_panel_bounds` refuses a linked page precisely so that bounds are made
+    against the volume's own `bounded/` override. This is the run that refusal points at,
+    and until now there was no way to reach it.
+
+    Args:
+        comics_database: The database supplying the volume directory paths.
+        title: The located one-pager to bound.
+
+    Returns:
+        The job, or None when the page has no restored file to bound - the state of the
+        one-pagers whose volume never restored them, which live only in the collection.
+
+    """
+    volume, page = get_one_pager_fanta_vol_and_page(title)
+    if volume is None or page is None:
+        return None
+
+    page_str = get_page_str(page)
+    srce_file = comics_database.get_fantagraphics_restored_volume_image_dir(volume) / (
+        page_str + PNG_FILE_EXT
+    )
+    dest_file = comics_database.get_fantagraphics_panel_segments_volume_dir(volume) / (
+        page_str + JSON_FILE_EXT
+    )
+
+    # The same rule `ComicBook.get_final_srce_story_file` applies to every other page of
+    # an ordinary volume: the restored png, or nothing worth bounding.
+    if not srce_file.is_file():
+        logger.warning(
+            f'"{ENUM_TO_STR_TITLE[title]}" is volume {volume} page {page_str}, but it has'
+            f' no restored file "{get_abbrev_path(srce_file)}" to bound. Restore it first,'
+            f" or bound it in the collection if that is where it was restored."
+        )
+        return None
+
+    return _TitlePages(ENUM_TO_STR_TITLE[title], volume, [(srce_file, dest_file)])
+
+
 def _get_titles_to_process(
     comics_database: ComicsDatabase,
     title_list: list[str],
@@ -120,7 +231,8 @@ def _get_titles_to_process(
 ) -> list[_TitlePages]:
     """Work out which pages of which titles to bound, before any of them are processed.
 
-    Titles left with no wanted page are dropped.
+    Titles left with no wanted page are dropped. A one-pager in the list is built from
+    its location rather than from a `ComicBook`, which it has no `.ini` for.
 
     Raises:
         typer.BadParameter: A requested page is in none of the titles - a mistyped page
@@ -132,6 +244,19 @@ def _get_titles_to_process(
     matched_pages: set[str] = set()
 
     for title in title_list:
+        one_pager = one_pager_for_title(title)
+        if one_pager is not None:
+            # A one-pager with no restored file is dropped like any title with no wanted
+            # page, but its page still counts as found: "not in the selected titles" would
+            # send someone hunting for a typo in a page number that is exactly right.
+            _volume, page = get_one_pager_fanta_vol_and_page(one_pager)
+            if page is not None:
+                matched_pages.add(get_page_str(page))
+            job = one_pager_job(comics_database, one_pager)
+            if job is not None:
+                titles_to_process.append(job)
+            continue
+
         comic = comics_database.get_comic_book(title)
         page_pairs = _get_page_pairs(
             comic.get_final_srce_story_files(RESTORABLE_PAGE_TYPES),
@@ -140,7 +265,9 @@ def _get_titles_to_process(
         )
         matched_pages.update(dest_file.stem for _, dest_file in page_pairs)
         if page_pairs:
-            titles_to_process.append(_TitlePages(title, comic, page_pairs))
+            titles_to_process.append(
+                _TitlePages(title, comics_database.get_fanta_volume_int(title), page_pairs)
+            )
 
     if fanta_pages is not None and (unmatched := fanta_pages - matched_pages):
         msg = f"Fanta pages not found in the selected titles: {', '.join(sorted(unmatched))}."
@@ -191,21 +318,20 @@ def panel_bounds(
         title_work_dir.mkdir(parents=True, exist_ok=True)
 
         title_vol_dir = comics_database.get_fantagraphics_panel_segments_volume_dir(
-            comics_database.get_fanta_volume_int(title)
+            title_pages.volume
         )
         title_vol_dir.mkdir(parents=True, exist_ok=True)
 
         bounding_box_processor = BoundingBoxProcessor(title_work_dir, COMIC_BUILDING_DIR)
 
-        comic = title_pages.comic
-        if not comic.get_srce_original_fixes_image_dir().is_dir():
-            msg = (
-                f"Could not find panel bounds directory "
-                f'"{comic.get_srce_original_fixes_image_dir()}".'
-            )
+        fixes_image_dir = comics_database.get_fantagraphics_fixes_volume_image_dir(
+            title_pages.volume
+        )
+        if not fixes_image_dir.is_dir():
+            msg = f'Could not find panel bounds directory "{fixes_image_dir}".'
             raise FileNotFoundError(msg)
         # TODO(glk): Put this in barks_fantagraphics
-        srce_panels_bounds_override_dir = comic.get_srce_original_fixes_image_dir() / "bounded"
+        srce_panels_bounds_override_dir = fixes_image_dir / "bounded"
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = {
@@ -389,7 +515,17 @@ def main(  # noqa: PLR0913
 
     fanta_pages = parse_fanta_pages(fanta_pages_str)
 
-    comics_database, titles = get_comic_titles(volumes_str, title_str)
+    # Checked only when `--volume` was not given, so that passing both still falls through
+    # to `get_comic_titles` and its "mutually exclusive" message.
+    one_pager = None if volumes_str else one_pager_for_title(title_str)
+    if one_pager is not None:
+        comics_database, titles = ComicsDatabase(), [ENUM_TO_STR_TITLE[one_pager]]
+    else:
+        comics_database, titles = get_comic_titles(volumes_str, title_str)
+        titles += [
+            ENUM_TO_STR_TITLE[title]
+            for title in one_pagers_on_pages(list(intspan(volumes_str)), fanta_pages)
+        ]
 
     work_dir.mkdir(parents=True, exist_ok=True)
 

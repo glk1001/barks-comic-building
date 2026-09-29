@@ -305,7 +305,13 @@ class TestRunLevelPreconditions:
         with pytest.raises(FileNotFoundError, match="binary"):
             check_upscaler_is_usable(Upscaler.WAIFU2X, 4)
 
-    def test_an_impossible_scale_is_refused(self) -> None:
+    def test_an_impossible_scale_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # The binary is checked first, so it must look installed on any machine.
+        installed = tmp_path / "upscayl-bin"
+        installed.touch()
+        monkeypatch.setattr(upscale_image, "UPSCAYL_BIN", installed)
         with pytest.raises(ValueError, match="cannot scale"):
             check_upscaler_is_usable(Upscaler.UPSCAYL, 7)
 

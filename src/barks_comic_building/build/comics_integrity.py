@@ -9,6 +9,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import NamedTuple
 
 from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
@@ -95,8 +96,14 @@ from barks_comic_building.build.utils import (
     quiet_panel_bbox_height_warnings,
     walk_srce_dependency_chain,
 )
+from barks_comic_building.restore.batch_upscayl import SCALE as UPSCALE_SCALE
+from barks_comic_building.restore.image_io import read_png_metadata
+from barks_comic_building.restore.page_state import get_upscaler_used
 from barks_comic_building.restore.restore_ledger import LEDGER_FILENAME as RESTORE_LEDGER_FILENAME
+from barks_comic_building.restore.upscale_image import DEFAULT_UPSCALER
 from barks_comic_building.restore.upscale_ledger import LEDGER_FILENAME as UPSCALE_LEDGER_FILENAME
+from barks_comic_building.restore.upscale_recipe import get_current_recipe
+from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_RECIPE_ID_KEY
 
 ERROR_MSG_PREFIX = "ERROR: "
 BLANK_ERR_MSG_PREFIX = f"{' ':<{len(ERROR_MSG_PREFIX)}}"
@@ -830,6 +837,74 @@ def has_restored_file_in_chain(
     )
 
 
+def get_upscayled_file_in_chain(
+    dependencies: Iterable[SrceDependency], upscayled_image_dir: Path
+) -> Path | None:
+    """Return the plain upscayled-tree file in a restorable page's chain, if it has one.
+
+    Only a file in the plain upscayled tree is an upscaler's output, so only that file can
+    be graded against the upscale recipe. The pages without one are left alone by
+    construction rather than by a list of exceptions: a hand-edited upscayled fixes file
+    lives in the fixes tree and carries no recipe of ours, and an added-fixes page has no
+    upscayled stage in its chain at all.
+
+    A page staged from another volume is a symlink in this volume's upscayled tree, so it
+    is found here like any other, and its metadata is read through the link off the
+    owning volume's page.
+
+    Args:
+        dependencies: The page's dependencies, as the pipeline reports them.
+        upscayled_image_dir: The comic's upscayled image dir.
+
+    Returns:
+        The upscayled file, or None if the chain holds no file from that dir.
+
+    """
+    # `zipfile.Path` is excluded rather than coerced, as in `has_restored_file_in_chain`.
+    return next(
+        (
+            dependency.file
+            for dependency in dependencies
+            if isinstance(dependency.file, Path) and dependency.file.parent == upscayled_image_dir
+        ),
+        None,
+    )
+
+
+class StaleUpscale(NamedTuple):
+    """An upscayled page a build reads that was not made with the current upscale recipe."""
+
+    file: Path
+    # Which upscaler made it, from the file's own metadata. Empty if it records none.
+    upscaler: str
+    # The recipe it was made with. Empty for a page upscayled before recipes were kept.
+    recipe_id: str
+
+
+def get_stale_upscale(upscayled_file: Path, current_recipe_id: str) -> StaleUpscale | None:
+    """Grade an upscayled page against the upscale recipe in force now.
+
+    The recipe id is a hash of the backend, its model and settings, and the scale, so one
+    comparison answers both "was this made with waifu2x" and "was it made with the
+    waifu2x settings in force now". Changing any of them is meant to fail this check
+    until every page has been upscayled again - that is the guarantee it gives.
+
+    Args:
+        upscayled_file: The upscayled page. Must exist - a missing one is the dependency
+            chain's finding, not this one's.
+        current_recipe_id: The id of the recipe the upscale would use now.
+
+    Returns:
+        None if the page was made with the current recipe, else what it was made with.
+
+    """
+    recipe_id = read_png_metadata(upscayled_file).get(UPSCALE_RECIPE_ID_KEY, "")
+    if recipe_id == current_recipe_id:
+        return None
+
+    return StaleUpscale(upscayled_file, get_upscaler_used(upscayled_file), recipe_id)
+
+
 def check_panel_segments_file(
     segments_file: Path,
     *,
@@ -1154,6 +1229,8 @@ class OutOfDateErrors:
     # not add up. The third is the page's real path when it is staged into a synthetic
     # collection from another volume (see `staged_page_source`), and None when it is home.
     invalid_panel_segments: list[tuple[Path, tuple[str, ...], Path | None]]
+    # Upscayled pages the build reads that were not made with the current upscale recipe.
+    stale_upscayled_files: list[StaleUpscale]
     unexpected_dest_image_files: list[Path]
     exception_errors: list[str]
     zip_errors: ZipOutOfDateErrors
@@ -1161,6 +1238,8 @@ class OutOfDateErrors:
     year_zip_symlink_errors: ZipSymlinkOutOfDateErrors
     max_srce: MaxTimestamp | None = None
     max_dest: MaxTimestamp | None = None
+    # What `stale_upscayled_files` was graded against, for the report.
+    current_upscale_recipe: str = ""
     # Set when a title's page list could not be built, so the per-page and dest-dir checks
     # never ran. Reported, because otherwise the one exception that stopped them reads as
     # the whole of what is wrong with the title.
@@ -1175,6 +1254,7 @@ class OutOfDateErrors:
             or self.pages_built_without_restored_file
             or self.stale_panel_segments
             or self.invalid_panel_segments
+            or self.stale_upscayled_files
             or self.dest_dir_files_missing
             or self.dest_dir_files_out_of_date
             or self.exception_errors
@@ -1226,6 +1306,9 @@ class ComicsIntegrityChecker:
         self.check_censorship_fixes = not no_check_censorship_csv
         # Opens every restorable page image, so it is opt-in.
         self._check_panel_segment_image_size = check_panel_segment_image_size
+        # The recipe a re-run of the upscale would use, so that a page passes only if
+        # upscaling it again would change nothing.
+        self._current_upscale_recipe = get_current_recipe(DEFAULT_UPSCALER, UPSCALE_SCALE)
 
     def check_comics_integrity(
         self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
@@ -1321,6 +1404,7 @@ class ComicsIntegrityChecker:
             pages_built_without_restored_file=[],
             stale_panel_segments=[],
             invalid_panel_segments=[],
+            stale_upscayled_files=[],
             unexpected_dest_image_files=[],
             exception_errors=[],
             zip_errors=ZipOutOfDateErrors(),
@@ -2408,6 +2492,10 @@ class ComicsIntegrityChecker:
         errors.pages_built_without_restored_file = []
         errors.stale_panel_segments = []
         errors.invalid_panel_segments = []
+        errors.stale_upscayled_files = []
+        errors.current_upscale_recipe = (
+            f'"{self._current_upscale_recipe.recipe_id}" ({self._current_upscale_recipe.upscaler})'
+        )
         errors.exception_errors = []
         errors.checks_skipped = False
 
@@ -2438,6 +2526,7 @@ class ComicsIntegrityChecker:
             srce_and_dest_pages,
             errors,
             check_image_size=self._check_panel_segment_image_size,
+            current_upscale_recipe_id=self._current_upscale_recipe.recipe_id,
         )
         self.check_unexpected_dest_image_files(comic, srce_and_dest_pages, errors)
 
@@ -2448,6 +2537,7 @@ class ComicsIntegrityChecker:
         errors: OutOfDateErrors,
         *,
         check_image_size: bool = False,
+        current_upscale_recipe_id: str = "",
     ) -> None:
         is_a_comic = comic.get_title_enum() not in NON_COMIC_TITLES
         # "Good Deeds" and "Silent Night" are built out of the fixes tree by design -
@@ -2457,6 +2547,7 @@ class ComicsIntegrityChecker:
         # titles: pipeline output is sitting there, it is simply read by nobody.
         needs_restored_file = comic.get_ini_title() not in HAND_RESTORED_TITLES
         restored_image_dir = comic.get_srce_restored_image_dir()
+        upscayled_image_dir = comic.get_srce_upscayled_image_dir()
 
         for srce_page, dest_page in zip(
             srce_and_dest_pages.srce_pages, srce_and_dest_pages.dest_pages, strict=True
@@ -2479,6 +2570,19 @@ class ComicsIntegrityChecker:
                     errors.pages_built_without_restored_file.append(
                         (Path(srce_page.page_filename), dest_file),
                     )
+
+                # A hand-restored page's upscale feeds nothing - the restore skips it - so
+                # what it was made with does not matter. Not on disk is the chain's finding.
+                upscayled_file = get_upscayled_file_in_chain(dependencies, upscayled_image_dir)
+                if (
+                    current_upscale_recipe_id
+                    and upscayled_file is not None
+                    and upscayled_file.is_file()
+                    and not comic.is_hand_restored(get_page_str(srce_page.page_num))
+                ):
+                    stale = get_stale_upscale(upscayled_file, current_upscale_recipe_id)
+                    if stale is not None:
+                        errors.stale_upscayled_files.append(stale)
 
                 bounds_file = comic.get_final_fixes_panel_bounds_file(srce_page.page_num)
                 segments_file = comic.get_srce_panel_segments_file(get_page_str(srce_page.page_num))
@@ -2802,6 +2906,7 @@ class ComicsIntegrityChecker:
                 ),
                 (errors.stale_panel_segments, "stale panel segments"),
                 (errors.invalid_panel_segments, "invalid panel segments files"),
+                (errors.stale_upscayled_files, "upscayled pages not at the current recipe"),
             )
             if findings
         ]
@@ -2809,6 +2914,42 @@ class ComicsIntegrityChecker:
         if counted:
             print(
                 f'{ERROR_MSG_PREFIX} For "{errors.title}", there were {" and ".join(counted)}.\n',
+            )
+
+    @staticmethod
+    def _print_stale_upscale_findings(errors: OutOfDateErrors) -> None:
+        """Report a title's off-recipe upscayled pages, grouped by what made them.
+
+        Grouped rather than listed: changing an upscale setting puts every page in the
+        library here at once, and five thousand lines would bury every other finding. The
+        pages themselves go to the debug log.
+        """
+        if not errors.stale_upscayled_files:
+            return
+
+        print(
+            f'{ERROR_MSG_PREFIX} For "{errors.title}", {len(errors.stale_upscayled_files)}'
+            f" upscayled page(s) were not made with the current upscale recipe"
+            f" {errors.current_upscale_recipe}:"
+        )
+
+        made_with = Counter(
+            (stale.upscaler, stale.recipe_id) for stale in errors.stale_upscayled_files
+        )
+        for (upscaler, recipe_id), count in sorted(made_with.items()):
+            made_by = upscaler or "an unrecorded upscaler"
+            recipe = f'recipe "{recipe_id}"' if recipe_id else "no recipe recorded"
+            print(f"{BLANK_ERR_MSG_PREFIX}{count} made by {made_by}, {recipe}.")
+
+        print(
+            f"{BLANK_ERR_MSG_PREFIX}Re-run barks-batch-upscayl for them; barks-upscale-status"
+            f" shows what is left."
+        )
+
+        for stale in errors.stale_upscayled_files:
+            logger.debug(
+                f'Off-recipe upscayled page "{stale.file}":'
+                f' upscaler "{stale.upscaler}", recipe "{stale.recipe_id}".'
             )
 
     @staticmethod
@@ -2864,6 +3005,8 @@ class ComicsIntegrityChecker:
                     f'{BLANK_ERR_MSG_PREFIX}Fix that page\'s "bounded" override there and'
                     f" re-run barks-batch-panel-bounds for that volume.",
                 )
+
+        ComicsIntegrityChecker._print_stale_upscale_findings(errors)
 
         if errors.file_findings:
             print()

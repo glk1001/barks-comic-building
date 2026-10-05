@@ -21,7 +21,11 @@ from typing import get_origin
 
 import pytest
 
-from barks_comic_building.build.comics_integrity import ComicsIntegrityChecker, OutOfDateErrors
+from barks_comic_building.build.comics_integrity import (
+    ComicsIntegrityChecker,
+    OutOfDateErrors,
+    StaleUpscale,
+)
 from barks_comic_building.build.utils import ZipOutOfDateErrors, ZipSymlinkOutOfDateErrors
 
 TITLE = "Fake Title"
@@ -34,6 +38,7 @@ INFO_FILE = Path("/comics/dest/metadata.txt")
 UNRESTORED_SRCE = Path("/fanta/fixes/images/501.jpg")
 BOUNDS_OVERRIDE = Path("/fanta/fixes/images/bounded/001.jpg")
 SEGMENTS = Path("/fanta/panel-segments/001.json")
+UPSCAYLED = Path("/fanta/upscayled/images/001.png")
 
 # One representative payload per list-valued finding. `is_error` only asks whether the
 # list is non-empty, so the contents matter only for being the right shape.
@@ -45,6 +50,7 @@ LIST_FINDINGS: dict[str, object] = {
     # The third element is where the page really lives when it is staged into a synthetic
     # collection from another volume; None means it belongs to the volume being checked.
     "invalid_panel_segments": (SEGMENTS, ("Panels are not in reading order.",), None),
+    "stale_upscayled_files": StaleUpscale(UPSCAYLED, "upscayl", ""),
     "dest_dir_files_missing": INFO_FILE,
     "dest_dir_files_out_of_date": INFO_FILE,
     "exception_errors": "the panel segments file could not be read",

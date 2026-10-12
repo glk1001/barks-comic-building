@@ -40,7 +40,8 @@ fast_data_dir           := "/mnt/fast_data"
 fast_external_dir       := "/mnt/fast_external"
 # @formatter:on
 
-internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/ --exclude 'VirtualBox VMs/WinDev2202Eval/'"
+internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/ --exclude 'VirtualBox VMs/WinDev2202Eval/' " \
+                             + "--exclude 'VirtualBox VMs/Mac OS 12/'"
 internal_1tb_exclude_dirs := "--exclude greg/.cache/ --exclude greg/.local/share/Trash/ " \
                              + "--exclude greg/.gvfs/ --exclude greg/.dbus/ --exclude lost+found/"
 restore_work_dir          := internal_2tb + "/workdir/barks-restore"

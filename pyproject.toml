@@ -12,7 +12,7 @@ description = "Scripts to upscale, restore, build, and inquire Barks comics."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENCE", "NOTICE"]
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "barks-fantagraphics",
     "barks-build-comic-images",

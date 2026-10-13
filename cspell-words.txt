@@ -49,6 +49,7 @@ getchannel
 getcolors
 gethostname
 getpid
+getpixel
 gmic
 graphify
 graphifyignore
@@ -150,6 +151,7 @@ thepayments
 tilemask
 timespec
 tobytes
+tpsh
 ultramix
 unbuilt
 uncited

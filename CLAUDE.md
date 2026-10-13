@@ -6,17 +6,6 @@
 
 Run `uv sync` after any change to `pyproject.toml`.
 
-## Architecture
-
-### Shared Modules
-
-- `src/barks_comic_building/log_setup.py` — shared loguru-config globals (`APP_LOGGING_NAME`, `log_level`, `log_filename`). Each CLI script sets these before calling `LoguruConfig.load(_RESOURCES / "log-config.yaml")`.
-- `src/barks_comic_building/resources/log-config.yaml` — centralized log config referenced via `ext://barks_comic_building.log_setup.*`.
-
-### Shared Packages
-
-The shared packages from `barks-compleat-reader` are installed as editable **uv path dependencies** (declared in `pyproject.toml` under `[tool.uv.sources]`) — no `PYTHONPATH` needed.
-
 ## Lint and type checking
 
 Every gate runs the tool from the uv-synced venv, so the versions pinned in `pyproject.toml` are the single source of truth. All of them are wired into `.pre-commit-config.yaml`.
@@ -39,7 +28,7 @@ bash scripts/pyrefly.sh                      # or: uv run pyrefly check
 bash scripts/pyrefly.sh --min-severity=warn  # also show the non-gating warnings
 ```
 
-The pyrefly gate is a plain **0 errors** with **no baseline file** — unlike the sibling `barks-compleat-reader`, this project has no Kivy-boundary noise worth grandfathering. Keep it that way: fix a new finding, or suppress it at the line with a `# pyrefly: ignore[<rule>]` comment saying why, rather than adding a baseline to hide it. The only suppressions today are the deliberately dynamic `dataclasses.replace(recipe, **{field: changed})` in the two recipe tests, explained in place. `comics_integrity.py` used to carry a tuple-variance hit as well (a `Path | zipfile.Path` reaching a `Path` slot, suppressed for both checkers); it went away by narrowing at the point of production instead — `walk_srce_dependency_chain` in `build/utils.py` handles the `zipfile.Path` case explicitly, so the union never reaches the reporting end. That also removed the bare `assert isinstance(...)` that had been standing in for the narrowing 380 lines away. `cv2` is treated as `Any` via config, matching ty's effective stance on its missing stubs.
+The pyrefly gate is a plain **0 errors** with **no baseline file** — unlike the sibling `barks-compleat-reader`, this project has no Kivy-boundary noise worth grandfathering. Keep it that way: fix a new finding, or suppress it at the line with a `# pyrefly: ignore[<rule>]` comment saying why, rather than adding a baseline to hide it. `cv2` is treated as `Any` via config, matching ty's effective stance on its missing stubs.
 
 pyrefly also has a **warning** severity below the gated errors, hidden unless you pass `--min-severity=warn`. It is currently clean there too; `types-python-dateutil` and `types-psutil` are dev dependencies purely to keep it that way.
 

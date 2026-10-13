@@ -9,8 +9,8 @@
 # saying why, rather than reintroducing a baseline to hide it.
 
 # Mirror ty.toml: the same two import roots (`root` there), plus the tests, which
-# ty already covers. Listing the three explicitly keeps `scraps/`, `docs/` and
-# `graphify-out/` out of scope without needing to exclude them.
+# ty already covers. Listing the three explicitly keeps `scraps/` and `docs/` out of
+# scope without needing to exclude them.
 project-includes = [
     "src",
     "scripts",

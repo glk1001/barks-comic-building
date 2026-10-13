@@ -48,12 +48,3 @@ pyrefly also has a **warning** severity below the gated errors, hidden unless yo
 The thing to know when triaging a DEP002 ("declared but not imported"): the shared `barks-*`/`comic-utils` path dependencies **under-declare their own requirements** — `comic-utils` declares none at all — so this project's `pyproject.toml` is what actually installs some of what they import at runtime. `distro`, `pyyaml` and `screeninfo` are all in that position and are ignored for DEP002 with the import chain written out.
 
 So a DEP002 is not automatically a dependency to delete. Check whether anything here **reaches** it first; if it does, ignore the rule and record the chain. `cryptography` was the counter-example — it was carried for `comic_utils.get_panel_bytes`, but that only decrypts images out of a cbz, which is the reader's job and unreachable from here, so it was removed rather than ignored.
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-Rules:
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

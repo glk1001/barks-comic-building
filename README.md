@@ -629,7 +629,7 @@ uv run scripts/bench_restore_phases.py --work-file WORK.png       # tune worker 
 ```bash
 uv run barks-build --volume 9
 uv run barks-build --title "The Pixilated Parrot"
-just build-volume 9
+just build 9
 just build-title "the pixilated parrot"
 ```
 

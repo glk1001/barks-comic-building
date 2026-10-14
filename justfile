@@ -1,64 +1,26 @@
 # `uv run` re-syncs the project before every command, and any dependency uv cannot
 # resolve from disk or its content-addressed cache — a direct URL, an out-of-date
 # lock — is revalidated over the network. That makes recipes fail with no connection
-# even when the command itself needs nothing. --offline short-circuits the check and
-# runs from the already-installed venv.
+# even when the command itself needs nothing. UV_OFFLINE=1 short-circuits the check and
+# runs from the already-installed venv. Go online after adding or changing a dependency,
+# when the sync genuinely has to reach the network:
 #
-# Defined here, in the justfile the other repos import, so barks-ocr and
-# barks-compleat-reader share one switch — just errors on a duplicate definition, so
-# it must NOT be redefined there. Blank it out with `just offline= <recipe>` after
-# adding or changing a dependency, when the sync genuinely has to reach the network.
-offline := "--offline"
+#     UV_OFFLINE=0 just build 9
+#
+# barks-ocr and barks-compleat-reader load this file as their `comics` module
+# (`just comics build 9` from either repo) and export the same default, so one
+# environment variable reaches every recipe whichever repo it is run from.
+export UV_OFFLINE := env("UV_OFFLINE", "1")
 
-uv_run := "uv run " + offline + " --project " + source_dir()
+uv_run := "uv run --project " + source_dir()
 
-rsync_flags := ""
-rsync_dirs := "rsync --delete -avh " + rsync_flags
-
-barks_dir := "$HOME/Books/Carl Barks"
-
-# @formatter:off
-# Base drive mount points
-internal_2tb          := "/mnt/2tb_drive"
-external_2tb_backup_1 := "/run/media/greg/2tb_drive_backup"
-external_2tb_backup_2 := "/run/media/greg/2tb_drv_backup_2"
-external_2tb_backup_3 := "/run/media/greg/2tb_drv_backup_3"
-external_1tb_backup_1 := "/run/media/greg/1TB_Backup_1"
-external_1tb_backup_2 := "/run/media/greg/1TB_Backup_2/home-rsync-backup"
-external_1tb_backup_3 := "/run/media/greg/1TB_Backup_3/home-rsync-backup"
-external_750          := "/run/media/greg/750_Backup"
-external_500_1        := "/run/media/greg/500_Backup_1"
-external_500_2        := "/run/media/greg/500_Backup_2"
-external_music        := "/run/media/greg/MusicBarksBackup"
-external_restic       := "/run/media/greg/restic_backup"
-external_root         := "/run/media/greg/root_backup"
-
-# Source directories
-barks_wiki_dir          := "$HOME/Prj/github/barks-compleat-digital/barks-wiki"
-barks_reader_config_dir := "$HOME/opt/barks-reader/config"
-fast_data_dir           := "/mnt/fast_data"
-fast_external_dir       := "/mnt/fast_external"
-# @formatter:on
-
-internal_2tb_exclude_dirs := "--exclude workdir/ --exclude lost+found/ --exclude 'VirtualBox VMs/WinDev2202Eval/' " \
-                             + "--exclude 'VirtualBox VMs/Mac OS 12/'"
-internal_1tb_exclude_dirs := "--exclude greg/.cache/ --exclude greg/.local/share/Trash/ " \
-                             + "--exclude greg/.gvfs/ --exclude greg/.dbus/ --exclude lost+found/"
-restore_work_dir          := internal_2tb + "/workdir/barks-restore"
-regression_tests_dir      := internal_2tb + "/Books/Carl Barks/Regression-Tests"
-home_dir                  := "/home"
+barks_dir            := "$HOME/Books/Carl Barks"
+internal_2tb         := "/mnt/2tb_drive"
+restore_work_dir     := internal_2tb + "/workdir/barks-restore"
+regression_tests_dir := internal_2tb + "/Books/Carl Barks/Regression-Tests"
 
 _default:
-    just --list --unsorted | tee /tmp/junk.log
-
-show-vars:
-    @pwd
-    @echo 'this source_dir = "{{source_dir()}}"'
-    @echo 'calling justfile = "{{justfile()}}"'
-
-show-env:
-    env
-
+    @just --list --unsorted
 
 # Get Fanta volume page and status info
 [group('comics')]
@@ -105,8 +67,7 @@ check-title title *flags:
 check-censorship-csv:
     {{uv_run}} barks-check-build --log-level SUCCESS --censorship-only
 
-# Rename stale built artifacts onto their current chronological numbers, instead of
-# rebuilding them. Dry run: pass --apply to actually perform the renames.
+# Rename stale built artifacts onto their current chronological numbers instead of rebuilding (dry run: pass --apply to rename)
 [group('comics')]
 fix-names *flags:
     {{uv_run}} barks-check-build --log-level WARNING --fix-names {{flags}}
@@ -253,101 +214,3 @@ check-for-upscayl-errors volume:
 compare-restored-orig volume:
     {{uv_run}} scripts/compare_fanta_image_dirs.py --volume "{{volume}}" \
                --fuzz 50% --ae_cutoff 1000 --log-level INFO
-
-# Rsync root drive to 'root' external drive
-[group('rsync')]
-backup-to-root-external:
-    sudo rsync -aAXv --delete \
-        --exclude='/dev/*' \
-        --exclude='/proc/*' \
-        --exclude='/sys/*' \
-        --exclude='/tmp/*' \
-        --exclude='/run/*' \
-        --exclude='/mnt/*' \
-        --exclude='/media/*' \
-        --exclude='/lost+found' \
-        --exclude='/var/cache/*' \
-        --exclude='/var/tmp/*' \
-        --exclude='/snap/*' \
-        --exclude='/var/lib/snapd/void' \
-        --exclude='/var/lib/snapd/cache/*' \
-        --exclude='/var/lib/snapd/cookie' \
-        --exclude='/root/.cache/*' \
-        --exclude='/home/*' \
-        / "{{external_root}}/"
-
-# Rsync 2tb internal drive to the main 2tb external backup drive
-[group('rsync')]
-[confirm]
-backup-to-2tb-external-1:
-    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_1}}/"
-
-# Rsync 2tb internal drive to the 2tb external backup drive no. 2
-[group('rsync')]
-backup-to-2tb-external-2:
-    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_2}}/"
-
-# Rsync 2tb internal drive to the 2tb external backup drive no. 3
-[group('rsync')]
-backup-to-2tb-external-3:
-    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} "{{internal_2tb}}/" "{{external_2tb_backup_3}}/"
-
-# Rsync 1tb home internal drive to the 1tb external backup drive no. 1
-[group('rsync')]
-backup-home-to-1tb-external-1:
-    {{rsync_dirs}} -x {{internal_1tb_exclude_dirs}} "{{home_dir}}/" "{{external_1tb_backup_1}}/"
-
-# Rsync 1tb home internal drive to the 1tb external backup drive no. 2
-[group('rsync')]
-backup-home-to-1tb-external-2:
-    {{rsync_dirs}} -x {{internal_1tb_exclude_dirs}} "{{home_dir}}/" "{{external_1tb_backup_2}}/"
-
-# Rsync 1tb home internal drive to the 1tb external backup drive no. 3
-[group('rsync')]
-backup-home-to-1tb-external-3:
-    {{rsync_dirs}} -x {{internal_1tb_exclude_dirs}} "{{home_dir}}/" "{{external_1tb_backup_3}}/"
-
-# Rsync all Barks files to the 2tb internal drive
-[group('rsync')]
-backup-to-2tb-internal:
-    {{rsync_dirs}} "{{barks_dir}}/"               "{{internal_2tb}}/barks-backup/Carl Barks/"
-    {{rsync_dirs}} "{{barks_wiki_dir}}/"          "{{internal_2tb}}/barks-backup/barks-wiki/"
-    {{rsync_dirs}} "{{barks_reader_config_dir}}/" "{{internal_2tb}}/barks-backup/barks-reader-config/"
-
-# Rsync all Barks files FROM the main 2tb external backup drive
-[group('rsync')]
-[confirm]
-backup-from-2tb-external:
-    {{rsync_dirs}} {{internal_2tb_exclude_dirs}} \
-                   "{{external_2tb_backup_1}}/"                         "{{internal_2tb}}/"
-    {{rsync_dirs}} "{{internal_2tb}}/barks-backup/Carl Barks/"          "{{barks_dir}}/"
-    {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-wiki/"          "{{barks_wiki_dir}}/"
-    {{rsync_dirs}} "{{internal_2tb}}/barks-backup/barks-reader-config/" "{{barks_reader_config_dir}}/"
-
-# Rsync all Barks files to the '750_Backup' external backup drive
-# Not sustainable - almost reached limit.
-[group('rsync')]
-backup-to-750-external:
-    {{rsync_dirs}} "{{internal_2tb}}/Books/" "{{external_750}}/Books/"
-
-# Rsync fast_data and fast_external to '500_backup_1' external backup drive
-[group('rsync')]
-backup-to-500-external-1:
-    {{rsync_dirs}} --exclude lost+found/ "{{fast_data_dir}}/"     "{{external_500_1}}/fast_data_backup/"
-    {{rsync_dirs}} --exclude lost+found/ "{{fast_external_dir}}/" "{{external_500_1}}/fast_external_backup/"
-
-# Rsync fast_data and fast_external to '500_backup_2' external backup drive
-[group('rsync')]
-backup-to-500-external-2:
-    {{rsync_dirs}} --exclude lost+found/ "{{fast_data_dir}}/"     "{{external_500_2}}/fast_data_backup/"
-    {{rsync_dirs}} --exclude lost+found/ "{{fast_external_dir}}/" "{{external_500_2}}/fast_external_backup/"
-
-# Rsync all Barks files to the 'music' external drive
-[group('rsync')]
-backup-to-music-external:
-    {{rsync_dirs}} "{{barks_dir}}/" "{{external_music}}/Books/Carl Barks/"
-
-# Rsync all Barks files to the 'restic' external drive
-[group('rsync')]
-backup-to-restic-external:
-    {{rsync_dirs}} "{{barks_dir}}/" "{{external_restic}}/Books/Carl Barks/"

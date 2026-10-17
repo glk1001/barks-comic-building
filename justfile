@@ -202,6 +202,13 @@ compare-all title="":
                "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
+# Compare all build files to the last known good ones, ignoring pixel differences in 'image'
+[group('comics')]
+compare-all-except image="1-01.jpg":
+    {{uv_run}} scripts/compare_build_root_dirs.py --ignore-image-diff "{{image}}" \
+               "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
+               "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
+
 # Shortlist pages to eyeball for upscayl errors (regional compare, see docs/image-compare-cutoffs.md)
 [group('comics')]
 check-for-upscayl-errors volume:

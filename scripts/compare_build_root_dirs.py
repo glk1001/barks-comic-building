@@ -50,6 +50,27 @@ def is_selected(subdir: Path, name_filter: str | None, title: str | None) -> boo
     return not title or title == subdir.name.partition(" ")[2]
 
 
+def is_ignored_image_diff(err: CompareError, ignore_image_diffs: list[str] | None) -> bool:
+    """Return True if an error is a pixel difference in an image named to be ignored.
+
+    Only "image" errors qualify, so a missing or extra copy of an ignored image
+    still fails the comparison.
+
+    Args:
+        err: A comparison error from `compare_build_dirs`.
+        ignore_image_diffs: Image file names whose pixel differences are ignored.
+
+    Returns:
+        True if the error should be dropped.
+
+    """
+    if not ignore_image_diffs or err.error_type != "image":
+        return False
+    # An "image" error's file is the quoted pair of compared paths, one per line.
+    image_file1 = err.file.split("\n", 1)[0].strip('"')
+    return Path(image_file1).name in ignore_image_diffs
+
+
 def main(
     dir1: Annotated[Path, typer.Argument(help="First build directory.")],
     dir2: Annotated[Path, typer.Argument(help="Second build directory.")],
@@ -71,6 +92,15 @@ def main(
             "'NNN ' chronological prefix.",
         ),
     ] = None,
+    ignore_image_diffs: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--ignore-image-diff",
+            "-i",
+            help="Ignore pixel differences in images with this file name (e.g. 1-01.jpg). "
+            "A missing or extra image is still an error. Can be repeated.",
+        ),
+    ] = None,
 ) -> None:
     """Compare two build root directories.
 
@@ -80,6 +110,7 @@ def main(
     check_dirs(dir1, dir2, title)
 
     all_errors: list[tuple[str, CompareError]] = []
+    num_ignored = 0
     for subdir1 in sorted(dir1.iterdir()):
         if not is_selected(subdir1, name_filter, title):
             continue
@@ -100,8 +131,16 @@ def main(
 
         subdir2 = dir2 / subdir1.name
         logger.info(f'Comparing "{get_abbrev_path(subdir1)}" to "{get_abbrev_path(subdir2)}".')
-        all_errors.extend((subdir1.name, err) for err in compare_build_dirs(subdir1, subdir2))
+        for err in compare_build_dirs(subdir1, subdir2):
+            if is_ignored_image_diff(err, ignore_image_diffs):
+                num_ignored += 1
+            else:
+                all_errors.append((subdir1.name, err))
 
+    if ignore_image_diffs:
+        logger.warning(
+            f"Ignored {num_ignored} image differences in: {', '.join(ignore_image_diffs)}."
+        )
     if all_errors:
         logger.error(f"Comparison failed with {len(all_errors)} errors.")
         print_error_summary(all_errors)

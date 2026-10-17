@@ -9,6 +9,47 @@ from compare_images import CompareError
 from loguru import logger
 
 
+def check_dirs(dir1: Path, dir2: Path, title: str | None) -> None:
+    """Check both build root directories exist, and hold the title if one is given.
+
+    Args:
+        dir1: First build root directory.
+        dir2: Second build root directory.
+        title: If set, a title that must have a directory in `dir1`.
+
+    Raises:
+        FileNotFoundError: If a directory or the title's directory is missing.
+
+    """
+    if not dir1.is_dir():
+        msg = f'Error: Could not find build directory1: "{dir1}".'
+        raise FileNotFoundError(msg)
+    if not dir2.is_dir():
+        msg = f'Error: Could not find build directory2: "{dir2}".'
+        raise FileNotFoundError(msg)
+    # A mistyped title would otherwise compare nothing and report success.
+    if title and not any(title == d.name.partition(" ")[2] for d in dir1.iterdir()):
+        msg = f'Error: No title "{title}" in build directory1: "{dir1}".'
+        raise FileNotFoundError(msg)
+
+
+def is_selected(subdir: Path, name_filter: str | None, title: str | None) -> bool:
+    """Return True if a comic subdirectory passes the name filter and title.
+
+    Args:
+        subdir: A comic directory named "NNN Title".
+        name_filter: If set, a string the directory name must contain.
+        title: If set, the exact title the directory must be for.
+
+    Returns:
+        True if the directory should be compared.
+
+    """
+    if name_filter and name_filter not in subdir.name:
+        return False
+    return not title or title == subdir.name.partition(" ")[2]
+
+
 def main(
     dir1: Annotated[Path, typer.Argument(help="First build directory.")],
     dir2: Annotated[Path, typer.Argument(help="Second build directory.")],
@@ -21,22 +62,26 @@ def main(
             "(e.g. a title or volume number).",
         ),
     ] = None,
+    title: Annotated[
+        str | None,
+        typer.Option(
+            "--title",
+            "-t",
+            help="Only compare the subdirectory for exactly this title, ignoring its "
+            "'NNN ' chronological prefix.",
+        ),
+    ] = None,
 ) -> None:
     """Compare two build root directories.
 
     First diff files (excluding images), then compare images in the 'images'
     subdirectories.
     """
-    if not dir1.is_dir():
-        msg = f'Error: Could not find build directory1: "{dir1}".'
-        raise FileNotFoundError(msg)
-    if not dir2.is_dir():
-        msg = f'Error: Could not find build directory2: "{dir2}".'
-        raise FileNotFoundError(msg)
+    check_dirs(dir1, dir2, title)
 
     all_errors: list[tuple[str, CompareError]] = []
     for subdir1 in sorted(dir1.iterdir()):
-        if name_filter and name_filter not in subdir1.name:
+        if not is_selected(subdir1, name_filter, title):
             continue
 
         if not subdir1.is_dir():

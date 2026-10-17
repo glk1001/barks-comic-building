@@ -195,10 +195,10 @@ test-small:
                "{{regression_tests_dir}}/Small/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
-# Compare all build files to the last known good build files
+# Compare all build files (or just the one for 'title') to the last known good build files
 [group('comics')]
-compare-all:
-    {{uv_run}} scripts/compare_build_root_dirs.py \
+compare-all title="":
+    {{uv_run}} scripts/compare_build_root_dirs.py --title "{{title}}" \
                "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 

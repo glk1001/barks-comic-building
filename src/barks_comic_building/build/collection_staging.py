@@ -49,6 +49,25 @@ type Member = tuple[Titles, int, int]
 type CandidateLinks = Callable[[int, int, int], list[tuple[Path, Path]]]
 
 
+def members_by_collection_page(members: Sequence[Member], page_base: int) -> dict[int, Member]:
+    """Return the members keyed by the collection page each is staged as.
+
+    The one place the numbering is written down: member *i* is staged as page
+    ``page_base + i``, which matches the collection `ComicBook` and the reader's
+    override. Staging and the integrity check both read it from here, so a page the
+    check grades is the page the stager filled.
+
+    Args:
+        members: The located members, in location-table order.
+        page_base: The collection page the first member is staged as.
+
+    Returns:
+        Each member, keyed by its collection page, in location-table order.
+
+    """
+    return {page_base + i: member for i, member in enumerate(members)}
+
+
 def staged_links_by_title(
     members: Sequence[Member], page_base: int, candidate_links: CandidateLinks
 ) -> dict[Titles, list[tuple[Path, Path]]]:
@@ -60,13 +79,14 @@ def staged_links_by_title(
         candidate_links: Builds one member's candidates.
 
     Returns:
-        The candidates per title. Member *i* is staged as page ``page_base + i``, so the
-        numbering matches the collection `ComicBook` and the reader's override.
+        The candidates per title, numbered by `members_by_collection_page`.
 
     """
     return {
-        title: candidate_links(volume, page, page_base + i)
-        for i, (title, volume, page) in enumerate(members)
+        title: candidate_links(volume, page, collection_page)
+        for collection_page, (title, volume, page) in members_by_collection_page(
+            members, page_base
+        ).items()
     }
 
 

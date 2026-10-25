@@ -157,6 +157,30 @@ def get_staged_links_by_title(
     )
 
 
+def get_home_pages() -> dict[str, tuple[int, str]]:
+    """Return where each collection page really lives, keyed by its collection page.
+
+    A staged page's chain stops at its restored file in the collection, so the
+    integrity check grades the rest of it in the volume the page belongs to; this says
+    which volume and page that is.
+
+    Returns:
+        ``{collection page: (volume, page in that volume)}``, pages zero-padded (see
+        `get_page_str`).
+
+    """
+    return {
+        get_page_str(collection_page): (volume, get_page_str(page))
+        for collection_page, (
+            _title,
+            volume,
+            page,
+        ) in collection_staging.members_by_collection_page(
+            _located_members(), ONE_PAGER_COLLECTION_PAGE_BASE
+        ).items()
+    }
+
+
 def get_staged_links(comics_database: ComicsDatabase) -> list[tuple[Path, Path]]:
     """Return every ``(link, source)`` candidate across all located one-pagers.
 

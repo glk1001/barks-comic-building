@@ -51,6 +51,7 @@ from barks_fantagraphics.comics_utils import (
 )
 from barks_fantagraphics.fanta_comics_info import (
     FIRST_VOLUME_NUMBER,
+    HAND_RESTORED_PAGES,
     HAND_RESTORED_TITLES,
     LAST_VOLUME_NUMBER,
     SERIES_MISC,
@@ -74,9 +75,16 @@ from comic_utils.sys_utils import get_hash_str
 from loguru import logger
 
 from barks_comic_building.build.artifact_renaming import run_artifact_rename_fix
+from barks_comic_building.build.collection_sources import (
+    original_scan_source,
+    upscayled_scan_source,
+)
 from barks_comic_building.build.collection_staging import original_scan_slot
 from barks_comic_building.build.stage_covers import (
     get_staged_links_by_title as get_cover_staged_links,
+)
+from barks_comic_building.build.stage_one_pagers import (
+    get_home_pages as get_one_pager_home_pages,
 )
 from barks_comic_building.build.stage_one_pagers import (
     get_staged_links_by_title as get_one_pager_staged_links,
@@ -905,6 +913,73 @@ def get_stale_upscale(upscayled_file: Path, current_recipe_id: str) -> StaleUpsc
     return StaleUpscale(upscayled_file, get_upscaler_used(upscayled_file), recipe_id)
 
 
+@dataclass(frozen=True, slots=True)
+class HomeChain:
+    """A staged one-pager's restore chain, in the volume the page really belongs to.
+
+    In the collection the page is an ADDED page, so its chain stops at the restored file
+    (see `get_restored_srce_dependencies`) and nothing below that is graded there. Nor
+    is it graded at home when the page belongs to no title, because the per-volume walk
+    goes title by title. Vol 20 page 036 sat on a pre-recipe Upscayl upscale for a year
+    that way, unreported by either.
+
+    Built from the home volume's real files rather than the collection's links: a link's
+    timestamp is its own, so restaging moves it without anything having been rebuilt,
+    and the restored-upscayled stage is not staged at all.
+    """
+
+    # The head of the chain: the home volume's restored page.
+    restored_file: Path
+    # Restored-upscayled, restored svg, upscayled, original - newest stage first.
+    dependencies: list[SrceDependency]
+    # The plain-tree upscayled page, the only one carrying a recipe of ours. None when a
+    # hand-edited upscayled fix stands in for it.
+    upscayled_file: Path | None
+    is_hand_restored: bool
+
+
+def get_home_chain(comics_database: ComicsDatabase, volume: int, page: str) -> HomeChain:
+    """Return a page's restore chain in its own volume.
+
+    The scan and the upscayl are taken with the fixes trees' precedence, through the same
+    `collection_sources` functions the stager uses, so the chain graded is the one the
+    restore read.
+
+    Args:
+        comics_database: The database supplying the volume directory paths.
+        volume: The Fantagraphics volume the page belongs to.
+        page: The page number in that volume, zero-padded (see `get_page_str`).
+
+    Returns:
+        The chain. A stage not on disk has the -1 timestamp, as in
+        `get_restored_srce_dependencies`.
+
+    """
+    upscayled_file = upscayled_scan_source(comics_database, volume, page)
+    stages = [
+        comics_database.get_fantagraphics_restored_upscayled_volume_image_dir(volume)
+        / (page + PNG_FILE_EXT),
+        comics_database.get_fantagraphics_restored_svg_volume_image_dir(volume)
+        / (page + SVG_FILE_EXT),
+        upscayled_file,
+        original_scan_source(comics_database, volume, page),
+    ]
+    plain_upscayled_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(volume)
+
+    return HomeChain(
+        restored_file=comics_database.get_fantagraphics_restored_volume_image_dir(volume)
+        / (page + PNG_FILE_EXT),
+        dependencies=[
+            SrceDependency(
+                stage, get_timestamp(stage) if stage.is_file() else -1, independent=False
+            )
+            for stage in stages
+        ],
+        upscayled_file=upscayled_file if upscayled_file.parent == plain_upscayled_dir else None,
+        is_hand_restored=(volume, page) in HAND_RESTORED_PAGES,
+    )
+
+
 def check_panel_segments_file(
     segments_file: Path,
     *,
@@ -1287,6 +1362,47 @@ class OutOfDateErrors:
         nothing to enforce it against - a stored field can always be one term short.
         """
         return self.file_findings or self.zip_findings or bool(self.unexpected_dest_image_files)
+
+
+def check_home_chain(
+    home_chain: HomeChain, errors: OutOfDateErrors, current_upscale_recipe_id: str
+) -> None:
+    """Grade a staged page's chain in its home volume, as its own title's run would.
+
+    The same two checks as a title page gets: the stages' timestamps must decrease down
+    the chain, and the upscayled page must be at the current recipe. The home restored
+    page heads the chain in place of the collection's dest page, which is graded
+    separately against the collection's own link.
+
+    Args:
+        home_chain: The page's chain in its home volume.
+        errors: Where the findings go.
+        current_upscale_recipe_id: The recipe a re-run of the upscale would use, or empty
+            to skip the recipe check.
+
+    """
+    # A dangling staged link is `check_staged_collection_links`' finding.
+    if not home_chain.restored_file.is_file():
+        return
+
+    chain = walk_srce_dependency_chain(
+        home_chain.dependencies,
+        home_chain.restored_file,
+        get_timestamp(home_chain.restored_file),
+        None,
+        is_a_comic=True,
+    )
+    errors.srce_and_dest_files_out_of_date.extend(chain.stale_pairs)
+
+    if (
+        current_upscale_recipe_id
+        and home_chain.upscayled_file is not None
+        and home_chain.upscayled_file.is_file()
+        and not home_chain.is_hand_restored
+    ):
+        stale = get_stale_upscale(home_chain.upscayled_file, current_upscale_recipe_id)
+        if stale is not None:
+            errors.stale_upscayled_files.append(stale)
 
 
 class ComicsIntegrityChecker:
@@ -2527,17 +2643,33 @@ class ComicsIntegrityChecker:
             errors,
             check_image_size=self._check_panel_segment_image_size,
             current_upscale_recipe_id=self._current_upscale_recipe.recipe_id,
+            home_chains=self._get_home_chains(comic),
         )
         self.check_unexpected_dest_image_files(comic, srce_and_dest_pages, errors)
 
+    def _get_home_chains(self, comic: ComicBook) -> dict[str, HomeChain]:
+        """Return each staged page's home chain, keyed by its page in `comic`.
+
+        Only "All One-Pagers" has any. "All Covers" stages its members too, but a cover
+        is never restored, so it has no chain below the scan to lose.
+        """
+        if comic.get_title_enum() != Titles.ALL_ONE_PAGERS:
+            return {}
+
+        return {
+            collection_page: get_home_chain(self.comics_database, volume, page)
+            for collection_page, (volume, page) in get_one_pager_home_pages().items()
+        }
+
     @staticmethod
-    def check_missing_or_out_of_date_dest_files(
+    def check_missing_or_out_of_date_dest_files(  # noqa: PLR0913
         comic: ComicBook,
         srce_and_dest_pages: SrceAndDestPages,
         errors: OutOfDateErrors,
         *,
         check_image_size: bool = False,
         current_upscale_recipe_id: str = "",
+        home_chains: Mapping[str, HomeChain] | None = None,
     ) -> None:
         is_a_comic = comic.get_title_enum() not in NON_COMIC_TITLES
         # "Good Deeds" and "Silent Night" are built out of the fixes tree by design -
@@ -2583,6 +2715,12 @@ class ComicsIntegrityChecker:
                     stale = get_stale_upscale(upscayled_file, current_upscale_recipe_id)
                     if stale is not None:
                         errors.stale_upscayled_files.append(stale)
+
+                # Only while the page is staged: one the collection restored for itself is
+                # a real file here, and its home volume has nothing to grade.
+                home_chain = (home_chains or {}).get(get_page_str(srce_page.page_num))
+                if home_chain is not None and Path(srce_page.page_filename).is_symlink():
+                    check_home_chain(home_chain, errors, current_upscale_recipe_id)
 
                 bounds_file = comic.get_final_fixes_panel_bounds_file(srce_page.page_num)
                 segments_file = comic.get_srce_panel_segments_file(get_page_str(srce_page.page_num))

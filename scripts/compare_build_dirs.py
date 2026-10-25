@@ -66,7 +66,7 @@ def print_error_summary(errors: list[tuple[str, CompareError]]) -> None:
     Console().print(table)
 
 
-def compare_build_dirs(dir1: Path, dir2: Path) -> list[CompareError]:
+def compare_build_dirs(dir1: Path, dir2: Path, skip_metadata: bool = False) -> list[CompareError]:
     """Compare one built comic directory to another.
 
     A missing directory is returned as an error rather than raised, so that a
@@ -76,6 +76,8 @@ def compare_build_dirs(dir1: Path, dir2: Path) -> list[CompareError]:
     Args:
         dir1: The reference (baseline) build directory.
         dir2: The build directory under test.
+        skip_metadata: If True, do not diff the non-image files (the ini copy,
+            metadata and summary files). The images and archive are still checked.
 
     Returns:
         A list of comparison errors, empty if the two builds are equivalent.
@@ -93,7 +95,7 @@ def compare_build_dirs(dir1: Path, dir2: Path) -> list[CompareError]:
             logger.error(f"Error: Could not find build directory: {err.file}.")
         return missing
 
-    errs = compare_dirs_excluding_images(dir1, dir2)
+    errs = [] if skip_metadata else compare_dirs_excluding_images(dir1, dir2)
     errs += compare_dir_images(dir1, dir2)
     errs += check_comic_archive(dir2)
 

@@ -202,10 +202,13 @@ compare-all title="":
                "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 
-# Compare all build files to the last known good ones, ignoring pixel differences in 'image'
+# Compare build images (all, or a 'volume' list) to the last known good ones, ignoring
+# pixel differences in 'image' and skipping the non-image files. Logging is off, so
+# only per-title progress and the summary table show.
 [group('comics')]
-compare-all-except image="1-01.jpg":
-    {{uv_run}} scripts/compare_build_root_dirs.py --ignore-image-diff "{{image}}" \
+compare-all-except volume="" image="1-01.jpg":
+    LOGURU_LEVEL=CRITICAL {{uv_run}} scripts/compare_build_root_dirs.py --skip-metadata \
+               --volume "{{volume}}" --ignore-image-diff "{{image}}" \
                "{{regression_tests_dir}}/Big/aaa-Chronological-dirs" \
                "{{barks_dir}}/The Comics/aaa-Chronological-dirs"
 

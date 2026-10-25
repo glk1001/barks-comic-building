@@ -940,6 +940,82 @@ class TestStagingCoversByCopy:
         assert not link.exists()
 
 
+class TestTheCollectionsOwnFilesAreNeverStagedOver:
+    """A real file in a slot is the pipeline's output, and often the only copy of it.
+
+    A one-pager that belongs to no story is upscayled, restored and segmented in place in
+    the collection, so its slots hold real files with no source behind them - 22 of them,
+    Vol 20 page 036 (collection 595) among them. `--remove` used to delete those along
+    with the links, and a link in the source volume pointing back at one would have been
+    staged over it, leaving a loop where the restore had been.
+    """
+
+    @staticmethod
+    def _restored_pair(database: FakeComicsDatabase) -> tuple[Path, Path]:
+        """Return the first located one-pager's restored ``(slot, source)``."""
+        links_by_title = stage_one_pagers.get_staged_links_by_title(as_database(database))
+        title = get_located_one_pagers()[0]
+
+        return next(
+            (link, source)
+            for link, source in links_by_title[title]
+            if link.parent.parent.parent.name == "restored"
+        )
+
+    @staticmethod
+    def _write(path: Path, text: str) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+        return path
+
+    def test_remove_keeps_the_pipelines_own_output(self, database: FakeComicsDatabase) -> None:
+        slot, _source = self._restored_pair(database)
+        self._write(slot, "restored in the collection")
+
+        stage_one_pagers.stage(as_database(database), remove=True)
+
+        assert slot.read_text() == "restored in the collection"
+
+    def test_a_real_file_is_not_replaced_by_a_link(self, database: FakeComicsDatabase) -> None:
+        slot, source = self._restored_pair(database)
+        self._write(slot, "restored in the collection")
+        self._write(source, "an older restore in the source volume")
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert not slot.is_symlink()
+        assert slot.read_text() == "restored in the collection"
+
+    def test_a_source_linking_back_to_its_slot_is_not_staged(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        """The reverse link a by-volume tool might want: staging it would loop."""
+        slot, source = self._restored_pair(database)
+        self._write(slot, "restored in the collection")
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.symlink_to(slot)
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert not slot.is_symlink()
+        assert slot.read_text() == "restored in the collection"
+
+    def test_a_copy_staging_refuses_a_source_linking_back_to_its_slot(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        links_by_title = stage_covers.get_staged_links_by_title(as_database(database))
+        title = get_cover_title(get_located_covers()[0])
+        slot, source = links_by_title[title][1]
+        self._write(slot, "upscayled in the collection")
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.symlink_to(slot)
+
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+
+        assert slot.read_text() == "upscayled in the collection"
+
+
 class TestTheTwoCollectionsAgree:
     def test_both_number_from_the_same_base(self) -> None:
         # They are different volumes, so the bases need not match - but they do, and a

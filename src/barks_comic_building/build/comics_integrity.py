@@ -73,6 +73,7 @@ from comic_utils.panel_segmentation import (
 from comic_utils.pil_image_utils import get_image_size
 from comic_utils.sys_utils import get_hash_str
 from loguru import logger
+from PIL import Image
 
 from barks_comic_building.build.artifact_renaming import run_artifact_rename_fix
 from barks_comic_building.build.collection_sources import (
@@ -105,6 +106,11 @@ from barks_comic_building.build.utils import (
     walk_srce_dependency_chain,
 )
 from barks_comic_building.restore.batch_upscayl import SCALE as UPSCALE_SCALE
+from barks_comic_building.restore.image_checks import (
+    MIN_SCAN_CORRELATION,
+    get_check_thumbnail,
+    get_thumbnail_correlation,
+)
 from barks_comic_building.restore.image_io import read_png_metadata
 from barks_comic_building.restore.page_state import get_upscaler_used
 from barks_comic_building.restore.restore_ledger import LEDGER_FILENAME as RESTORE_LEDGER_FILENAME
@@ -1165,8 +1171,156 @@ def unstaged_artifacts(links: list[tuple[Path, Path]]) -> list[tuple[Path, Path]
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class MisplacedFile:
+    """A real file in a collection slot that is not a picture of the slot's member.
+
+    Attributes:
+        title: The member the slot is staged for.
+        path: The real file.
+        detail: How it was judged - its correlation with the member's own scan, or why it
+            could not be compared at all.
+        owner: The member whose scan it does match, or None if it matches none.
+        owner_scan_slot: That member's scan slot, whose stem is the page it belongs on.
+
+    """
+
+    title: Titles
+    path: Path
+    detail: str
+    owner: Titles | None = None
+    owner_scan_slot: Path | None = None
+
+
+def _content_checked_files(links: list[tuple[Path, Path]]) -> list[Path]:
+    """Return a member's real upscayled and restored files - the ones held to its scan.
+
+    Only real files: a link's picture is its target's, and where a link points is graded
+    on its own. Only the plain ``.png`` slots: the ``.svg.png`` is line art, which matches
+    its scan too loosely to judge by, and the svg and the segments json are not pictures.
+
+    Args:
+        links: One member's `(link, source)` candidates.
+
+    Returns:
+        The member's real image files other than its scan, in candidate order.
+
+    """
+    scan_slot = original_scan_slot(links)
+
+    return [
+        link
+        for link, _source in links
+        if link != scan_slot
+        and link.suffix == PNG_FILE_EXT
+        and not link.name.endswith(SVG_FILE_EXT + PNG_FILE_EXT)
+        and link.exists()
+        and not link.is_symlink()
+    ]
+
+
+def _scan_thumbnails(
+    links_by_title: dict[Titles, list[tuple[Path, Path]]],
+) -> dict[Titles, tuple[Path, Image.Image]]:
+    """Return every member's scan slot and its check thumbnail, skipping unreadable scans."""
+    thumbnails: dict[Titles, tuple[Path, Image.Image]] = {}
+    for title, links in links_by_title.items():
+        scan_slot = original_scan_slot(links)
+        if scan_slot is None or not scan_slot.exists():
+            continue
+        try:
+            thumbnails[title] = (scan_slot, get_check_thumbnail(scan_slot))
+        except (OSError, SyntaxError):
+            continue
+
+    return thumbnails
+
+
+def _matching_member(
+    thumbnail: Image.Image, scan_thumbnails: dict[Titles, tuple[Path, Image.Image]]
+) -> Titles | None:
+    """Return the member whose scan a thumbnail matches best, or None if it matches none."""
+    best: Titles | None = None
+    best_correlation = MIN_SCAN_CORRELATION
+    for title, (_scan_slot, scan_thumbnail) in scan_thumbnails.items():
+        correlation = get_thumbnail_correlation(thumbnail, scan_thumbnail)
+        if correlation >= best_correlation:
+            best, best_correlation = title, correlation
+
+    return best
+
+
+def find_misplaced_files(
+    links_by_title: dict[Titles, list[tuple[Path, Path]]],
+) -> list[MisplacedFile]:
+    """Return the real files in a collection's slots that are pictures of some other member.
+
+    Member *i* is page ``base + i``, so locating, adding or reordering a member renumbers
+    every later page. Links are restaged at their new numbers; a real file - the pipeline's
+    own output for a member whose home volume never built it - stays under the number it
+    was written at, which is now another member's page. Nothing else here can see that: the
+    file is a valid page with consistent timestamps, it has no source to compare with, and
+    its metadata names the slot, not the member. Slots 616-627 of "All One-Pagers" held
+    July's upscales and restores of twelve other gags until October, built into the cbz.
+
+    So each real file is compared with the scan staged for its own member, which is a link
+    and so is restaged with the numbering. On a mismatch every member's scan is tried, to
+    name the page the file belongs on.
+
+    Args:
+        links_by_title: Each member's `(link, source)` candidates.
+
+    Returns:
+        One entry per real file that does not match its member's scan, in member order.
+
+    """
+    misplaced: list[MisplacedFile] = []
+    all_scans: dict[Titles, tuple[Path, Image.Image]] | None = None
+
+    for title, links in links_by_title.items():
+        scan_slot = original_scan_slot(links)
+        files = _content_checked_files(links)
+        # A missing scan is reported as itself, and there is nothing to compare against.
+        if scan_slot is None or not scan_slot.exists() or not files:
+            continue
+
+        try:
+            scan_thumbnail = get_check_thumbnail(scan_slot)
+        except (OSError, SyntaxError) as e:
+            detail = f"could not be compared with its scan, which is unreadable ({e})"
+            misplaced.extend(MisplacedFile(title, path, detail) for path in files)
+            continue
+
+        for path in files:
+            try:
+                thumbnail = get_check_thumbnail(path)
+            except (OSError, SyntaxError) as e:
+                detail = f"could not be compared with its scan ({e})"
+                misplaced.append(MisplacedFile(title, path, detail))
+                continue
+
+            correlation = get_thumbnail_correlation(thumbnail, scan_thumbnail)
+
+            if correlation >= MIN_SCAN_CORRELATION:
+                continue
+
+            if all_scans is None:
+                all_scans = _scan_thumbnails(links_by_title)
+            owner = _matching_member(thumbnail, all_scans)
+            detail = f"correlates {correlation:.2f} with its own scan"
+            if owner is None:
+                misplaced.append(MisplacedFile(title, path, detail))
+            else:
+                misplaced.append(MisplacedFile(title, path, detail, owner, all_scans[owner][0]))
+
+    return misplaced
+
+
 def check_collection_staged_links(
-    collection: Titles, links_by_title: dict[Titles, list[tuple[Path, Path]]]
+    collection: Titles,
+    links_by_title: dict[Titles, list[tuple[Path, Path]]],
+    *,
+    check_content: bool = True,
 ) -> int:
     """Check one collection's staged links against the sources they were made from.
 
@@ -1177,6 +1331,8 @@ def check_collection_staged_links(
     Args:
         collection: The collection title, for the error messages.
         links_by_title: Each member's `(link, source)` candidates.
+        check_content: Also hold each real file to its member's scan - see
+            `find_misplaced_files`. It decodes every real upscale, so it is the slow part.
 
     Returns:
         0 if the collection's staging is consistent, 1 otherwise.
@@ -1240,6 +1396,22 @@ def check_collection_staged_links(
                 f" build will not see it. {restage_msg}.",
             )
             ret_code = 1
+
+    for found in find_misplaced_files(links_by_title) if check_content else []:
+        if found.owner is None or found.owner_scan_slot is None:
+            belongs = "and matches no member's scan. Rebuild it from the scan staged beside it."
+        else:
+            belongs = (
+                f'and is "{ENUM_TO_STR_TITLE[found.owner]}" - page'
+                f" {found.owner_scan_slot.stem}. A real file keeps the page number it was"
+                f" written at when the collection is renumbered; move it to that page's slot."
+            )
+        print(
+            f"{ERROR_MSG_PREFIX}Real file for"
+            f' "{ENUM_TO_STR_TITLE[found.title]}" is not its page: "{get_relpath(found.path)}".\n'
+            f"{BLANK_ERR_MSG_PREFIX}It {found.detail}, {belongs}",
+        )
+        ret_code = 1
 
     return ret_code
 
@@ -1406,7 +1578,7 @@ def check_home_chain(
 
 
 class ComicsIntegrityChecker:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         comics_db: ComicsDatabase,
         no_check_for_unexpected_files: bool,
@@ -1414,6 +1586,7 @@ class ComicsIntegrityChecker:
         no_check_censorship_csv: bool = False,
         *,
         check_panel_segment_image_size: bool = False,
+        check_slot_content: bool = True,
     ) -> None:
         self.comics_database = comics_db
 
@@ -1422,6 +1595,9 @@ class ComicsIntegrityChecker:
         self.check_censorship_fixes = not no_check_censorship_csv
         # Opens every restorable page image, so it is opt-in.
         self._check_panel_segment_image_size = check_panel_segment_image_size
+        # Decodes every real file in the collections' slots, the upscales at 8700x12000,
+        # so a run can leave it out. It is left out anyway when no collection is in scope.
+        self._check_slot_content = check_slot_content
         # The recipe a re-run of the upscale would use, so that a page passes only if
         # upscaling it again would change nothing.
         self._current_upscale_recipe = get_current_recipe(DEFAULT_UPSCALER, UPSCALE_SCALE)
@@ -1439,7 +1615,7 @@ class ComicsIntegrityChecker:
     ) -> int:
         print()
 
-        if self._check_preconditions() != 0:
+        if self._check_preconditions(titles) != 0:
             return 1
 
         if fix_names:
@@ -1475,7 +1651,7 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    def _check_preconditions(self) -> int:
+    def _check_preconditions(self, titles: list[str]) -> int:
         """Run the gate checks that must pass before any per-title check is meaningful.
 
         These validate the *inputs* to the build - the read-only original tree, the
@@ -1487,6 +1663,9 @@ class ComicsIntegrityChecker:
 
         Per-title findings are the other tier - they accumulate into `OutOfDateErrors`
         and are reported together at the end.
+
+        Args:
+            titles: The titles this run checks; empty for every title.
 
         Returns:
             0 if every precondition holds, 1 otherwise.
@@ -1501,7 +1680,7 @@ class ComicsIntegrityChecker:
         if self.check_ini_files_match_series_info() != 0:
             return 1
 
-        if self.check_staged_collection_links() != 0:
+        if self.check_staged_collection_links(titles) != 0:
             return 1
 
         if self.check_fantagraphics_files() != 0:
@@ -2022,7 +2201,7 @@ class ComicsIntegrityChecker:
             return False
         return True
 
-    def check_staged_collection_links(self) -> int:
+    def check_staged_collection_links(self, titles: list[str]) -> int:
         """Check the synthetic collections' staged links still agree with their sources.
 
         Every other check here asks whether a file exists and whether it is newer than
@@ -2037,6 +2216,13 @@ class ComicsIntegrityChecker:
         the restage and the on-disk links stay attached to the old page numbers, so the
         built cbz shows members under each other's pages.
 
+        The links are checked on every run - they are cheap, and a stale one is wrong
+        whatever this run was asked about. The real files' content is checked only for a
+        collection the run covers: every title, or a volume or title list that includes it.
+
+        Args:
+            titles: The titles this run checks; empty for every title.
+
         Returns:
             0 if every collection's staging is consistent, 1 otherwise.
 
@@ -2048,7 +2234,13 @@ class ComicsIntegrityChecker:
             (Titles.ALL_ONE_PAGERS, get_one_pager_staged_links(self.comics_database)),
             (Titles.ALL_COVERS, get_cover_staged_links(self.comics_database)),
         ):
-            if check_collection_staged_links(collection, links_by_title) != 0:
+            check_content = self._check_slot_content and (
+                not titles or ENUM_TO_STR_TITLE[collection] in titles
+            )
+            ret = check_collection_staged_links(
+                collection, links_by_title, check_content=check_content
+            )
+            if ret != 0:
                 ret_code = 1
 
         if ret_code == 0:

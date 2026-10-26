@@ -23,6 +23,7 @@ cmyk
 codepoint
 colorfmt
 colours
+corrcoef
 # cspell word list — project-specific words
 cunet
 cvrs

@@ -21,6 +21,7 @@ from barks_comic_building.restore.image_checks import (
     find_content_fault,
     find_structural_fault,
     get_check_thumbnail,
+    get_thumbnail_correlation,
     get_thumbnail_deviation,
     get_thumbnail_stddev,
 )
@@ -252,3 +253,17 @@ class TestTellingABlankApartFromAPicture:
         picture = get_check_thumbnail(write_picture(tmp_path / "good.png"))
 
         assert get_thumbnail_stddev(picture) > MIN_THUMBNAIL_STDDEV * 10
+
+
+class TestCorrelatingTwoPages:
+    def test_a_page_correlates_perfectly_with_itself(self, tmp_path: Path) -> None:
+        thumbnail = get_check_thumbnail(write_picture(tmp_path / "page.png"))
+
+        assert get_thumbnail_correlation(thumbnail, thumbnail) == pytest.approx(1.0)
+
+    def test_a_flat_page_correlates_with_nothing(self, tmp_path: Path) -> None:
+        # A flat page has no layout to compare, and must not divide by zero getting there.
+        page = get_check_thumbnail(write_picture(tmp_path / "page.png"))
+        flat = get_check_thumbnail(write_flat(tmp_path / "flat.png"))
+
+        assert get_thumbnail_correlation(page, flat) == 0.0

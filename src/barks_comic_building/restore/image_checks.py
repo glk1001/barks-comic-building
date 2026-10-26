@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 from PIL import Image, ImageChops, ImageStat
 
 if TYPE_CHECKING:
@@ -31,11 +32,13 @@ if TYPE_CHECKING:
 __all__ = [
     "CHECK_THUMBNAIL_SIZE",
     "MAX_THUMBNAIL_DEVIATION",
+    "MIN_SCAN_CORRELATION",
     "MIN_THUMBNAIL_STDDEV",
     "SIZE_TOLERANCE",
     "find_content_fault",
     "find_structural_fault",
     "get_check_thumbnail",
+    "get_thumbnail_correlation",
     "get_thumbnail_deviation",
     "get_thumbnail_stddev",
 ]
@@ -65,6 +68,17 @@ MAX_THUMBNAIL_DEVIATION = 25.0
 # blank. Nothing real comes close to this: measured across the pages sampled here, a
 # restored page's thumbnail spreads 45 to 60, while a blank one is flat at 0.0.
 MIN_THUMBNAIL_STDDEV = 2.0
+
+
+# How alike a page made from a scan must stay to that scan to count as the same page - the
+# question a real file in a collection slot raises once the collection is renumbered. Not
+# `MAX_THUMBNAIL_DEVIATION`: that compares a page with the stage just before it, and from
+# the original scan the restore's tone changes are large enough to close the gap. Measured
+# on the one-pagers, deviation from the page's own scan went to 5.7 while another gag's
+# scan came as close as 23.8 - inside that threshold. Correlation ignores tone and keeps
+# only layout: a page against its own scan, never below 0.997 (133 restored, 26 upscayled);
+# against another gag's, never above 0.6 (about 1,600 pairs).
+MIN_SCAN_CORRELATION = 0.9
 
 
 # A png's magic number, and where its IHDR puts the bit depth. Read from the bytes rather
@@ -164,6 +178,28 @@ def get_thumbnail_deviation(image_file: Path, other_file: Path) -> float:
     channel_means = ImageStat.Stat(difference).mean
 
     return sum(channel_means) / len(channel_means)
+
+
+def get_thumbnail_correlation(thumbnail: Image.Image, other: Image.Image) -> float:
+    """Return how alike two check thumbnails are in layout, ignoring their tone.
+
+    The Pearson correlation of their grey levels, so a page and a lighter, recoloured or
+    restored version of it still score near 1.
+
+    Args:
+        thumbnail: A thumbnail from `get_check_thumbnail`.
+        other: Another.
+
+    Returns:
+        From -1 to 1, near 1 for the same page; 0 if either is one flat colour.
+
+    """
+    grey = np.asarray(thumbnail.convert("L"), dtype=np.float64).ravel()
+    other_grey = np.asarray(other.convert("L"), dtype=np.float64).ravel()
+    if grey.std() == 0 or other_grey.std() == 0:
+        return 0.0
+
+    return float(np.corrcoef(grey, other_grey)[0, 1])
 
 
 # A page whose width is not a multiple of the scale rounds rather than truncates on the way

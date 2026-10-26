@@ -28,6 +28,12 @@ def main(  # noqa: PLR0913
         help="Also check each panel segments file's page size against the restored image"
         " (opens every restorable page, so it is slow).",
     ),
+    no_check_slot_content: bool = typer.Option(
+        default=False,
+        help="Skip comparing the collections' real slot files with their members' scans"
+        " (decodes every real upscale, about 30s). Only runs that include a collection"
+        " - every title, --volume 1 or 2, or its --title - do it at all.",
+    ),
 ) -> None:
     init_logging(APP_LOGGING_NAME, "check-build-comics-integrity.log", log_level_str)
 
@@ -84,6 +90,7 @@ def main(  # noqa: PLR0913
         no_check_symlinks,
         no_check_censorship_csv,
         check_panel_segment_image_size=check_panel_segment_image_size,
+        check_slot_content=not no_check_slot_content,
     )
     exit_code = integrity_checker.check_comics_integrity(
         titles, fix_names=fix_names, apply_fixes=apply

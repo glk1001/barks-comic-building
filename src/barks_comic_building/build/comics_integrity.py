@@ -4,7 +4,7 @@
 # ruff: noqa: T201
 import json
 import stat
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -1615,8 +1615,19 @@ class ComicsIntegrityChecker:
     ) -> int:
         print()
 
+        # Logged at SUCCESS, like the per-volume lines, so that a run at that level is
+        # not silent through the preconditions - the staged-links check alone takes
+        # most of a minute.
+        logger.success("Checking preconditions.")
         if self._check_preconditions(titles) != 0:
             return 1
+
+        titles_to_check = titles or self.comics_database.get_all_story_titles()
+        num_volumes = len({self.comics_database.get_fanta_volume_int(t) for t in titles_to_check})
+        logger.success(
+            f"Preconditions passed: checking {len(titles_to_check)} title(s)"
+            f" in {num_volumes} volume(s)."
+        )
 
         if fix_names:
             # A third tier, between the other two: the gates validate the build's
@@ -1632,14 +1643,7 @@ class ComicsIntegrityChecker:
 
         unexpected_files = self.check_no_unexpected_files() != 0
 
-        if not titles:
-            ret_code = self.check_all_titles()
-        else:
-            ret_code = 0
-            for title in titles:
-                ret = self.check_single_title(title)
-                if ret != 0:
-                    ret_code = ret
+        ret_code = self.check_titles_by_volume(titles_to_check)
 
         if ret_code == 0:
             if unexpected_files:
@@ -2637,23 +2641,32 @@ class ComicsIntegrityChecker:
 
         return ret_code
 
-    def check_all_titles(self) -> int:
+    def check_titles_by_volume(self, titles: list[str]) -> int:
+        """Check the titles a volume at a time, logging a line as each volume finishes.
+
+        Run at SUCCESS log level, a whole-library check is otherwise silent until the very
+        end, so each volume's line is logged at that level whatever its outcome. Titles
+        keep their given order within a volume.
+
+        Args:
+            titles: The titles to check.
+
+        Returns:
+            0 if every title passed, 1 otherwise.
+
+        """
+        titles_by_volume: dict[int, list[str]] = defaultdict(list)
+        for title in titles:
+            titles_by_volume[self.comics_database.get_fanta_volume_int(title)].append(title)
+
         ret_code = 0
-
-        for title in self.comics_database.get_all_story_titles():
-            comic = self.comics_database.get_comic_book(title)
-            title_str = get_safe_title(comic.get_comic_title())
-
-            if self.check_comic_structure(comic, title_str) != 0:
+        for volume in sorted(titles_by_volume):
+            volume_titles = titles_by_volume[volume]
+            num_failed = sum(self.check_single_title(title) != 0 for title in volume_titles)
+            if num_failed:
                 ret_code = 1
-                continue
-
-            if self.check_story_attributes(comic, title_str) != 0:
-                ret_code = 1
-                continue
-
-            if self.check_out_of_date_files(comic) != 0:
-                ret_code = 1
+            outcome = f"{num_failed} with problems" if num_failed else "no problems"
+            logger.success(f"Volume {volume}: checked {len(volume_titles)} title(s), {outcome}.")
 
         return ret_code
 

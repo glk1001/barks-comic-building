@@ -80,7 +80,7 @@ def main(  # noqa: PLR0913
         comics_database, titles = get_comic_titles(volumes_str, title_str)
     else:
         # No volume/title filter given: check every title. An empty title list is what
-        # `check_comics_integrity` routes to `check_all_titles`; `get_comic_titles`
+        # `check_comics_integrity` widens to every story title; `get_comic_titles`
         # cannot express that, since it asserts on an empty volume list.
         comics_database, titles = ComicsDatabase(), []
 

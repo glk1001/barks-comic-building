@@ -133,6 +133,13 @@ MAX_EXTRA_FIXES_PAGE_NUM = 300
 
 STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK = {
     Titles.VICTORY_GARDEN_THE,
+    Titles.TOO_MANY_PETS,
+    Titles.CRAZY_QUIZ_SHOW_THE,
+    Titles.PIZEN_SPRING_DUDE_RANCH,
+    Titles.MASTER_GLASSER_THE,
+    Titles.LEMONADE_FLING_THE,
+    Titles.DUCK_LUCK,
+    Titles.BOXED_IN,
     Titles.TOYLAND,  # cspell:disable-line
 }
 

@@ -104,6 +104,7 @@ oxipng
 panl
 parallelises
 pil
+pizen
 pnginfo
 pngs
 popleft

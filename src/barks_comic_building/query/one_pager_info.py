@@ -2,9 +2,10 @@
 
 One-pagers have no per-title ini file - nothing reads one, because the reader opens
 a one-pager as a page of the "All One-Pagers" collection rather than as a comic of
-its own - so their state comes from a strict workflow ladder over the files in their
-host Fantagraphics volume rather than from a `ComicBook`. Every one-pager is listed,
-located or not.
+its own - so their state comes from a strict workflow ladder over their files rather
+than from a `ComicBook`. Those files are in the host Fantagraphics volume when a story
+there owns the page, and otherwise in the collection's own slot - see
+`get_one_pager_file`. Every one-pager is listed, located or not.
 
 The `State` column reports the ladder, which stops at the first unmet rung. The
 `Problem` column reports everything else that is actionable, independently of the
@@ -28,6 +29,7 @@ from barks_fantagraphics.comic_book_info import (
     ONE_PAGERS,
     get_filename_from_title,
     get_one_pager_fanta_vol_and_page,
+    get_one_pager_file,
     get_one_pager_issue_page,
     is_one_pager_located,
 )
@@ -98,9 +100,14 @@ def get_one_pager_state_flag(comics_database: ComicsDatabase, title: Titles) -> 
 
     The ladder is `X` (no proper `ONE_PAGER_LOCATIONS` entry) -> `C` (located) ->
     `$` (Barks payments info added) -> `I` (inset file present) -> `U` (upscayled
-    volume page present) -> `R` (restored volume page present). A state is returned
-    only when every earlier step is fulfilled, so - as for a story title - `R`
-    guarantees the whole workflow is done.
+    page present) -> `R` (restored page present). A state is returned only when every
+    earlier step is fulfilled, so - as for a story title - `R` guarantees the whole
+    workflow is done.
+
+    The upscayled and restored pages are found by `get_one_pager_file`: in the host
+    volume, or in the collection's slot for a page no story there owns. Looking only in
+    the host volume read every such one-pager as never upscayled - 36 of them, Vol 28
+    page 129 ("The Nose Knows") among them, all restored in the collection.
 
     Args:
         comics_database: The comics database.
@@ -118,13 +125,17 @@ def get_one_pager_state_flag(comics_database: ComicsDatabase, title: Titles) -> 
     assert page is not None
     page_str = get_page_str(page)
 
-    upscayled_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(volume)
-    restored_dir = comics_database.get_fantagraphics_restored_volume_image_dir(volume)
+    upscayled_file = get_one_pager_file(
+        title, comics_database.get_fantagraphics_upscayled_volume_image_dir, PNG_FILE_EXT
+    )
+    restored_file = get_one_pager_file(
+        title, comics_database.get_fantagraphics_restored_volume_image_dir, PNG_FILE_EXT
+    )
     ladder = [
         (PAYMENTS_FLAG, BARKS_PAYMENTS[title].payment > 0),
         (INSET_FLAG, has_inset_file(title)),
-        (UPSCAYLED_FLAG, (upscayled_dir / (page_str + PNG_FILE_EXT)).is_file()),
-        (RESTORED_FLAG, (restored_dir / (page_str + PNG_FILE_EXT)).is_file()),
+        (UPSCAYLED_FLAG, upscayled_file.is_file()),
+        (RESTORED_FLAG, restored_file.is_file()),
     ]
 
     state_flag = CONFIGURED_FLAG

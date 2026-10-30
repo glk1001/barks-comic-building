@@ -16,14 +16,27 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from barks_fantagraphics.barks_covers import BARKS_COVERS
+from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
 from barks_fantagraphics.barks_titles import Titles
-from barks_fantagraphics.comic_book_info import COVERS, ONE_PAGERS, is_one_pager_located
+from barks_fantagraphics.comic_book_info import (
+    COVERS,
+    ONE_PAGER_COLLECTION_PAGE_BASE,
+    ONE_PAGER_COLLECTION_VOLUME,
+    ONE_PAGERS,
+    get_located_one_pagers,
+    get_one_pager_collection_page_num,
+    get_one_pager_fanta_vol_and_page,
+    is_one_pager_located,
+)
 
+from barks_comic_building.query import one_pager_info
 from barks_comic_building.query.build_state import (
     BUILD_STATE_FLAGS,
     CLEAN_CHAIN,
     CONFIGURED_FLAG,
+    INSET_FLAG,
     NOT_CONFIGURED_FLAG,
+    RESTORED_FLAG,
     all_files_exist,
     get_build_blocker,
     get_staged_link_stem,
@@ -43,12 +56,14 @@ from barks_comic_building.query.fantagraphics_info import is_story_title
 from barks_comic_building.query.one_pager_info import (
     ONE_PAGER_STATE_FLAGS,
     get_one_pager_problems,
+    get_one_pager_state_flag,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from barks_fantagraphics.comic_book import ComicBook
+    from barks_fantagraphics.comics_database import ComicsDatabase
 
 
 def touch(path: Path) -> Path:
@@ -516,3 +531,74 @@ class TestIsStoryTitle:
 
     def test_a_real_story_is_a_story(self) -> None:
         assert is_story_title(Titles.DONALD_DUCK_FINDS_PIRATE_GOLD)
+
+
+class FakeTreesDatabase:
+    """Just the two per-volume trees the one-pager ladder reads, under ``tmp_path``."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def get_fantagraphics_upscayled_volume_image_dir(self, volume: int) -> Path:
+        return self.root / "upscayled" / f"{volume:02d}"
+
+    def get_fantagraphics_restored_volume_image_dir(self, volume: int) -> Path:
+        return self.root / "restored" / f"{volume:02d}"
+
+
+class TestOnePagerLadderFindsCollectionFiles:
+    """A one-pager no story in its volume owns is upscayled and restored in the collection.
+
+    Its home volume never gets those files, so a ladder that looked only there read it
+    as never upscayled - 36 such one-pagers, "The Nose Knows" (Vol 28 page 129) among
+    them, all restored in their collection slots.
+    """
+
+    # Paid, so the ladder's first rungs depend only on the inset, which is patched.
+    TITLE = next(t for t in get_located_one_pagers() if BARKS_PAYMENTS[t].payment > 0)
+
+    @pytest.fixture
+    def database(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeTreesDatabase:
+        # The inset is read from the real library; it is not what is under test.
+        monkeypatch.setattr(one_pager_info, "has_inset_file", lambda _title: True)
+        return FakeTreesDatabase(tmp_path)
+
+    def state(self, database: FakeTreesDatabase) -> str:
+        flag, _page = get_one_pager_state_flag(cast("ComicsDatabase", database), self.TITLE)
+        return flag
+
+    def write_home_pages(self, database: FakeTreesDatabase) -> None:
+        volume, page = get_one_pager_fanta_vol_and_page(self.TITLE)
+        assert volume is not None
+        for tree in (
+            database.get_fantagraphics_upscayled_volume_image_dir,
+            database.get_fantagraphics_restored_volume_image_dir,
+        ):
+            touch(tree(volume) / f"{page:03d}.png")
+
+    def write_collection_pages(self, database: FakeTreesDatabase) -> None:
+        page_num = get_one_pager_collection_page_num(self.TITLE)
+        assert page_num is not None
+        page = ONE_PAGER_COLLECTION_PAGE_BASE + page_num - 1
+        for tree in (
+            database.get_fantagraphics_upscayled_volume_image_dir,
+            database.get_fantagraphics_restored_volume_image_dir,
+        ):
+            touch(tree(ONE_PAGER_COLLECTION_VOLUME) / f"{page:03d}.png")
+
+    def test_pages_restored_only_in_the_collection_reach_restored(
+        self, database: FakeTreesDatabase
+    ) -> None:
+        self.write_collection_pages(database)
+
+        assert self.state(database) == RESTORED_FLAG
+
+    def test_pages_restored_in_the_home_volume_reach_restored(
+        self, database: FakeTreesDatabase
+    ) -> None:
+        self.write_home_pages(database)
+
+        assert self.state(database) == RESTORED_FLAG
+
+    def test_pages_restored_nowhere_stop_at_the_inset(self, database: FakeTreesDatabase) -> None:
+        assert self.state(database) == INSET_FLAG

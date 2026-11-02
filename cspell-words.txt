@@ -63,6 +63,7 @@ ifan
 IHDR
 imread
 imwrite
+inducks
 injective
 inpaint
 inpainted

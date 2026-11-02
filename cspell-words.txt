@@ -1,6 +1,7 @@
 
 asctime
 Ault
+autouse
 bbld
 bboxes
 behaviour
@@ -25,6 +26,7 @@ colorfmt
 colours
 corrcoef
 # cspell word list — project-specific words
+cscsv
 cunet
 cvrs
 dateutil

@@ -67,6 +67,11 @@ check-title title *flags:
 check-censorship-csv:
     {{uv_run}} barks-check-build --log-level SUCCESS --censorship-only
 
+# Fill in the censorship csv's derived columns and sort it into book order (--check only reports)
+[group('comics')]
+censorship-csv *flags:
+    {{uv_run}} barks-censorship-csv {{flags}}
+
 # Rename stale built artifacts onto their current chronological numbers instead of rebuilding (dry run: pass --apply to rename)
 [group('comics')]
 fix-names *flags:

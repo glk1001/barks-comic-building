@@ -27,10 +27,9 @@ them from the story, being wrong was invisible. One was: a row gave image 134 wi
 page 7 of Turkey Raffle, but 134 is that story's page 4, and the next run would have
 moved the image to 137 and undone the row's whole point.
 
-Fanta_page cannot be checked against an absolute here - the printed start pages live in
-another repo - but it does not need to be. Both page numbers advance one per page, so a
-story implies exactly one offset between them, and a row that breaks it is wrong without
-anyone knowing where the story starts.
+Fanta_page is checked twice. Each row's is compared with the page printed on its image.
+Both page numbers also advance one per page, so a story implies exactly one offset between
+them, and a row that breaks it is wrong without anyone knowing where the story starts.
 
 The second is that the one asymmetry runs in only one direction. A story Fantagraphics
 cut entirely comes back as pages with no original scan, so the CSV may legitimately cite
@@ -223,6 +222,8 @@ def row_facts(  # noqa: PLR0913 - one keyword per fact, which is the point of th
     expected_volume: int | None = 4,
     expected_image: str | None = "134",
     image_is_unnumbered_page: bool = False,
+    stored_fanta_page: str = "128",
+    expected_fanta_page: str = "128",
 ) -> CensorshipRowFacts:
     """Make one row's facts, defaulting to a row that agrees with its own story."""
     return CensorshipRowFacts(
@@ -232,6 +233,8 @@ def row_facts(  # noqa: PLR0913 - one keyword per fact, which is the point of th
         expected_volume=expected_volume,
         expected_image=expected_image,
         image_is_unnumbered_page=image_is_unnumbered_page,
+        stored_fanta_page=stored_fanta_page,
+        expected_fanta_page=expected_fanta_page,
     )
 
 
@@ -343,6 +346,80 @@ class TestAPageWithNoNumberOfItsOwn:
         )
 
         assert classify_censorship_row(facts) is CensorshipRowFault.UNKNOWN_PAGE
+
+
+class TestARowWithTheWrongPrintedPage:
+    """A printed page copied from the next row used to pass, if the story had one row."""
+
+    def test_a_numbered_page_is_reported(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_fanta_page="154", expected_fanta_page="33"))
+            is CensorshipRowFault.WRONG_PRINTED_PAGE
+        )
+
+    def test_a_cover_is_reported(self) -> None:
+        assert (
+            classify_censorship_row(
+                row_facts(
+                    stored_comic_page="",
+                    expected_image=None,
+                    image_is_unnumbered_page=True,
+                    stored_fanta_page="0",
+                    expected_fanta_page="208",
+                )
+            )
+            is CensorshipRowFault.WRONG_PRINTED_PAGE
+        )
+
+    def test_a_blank_one_is_reported_on_a_page_that_has_one(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_fanta_page="", expected_fanta_page="208"))
+            is CensorshipRowFault.WRONG_PRINTED_PAGE
+        )
+
+    def test_a_typed_one_is_reported_on_a_page_that_has_none(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_fanta_page="107", expected_fanta_page=""))
+            is CensorshipRowFault.WRONG_PRINTED_PAGE
+        )
+
+    def test_a_page_with_none_needs_none(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_fanta_page="", expected_fanta_page="")) is None
+        )
+
+    def test_a_restored_folio_agrees_with_itself(self) -> None:
+        assert (
+            classify_censorship_row(row_facts(stored_fanta_page="188a", expected_fanta_page="188a"))
+            is None
+        )
+
+    def test_the_wrong_image_is_judged_first(self) -> None:
+        assert (
+            classify_censorship_row(
+                row_facts(
+                    stored_image="134",
+                    expected_image="137",
+                    stored_fanta_page="128",
+                    expected_fanta_page="131",
+                )
+            )
+            is CensorshipRowFault.WRONG_IMAGE
+        )
+
+    def test_a_whole_story_row_has_no_page_to_judge(self) -> None:
+        assert (
+            classify_censorship_row(
+                row_facts(
+                    stored_image="",
+                    stored_comic_page="",
+                    expected_image=None,
+                    stored_fanta_page="",
+                    expected_fanta_page="",
+                )
+            )
+            is None
+        )
 
 
 class TestARowThatNamesAPageAndNoImage:

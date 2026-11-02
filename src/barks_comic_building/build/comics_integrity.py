@@ -64,6 +64,7 @@ from barks_fantagraphics.pages import (
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
+from barks_fantagraphics.printed_pages import get_printed_page
 from comic_utils.comic_consts import JPG_FILE_EXT, JSON_FILE_EXT, SVG_FILE_EXT
 from comic_utils.panel_segmentation import (
     get_panel_segments_finding_msg,
@@ -314,6 +315,7 @@ class CensorshipRowFault(StrEnum):
     WRONG_VOLUME = "wrong volume"
     WRONG_IMAGE = "wrong image"
     MISSING_IMAGE = "missing image"
+    WRONG_PRINTED_PAGE = "wrong printed page"
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +333,8 @@ class CensorshipRowFacts:
             no such page.
         image_is_unnumbered_page: The image is one of the story's pages that carries no
             comic page number - its cover, splash, or front and back matter.
+        stored_fanta_page: The printed book page the row gives, or "".
+        expected_fanta_page: The page printed on the row's image, or "" if it has none.
 
     """
 
@@ -340,6 +344,8 @@ class CensorshipRowFacts:
     expected_volume: int | None
     expected_image: str | None
     image_is_unnumbered_page: bool
+    stored_fanta_page: str
+    expected_fanta_page: str
 
 
 def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | None:
@@ -360,6 +366,11 @@ def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | N
     both the stored and the derived cell are then empty, that tool sees no disagreement,
     and this is the only check the typo reaches.
 
+    The printed page is judged last, and against the row's own image, so a row with the
+    wrong image reports that rather than a printed page that follows from it. A blank one
+    is a fault as well as a wrong one, since a cover row's printed page is never derived
+    from its comic page and so would otherwise never be filled in.
+
     Args:
         facts: What the row claims and what its story says.
 
@@ -377,9 +388,9 @@ def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | N
         if not facts.stored_image:
             # A whole story censored out of its volume: no one page to point at.
             return None
-        return None if facts.image_is_unnumbered_page else CensorshipRowFault.UNKNOWN_PAGE
-
-    if facts.stored_image != facts.expected_image:
+        if not facts.image_is_unnumbered_page:
+            return CensorshipRowFault.UNKNOWN_PAGE
+    elif facts.stored_image != facts.expected_image:
         if facts.expected_image is None:
             # No expected image at all means the story has no such page, which is a
             # different mistake from naming the wrong image for a page it does have.
@@ -391,7 +402,11 @@ def classify_censorship_row(facts: CensorshipRowFacts) -> CensorshipRowFault | N
             fault = CensorshipRowFault.WRONG_IMAGE
         return fault
 
-    return None
+    return (
+        CensorshipRowFault.WRONG_PRINTED_PAGE
+        if facts.stored_fanta_page != facts.expected_fanta_page
+        else None
+    )
 
 
 def duplicate_censorship_rows(rows: list[CensorshipFixRow]) -> list[tuple[CensorshipFixRow, int]]:
@@ -541,7 +556,7 @@ def iter_fix_images(images_dir: Path, spec: FixesTreeSpec) -> Iterator[tuple[str
         yield file.stem, file
 
 
-def _censorship_row_fault_msg(
+def _censorship_row_fault_msg(  # noqa: PLR0911 - one wording per fault
     fault: CensorshipRowFault, row: CensorshipFixRow, expected: CensorshipRowFacts
 ) -> str:
     """Word one row that disagrees with the story it names.
@@ -580,6 +595,17 @@ def _censorship_row_fault_msg(
             f"{ERROR_MSG_PREFIX}The {where} says volume {row.volume},"
             f" but that story is in volume {expected.expected_volume}."
         )
+
+    if fault is CensorshipRowFault.WRONG_PRINTED_PAGE:
+        stored = (
+            f'says printed page "{row.fanta_page}"' if row.fanta_page else "gives no printed page"
+        )
+        actual = (
+            f'is printed on page "{expected.expected_fanta_page}"'
+            if expected.expected_fanta_page
+            else "has no printed page"
+        )
+        return f'{ERROR_MSG_PREFIX}The {where} {stored}, but image "{row.image}" {actual}.'
 
     return (
         f'{ERROR_MSG_PREFIX}The {where} says image "{row.image}",'
@@ -1919,6 +1945,8 @@ class ComicsIntegrityChecker:
                 image_is_unnumbered_page=(
                     pages is not None and row.image in pages.unnumbered_images
                 ),
+                stored_fanta_page=row.fanta_page,
+                expected_fanta_page=get_printed_page(row.volume, row.image) or "",
             )
 
             fault = classify_censorship_row(facts)

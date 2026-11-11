@@ -2333,6 +2333,8 @@ class ComicsIntegrityChecker:
         extra_srce_dirs = [
             self.comics_database.get_root_dir("Fantagraphics-alternate-downloads"),
             self.comics_database.get_root_dir("Fantagraphics-censorship-fixes"),
+            # The panel tags barks-ocr writes (its `PANEL_TAGS_DIRNAME`).
+            self.comics_database.get_root_dir("Fantagraphics-restored-panel-tags"),
             self.comics_database.get_root_dir("Articles"),
             self.comics_database.get_root_dir("Barks Panels Pngs"),
             self.comics_database.get_root_dir("Books"),

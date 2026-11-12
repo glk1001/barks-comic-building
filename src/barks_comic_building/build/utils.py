@@ -30,7 +30,7 @@ from barks_fantagraphics.comics_utils import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Generator, Sequence
     from pathlib import Path
 
     from barks_fantagraphics.pages import SrceDependency
@@ -74,7 +74,7 @@ def links_to(link: Path, source: Path) -> bool:
 
 
 @contextmanager
-def quiet_panel_bbox_height_warnings() -> Iterator[None]:
+def quiet_panel_bbox_height_warnings() -> Generator[None]:
     """Silence the shared panel-bounding height warning while a check resolves pages.
 
     A short page legitimately has a panels bbox shorter than the volume average, and a

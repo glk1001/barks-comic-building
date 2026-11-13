@@ -294,7 +294,7 @@ def get_chain_state(comic: ComicBook) -> ChainState:
 
 
 def is_upscayled(comic: ComicBook, chain: ChainState | None = None) -> bool:
-    if comic.get_ini_title() in HAND_RESTORED_TITLES:
+    if comic.get_title_str() in HAND_RESTORED_TITLES:
         return True
 
     if not all_files_exist(
@@ -310,7 +310,7 @@ def is_upscayled(comic: ComicBook, chain: ChainState | None = None) -> bool:
 
 
 def is_restored(comic: ComicBook, chain: ChainState | None = None) -> bool:
-    if comic.get_ini_title() in HAND_RESTORED_TITLES:
+    if comic.get_title_str() in HAND_RESTORED_TITLES:
         return True
 
     if not all_files_exist(comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)):
@@ -349,7 +349,7 @@ def has_panel_bounds(comic: ComicBook, chain: ChainState | None = None) -> bool:
         return False
     if not all_files_exist(comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)):
         return False
-    if comic.get_ini_title() in HAND_RESTORED_TITLES:
+    if comic.get_title_str() in HAND_RESTORED_TITLES:
         return True
 
     restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
@@ -525,7 +525,7 @@ def _restore_blocker(comic: ComicBook, chain: ChainState) -> str | None:
         The reason the restore workflow is incomplete, or None if it is done.
 
     """
-    hand_restored = comic.get_ini_title() in HAND_RESTORED_TITLES
+    hand_restored = comic.get_title_str() in HAND_RESTORED_TITLES
     restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
     panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
 

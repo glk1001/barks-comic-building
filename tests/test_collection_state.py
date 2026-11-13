@@ -92,7 +92,7 @@ class FakeComic:
         self._series_symlink = tmp_path / "series" / "collection.cbz"
         self._year_symlink = tmp_path / "year" / "collection.cbz"
 
-    def get_ini_title(self) -> str:
+    def get_title_str(self) -> str:
         return "Fake Collection"
 
     def get_srce_restored_story_files(self, _page_types: list[object]) -> list[Path]:

@@ -2919,7 +2919,7 @@ class ComicsIntegrityChecker:
         # dependency chain never holds a restored-tree file and the check below has
         # nothing to say about them. Not because the restored tree is empty for these
         # titles: pipeline output is sitting there, it is simply read by nobody.
-        needs_restored_file = comic.get_ini_title() not in HAND_RESTORED_TITLES
+        needs_restored_file = comic.get_title_str() not in HAND_RESTORED_TITLES
         restored_image_dir = comic.get_srce_restored_image_dir()
         upscayled_image_dir = comic.get_srce_upscayled_image_dir()
 

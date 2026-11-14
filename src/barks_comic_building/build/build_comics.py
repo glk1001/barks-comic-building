@@ -80,6 +80,21 @@ class BuildError(Exception):
     """
 
 
+def find_missing_srce_files(srce_pages: list[CleanPage]) -> list[str]:
+    """Return the source files a build needs that are not on disk.
+
+    Args:
+        srce_pages: The comic's source pages, with full paths.
+
+    Returns:
+        The missing files' paths, sorted; empty when every page can be read.
+
+    """
+    return sorted(
+        {str(page.page_filename) for page in srce_pages if not Path(page.page_filename).is_file()}
+    )
+
+
 class ComicBookBuilder:
     def __init__(
         self,
@@ -189,12 +204,25 @@ class ComicBookBuilder:
 
     def _process_pages(self) -> None:
         logger.debug("Processing pages...")
+        assert self._srce_and_dest_pages
+
+        # Before anything is deleted: a build that cannot succeed must leave the previous
+        # one whole, not a half-emptied dest dir beside a zip that no longer matches it.
+        # A missing source is by far the usual reason a page fails, and it is knowable up
+        # front; a page that fails later for another reason still leaves a partial dir.
+        missing = find_missing_srce_files(self._srce_and_dest_pages.srce_pages)
+        if missing:
+            failures = "\n  ".join(f'"{get_abbrev_path(srce_file)}"' for srce_file in missing)
+            msg = (
+                f"{len(missing)} source files are missing - the previous build, if any,"
+                f" has been left as it was:\n  {failures}"
+            )
+            raise BuildError(msg)
+
         delete_all_files_in_directory(self._comic.get_dest_dir())
         delete_all_files_in_directory(self._comic.get_dest_image_dir())
 
         self._page_errors = []
-
-        assert self._srce_and_dest_pages
 
         if USE_CONCURRENT_PROCESSES:
             # max_workers = min(32, (os.cpu_count() or 1) + 4)

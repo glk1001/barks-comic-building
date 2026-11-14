@@ -7,17 +7,21 @@ filled, and a contradiction stops the rewrite until someone has looked at it.
 """
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from barks_fantagraphics.censorship_fixes import CENSORSHIP_FIXES_HEADER, CensorshipFixRow
+from barks_fantagraphics.comics_database import ComicsDatabase, TitleNotFoundError
 from barks_fantagraphics.printed_pages import get_printed_page
 from typer.testing import CliRunner
 
 from barks_comic_building.build import censorship_csv
 from barks_comic_building.build.censorship_csv import (
+    CensorshipCsvError,
     StoryLocation,
     build_rows,
     find_disagreements,
+    locate_story,
     render_csv,
     row_sort_key,
 )
@@ -136,8 +140,32 @@ class TestWritingTheFile:
         )
 
 
+COVER_ROW = row(story=COVER_STORY, volume=6, image="213", fanta_page="208", comic_page="")
+
+
+class TestLocatingAStory:
+    def test_a_title_the_database_does_not_know_is_the_csvs_fault(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # It used to leave the command as an uncaught exception, not an exit code.
+        def unknown(_database: object, story: str) -> str:
+            msg = f'Could not find title "{story}".'
+            raise TitleNotFoundError(msg, story)
+
+        monkeypatch.setattr(censorship_csv, "resolve_censorship_story", unknown)
+
+        with pytest.raises(CensorshipCsvError, match="Could not find title"):
+            locate_story(cast("ComicsDatabase", object()), "No Such Story At All")
+
+
 class TestTheCommand:
-    """The real database, and a CSV of one row in a temporary file."""
+    """A CSV in a temporary file, and stories located from `LOCATIONS`.
+
+    The command used to run against the real `ComicsDatabase`, so these passed or failed
+    with the state of the library's ini files - and one row of the real "WDCS 194" was
+    all they could say. What a story resolves to is `locate_story`'s business and is
+    tested there; here it is given.
+    """
 
     @staticmethod
     def run(csv_file: Path, *args: str) -> int:
@@ -147,6 +175,17 @@ class TestTheCommand:
     @pytest.fixture(autouse=True)
     def no_log_files(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(censorship_csv, "init_logging", lambda *_args: None)
+
+    @pytest.fixture(autouse=True)
+    def no_real_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def locate(_database: object, story: str) -> StoryLocation:
+            if story not in LOCATIONS:
+                msg = f'Could not find title "{story}".'
+                raise CensorshipCsvError(msg)
+            return LOCATIONS[story]
+
+        monkeypatch.setattr(censorship_csv, "ComicsDatabase", lambda **_kwargs: object())
+        monkeypatch.setattr(censorship_csv, "locate_story", locate)
 
     @pytest.fixture
     def csv_file(self, tmp_path: Path) -> Path:
@@ -158,7 +197,6 @@ class TestTheCommand:
         assert self.run(csv_file, "--check") == 0
 
     def test_an_unknown_story_fails_cleanly_and_writes_nothing(self, csv_file: Path) -> None:
-        # It used to leave the command as an uncaught exception, not an exit code.
         content = render_csv([row(story="No Such Story At All").as_cells()])
         csv_file.write_text(content, encoding="utf-8", newline="")
 
@@ -195,6 +233,30 @@ class TestTheCommand:
 
         assert self.run(csv_file) == 0
         assert csv_file.read_text(encoding="utf-8") == render_csv([row().as_cells()])
+
+    def test_check_fails_a_file_out_of_book_order_and_leaves_it(self, csv_file: Path) -> None:
+        content = render_csv([row().as_cells(), COVER_ROW.as_cells()])
+        csv_file.write_text(content, encoding="utf-8", newline="")
+
+        assert self.run(csv_file, "--check") == 1
+        assert csv_file.read_text(encoding="utf-8") == content
+
+    def test_a_file_out_of_book_order_is_rewritten_in_order(self, csv_file: Path) -> None:
+        csv_file.write_text(
+            render_csv([row().as_cells(), COVER_ROW.as_cells()]), encoding="utf-8", newline=""
+        )
+
+        assert self.run(csv_file) == 0
+        assert csv_file.read_text(encoding="utf-8") == render_csv(
+            [COVER_ROW.as_cells(), row().as_cells()]
+        )
+
+    def test_a_correct_file_is_left_byte_for_byte(self, csv_file: Path) -> None:
+        content = render_csv([COVER_ROW.as_cells(), row().as_cells()])
+        csv_file.write_text(content, encoding="utf-8", newline="")
+
+        assert self.run(csv_file) == 0
+        assert csv_file.read_text(encoding="utf-8") == content
 
 
 class TestTheTwoRowChecksAgree:

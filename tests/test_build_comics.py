@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.page_classes import CleanPage
+from barks_fantagraphics.panel_geometry import BoundingBox
 
-from barks_comic_building.build.build_comics import find_missing_srce_files
+from barks_comic_building.build.build_comics import ComicBookBuilder, find_missing_srce_files
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,3 +37,17 @@ class TestFindingMissingSourceFiles:
             str(tmp_path / "002.png"),
             str(tmp_path / "003.png"),
         ]
+
+
+class TestTheJpegComments:
+    def test_each_panels_bbox_is_written_under_its_own_label(self) -> None:
+        # The dest box used to be written under the source label.
+        srce_page = CleanPage("/srce/001.png", PageType.BODY)
+        srce_page.panels_bbox = BoundingBox(1, 2, 3, 4)
+        dest_page = CleanPage("/dest/001.jpg", PageType.BODY)
+        dest_page.panels_bbox = BoundingBox(5, 6, 7, 8)
+
+        comments = ComicBookBuilder._get_dest_jpg_comments(srce_page, dest_page)  # noqa: SLF001
+
+        assert any(line.endswith("Srce panels bbox: 1, 2, 3, 4") for line in comments)
+        assert any(line.endswith("Dest panels bbox: 5, 6, 7, 8") for line in comments)

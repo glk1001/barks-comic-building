@@ -95,6 +95,13 @@ def find_missing_srce_files(srce_pages: list[CleanPage]) -> list[str]:
     )
 
 
+def _bbox_str(page: CleanPage) -> str:
+    """Return a page's panels bounding box as ``x_min, y_min, x_max, y_max``."""
+    bbox = page.panels_bbox
+
+    return f"{bbox.x_min}, {bbox.y_min}, {bbox.x_max}, {bbox.y_max}"
+
+
 class ComicBookBuilder:
     def __init__(
         self,
@@ -274,7 +281,7 @@ class ComicBookBuilder:
                 f'Convert "{get_abbrev_path(srce_page.page_filename)}"'
                 f" (page-type {srce_page.page_type.name})"
                 f' to "{get_abbrev_path(dest_page.page_filename)}"'
-                f" (page {get_page_num_str(dest_page):>2}.",
+                f" (page {get_page_num_str(dest_page):>2}).",
             )
 
             logger.info(
@@ -328,12 +335,12 @@ class ComicBookBuilder:
             f"{indent}{prefix}:Dest created: {now_str}",
             f"{indent}{prefix}:Srce page num: {srce_page.page_num}",
             f"{indent}{prefix}:Srce page type: {srce_page.page_type.name}",
-            (
-                f"{indent}{prefix}:Srce panels bbox:"
-                f" {dest_page.panels_bbox.x_min}, {dest_page.panels_bbox.y_min},"
-                f" {dest_page.panels_bbox.x_max}, {dest_page.panels_bbox.y_max}"
-            ),
+            # Each box under its own label. The dest box used to be written under the
+            # source label, and the source box - the one a bad crop is traced back
+            # through - not at all.
+            f"{indent}{prefix}:Srce panels bbox: {_bbox_str(srce_page)}",
             f"{indent}{prefix}:Dest page num: {dest_page.page_num}",
+            f"{indent}{prefix}:Dest panels bbox: {_bbox_str(dest_page)}",
         ]
 
     def _process_additional_files(self) -> None:

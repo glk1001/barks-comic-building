@@ -204,6 +204,7 @@ def main(
     ),
     copy: bool = typer.Option(default=False, help="Copy files instead of symlinking them."),
 ) -> None:
+    """Stage the members' cover files into the All Covers collection, or remove them."""
     if remove and copy:
         msg = "Options --remove and --copy cannot be combined."
         raise typer.BadParameter(msg)

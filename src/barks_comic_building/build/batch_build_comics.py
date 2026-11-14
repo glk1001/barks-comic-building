@@ -16,6 +16,16 @@ APP_LOGGING_NAME = "bbld"
 
 
 def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]) -> int:
+    """Build each title in turn, carrying on past one that fails.
+
+    Args:
+        comics_database: The comics database.
+        titles: The story titles to build; at least one.
+
+    Returns:
+        0 if every title built, otherwise the first failure's code.
+
+    """
     assert len(titles) > 0
 
     ret_code = 0
@@ -37,6 +47,15 @@ def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]
 
 
 def process_comic_book(comic: ComicBook) -> int:
+    """Build one comic, logging a failure instead of raising it.
+
+    Args:
+        comic: The comic to build.
+
+    Returns:
+        0 if it built, 1 if it did not.
+
+    """
     process_timing = Timing()
 
     # noinspection PyBroadException
@@ -70,6 +89,7 @@ def main(
     title_str: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
 ) -> None:
+    """Build the comics of the given volumes or title, exiting non-zero if any failed."""
     init_logging(APP_LOGGING_NAME, "build-comics.log", log_level_str)
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)

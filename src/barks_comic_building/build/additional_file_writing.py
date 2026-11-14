@@ -100,6 +100,20 @@ def write_summary_file(  # noqa: PLR0913, PLR0915
     max_dest_timestamp: float,
     timing: Timing,
 ) -> None:
+    """Write the human-readable record of a build into the comic's dest dir.
+
+    Says what was built, from what and when: the titles and dates, the zip and its two
+    links, the page counts, the dimensions, and one line per page mapping source to dest.
+
+    Args:
+        comic: The comic that was built.
+        srce_dim: The source page dimensions the build measured.
+        required_dim: The dest dimensions the build worked to.
+        pages: The source pages and the dest pages built from them, in step.
+        max_dest_timestamp: The newest dest page's timestamp.
+        timing: The build's start and end, already stopped.
+
+    """
     summary_file = comic.get_dest_dir() / SUMMARY_FILENAME
 
     series_symlink_timestamp = get_timestamp_str(comic.get_dest_series_comic_zip_symlink())
@@ -199,6 +213,12 @@ def write_summary_file(  # noqa: PLR0913, PLR0915
 
 
 def write_readme_file(comic: ComicBook) -> None:
+    """Write the short readme naming the comic and when it was built.
+
+    Args:
+        comic: The comic that was built.
+
+    """
     readme_file = comic.get_dest_dir() / README_FILENAME
     with readme_file.open("w") as f:
         f.write(f'Title:       "{get_safe_title(comic.title)}"\n')
@@ -248,6 +268,13 @@ def get_double_pages(dest_pages: list[CleanPage]) -> dict[int, tuple[int, int]]:
 
 
 def write_metadata_file(comic: ComicBook, dest_pages: list[CleanPage]) -> None:
+    """Write the reader's plain-text metadata: double pages and each page's printed number.
+
+    Args:
+        comic: The comic that was built.
+        dest_pages: The dest pages, in reading order.
+
+    """
     metadata_file = comic.get_dest_dir() / METADATA_FILENAME
 
     double_pages = get_double_pages(dest_pages)
@@ -284,6 +311,17 @@ def write_json_metadata(
     required_dim: RequiredDimensions,
     dest_pages: list[CleanPage],
 ) -> None:
+    """Write the comic's json metadata, including the hash of the ini it was built from.
+
+    The integrity check reads that hash back to tell whether the ini has changed since.
+
+    Args:
+        comic: The comic that was built.
+        srce_dim: The source page dimensions the build measured.
+        required_dim: The dest dimensions the build worked to.
+        dest_pages: The dest pages, in reading order.
+
+    """
     metadata_file = comic.get_metadata_filepath()
 
     metadata = {
@@ -317,6 +355,16 @@ def write_json_metadata(
 
 
 def get_page_counts(comic: ComicBook, dest_pages: list[CleanPage]) -> dict[str, int]:
+    """Count the dest pages of each kind.
+
+    Args:
+        comic: The comic the pages belong to.
+        dest_pages: The dest pages.
+
+    Returns:
+        The count of each kind of page, by name.
+
+    """
     page_counts = {}
 
     front_page_count = len([p for p in dest_pages if p.page_type == PageType.FRONT])
@@ -386,6 +434,15 @@ def write_srce_dest_map(
     required_dim: RequiredDimensions,
     pages: SrceAndDestPages,
 ) -> None:
+    """Write the json map from each dest page back to the source page it was built from.
+
+    Args:
+        comic: The comic that was built.
+        srce_dim: The source page dimensions the build measured.
+        required_dim: The dest dimensions the build worked to.
+        pages: The source pages and the dest pages built from them, in step.
+
+    """
     src_dst_map_file = comic.get_dest_dir() / DEST_SRCE_MAP_FILENAME
     srce_dest_map = get_srce_dest_map(comic, srce_dim, required_dim, pages)
     with src_dst_map_file.open("w") as f:
@@ -396,6 +453,13 @@ def write_dest_panels_bboxes(
     comic: ComicBook,
     dest_pages: list[CleanPage],
 ) -> None:
+    """Write the json of each dest page's panels bounding box, keyed by page file name.
+
+    Args:
+        comic: The comic that was built.
+        dest_pages: The dest pages.
+
+    """
     dst_bboxes_file = comic.get_dest_dir() / DEST_PANELS_BBOXES_FILENAME
     bboxes_dict = {}
     for dest_page in dest_pages:

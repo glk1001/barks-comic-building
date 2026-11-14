@@ -237,6 +237,7 @@ def main(
         default=False, help="Remove the staged links instead of creating them."
     ),
 ) -> None:
+    """Stage the members' pages into the All One-Pagers collection, or remove them."""
     init_logging(APP_LOGGING_NAME, "stage-one-pagers.log", log_level_str)
     comics_database = ComicsDatabase(for_building_comics=True)
 

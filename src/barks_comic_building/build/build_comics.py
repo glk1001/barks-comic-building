@@ -102,6 +102,12 @@ def _bbox_str(page: CleanPage) -> str:
 
 
 class ComicBookBuilder:
+    """Builds one comic: its page images, its info files, its zip and the zip's links.
+
+    The dimensions and page lists are only known once `build` has run, so the getters
+    are for use after it.
+    """
+
     def __init__(
         self,
         comic: ComicBook,
@@ -127,18 +133,22 @@ class ComicBookBuilder:
         self._page_errors: list[str] = []
 
     def get_srce_dim(self) -> ComicDimensions:
+        """Return the source page dimensions the build measured."""
         assert self._srce_dim
         return self._srce_dim
 
     def get_required_dim(self) -> RequiredDimensions:
+        """Return the dest dimensions the build worked to."""
         assert self._required_dim
         return self._required_dim
 
     def get_srce_and_dest_pages(self) -> SrceAndDestPages:
+        """Return the source pages and the dest pages built from them."""
         assert self._srce_and_dest_pages
         return self._srce_and_dest_pages
 
     def get_max_dest_page_timestamp(self) -> float:
+        """Return the timestamp of the newest dest page."""
         assert self._srce_and_dest_pages
         return get_max_timestamp(self._srce_and_dest_pages.dest_pages)
 

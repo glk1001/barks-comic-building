@@ -1559,6 +1559,13 @@ def check_contiguous_page_numbers(stems: Sequence[str]) -> PageNumberFaults:
 
 @dataclass
 class HashErrors:
+    """What is wrong with a comic's record of the ini it was built from.
+
+    At most one fault is set: no metadata file (never built), a metadata file that
+    cannot be read, one with no ini hash recorded, or a recorded hash that differs
+    from the ini file's own.
+    """
+
     metadata_file: Path | None = None
     metadata_unreadable: tuple[Path, str] | None = None
     metadata_missing_hash: Path | None = None
@@ -1569,6 +1576,8 @@ class HashErrors:
 
 @dataclass
 class OutOfDateErrors:
+    """Everything found wrong with one title's built files, gathered for one report."""
+
     title: str
     dest_dir_files_missing: list[Path] = field(default_factory=list)
     dest_dir_files_out_of_date: list[Path] = field(default_factory=list)
@@ -1691,6 +1700,12 @@ def check_home_chain(
 
 
 class ComicsIntegrityChecker:
+    """Checks the library's source trees and each title's built comic against them.
+
+    A finding is printed to stdout as it is found and counted in the exit code; a run
+    never stops at the first one.
+    """
+
     def __init__(  # noqa: PLR0913
         self,
         comics_db: ComicsDatabase,
@@ -1749,6 +1764,17 @@ class ComicsIntegrityChecker:
     def check_comics_integrity(
         self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
     ) -> int:
+        """Run the whole check, or the artifact rename fix in its place.
+
+        Args:
+            titles: The story titles to check; empty means every story title.
+            fix_names: Plan the artifact renames instead of checking the titles.
+            apply_fixes: With `fix_names`, carry the renames out.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         with quiet_panel_bbox_height_warnings():
             return self._check_comics_integrity(
                 titles, fix_names=fix_names, apply_fixes=apply_fixes
@@ -1843,6 +1869,12 @@ class ComicsIntegrityChecker:
         return OutOfDateErrors(title=title)
 
     def check_comics_source_is_readonly(self) -> int:
+        """Check the Fantagraphics original tree cannot be written to.
+
+        Returns:
+            0 if it is all read-only, 1 otherwise.
+
+        """
         logger.info("Checking Fantagraphics original directories are readonly.")
 
         ret_code = self.check_folder_and_contents_are_readonly(
@@ -1857,6 +1889,12 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_fantagraphics_files(self) -> int:
+        """Check the original scans and the fixes trees of every volume.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         logger.info("Checking Fantagraphics files.")
 
         ret_code = self.check_all_fantagraphics_original_dirs()
@@ -1876,6 +1914,12 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_all_fantagraphics_original_dirs(self) -> int:
+        """Check every volume's original scans.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         ret_code = 0
 
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
@@ -1885,6 +1929,15 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_fantagraphics_original_dirs(self, volume: int) -> int:
+        """Check one volume's original scans are all there and numbered in an unbroken run.
+
+        Args:
+            volume: The Fantagraphics volume number.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         fanta_original_image_dir = Path(
             self.comics_database.get_fantagraphics_volume_image_dir(volume)
         )
@@ -1921,6 +1974,12 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_all_fixes_and_additions_files(self) -> int:
+        """Check every volume's fixes tree and upscayled fixes tree.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         ret_code = 0
 
         for volume in range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1):
@@ -2318,6 +2377,12 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_directory_structure(self) -> int:
+        """Check every volume has its original directory and each of its derived ones.
+
+        Returns:
+            0 if every directory is there, 1 otherwise.
+
+        """
         logger.info("Check complete directory structure.")
 
         database = self.comics_database
@@ -2435,6 +2500,12 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_ini_files_match_series_info(self) -> int:
+        """Check every title with an ini file is a title SERIES_INFO knows.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         logger.info("Checking ini file titles match series info.")
 
         ret_code = 0
@@ -2467,6 +2538,12 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_no_unexpected_files(self) -> int:
+        """Check the comics tree holds nothing but what the configured titles account for.
+
+        Returns:
+            0 if nothing was found or the check is turned off, 1 otherwise.
+
+        """
         logger.info("Check no unexpected files.")
 
         if not self._check_for_unexpected_files:
@@ -2883,6 +2960,16 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_comic_structure(self, comic: ComicBook, title_str: str) -> int:
+        """Check a comic has more than one page and was built from its ini as it now is.
+
+        Args:
+            comic: The comic to check.
+            title_str: The title to name in a finding.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         num_pages = get_total_num_pages(comic)
         if (num_pages <= 1) and (comic.get_title_enum() not in NON_COMIC_TITLES):
             print(f'\n{ERROR_MSG_PREFIX}For "{title_str}", the page count is too small.')
@@ -2898,6 +2985,16 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def check_story_attributes(comic: ComicBook, title_str: str) -> int:
+        """Check a story scripted by someone other than Barks is filed under MISC.
+
+        Args:
+            comic: The comic to check.
+            title_str: The title to name in a finding.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         if (
             ("script" in comic.extra_pub_info.lower())
             and (comic.fanta_info.series_name != SERIES_MISC)
@@ -2911,6 +3008,16 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def check_hashes(comic: ComicBook, errors: HashErrors) -> int:
+        """Compare the ini's hash with the one recorded in the comic's metadata when built.
+
+        Args:
+            comic: The comic to check.
+            errors: Where the fault, if there is one, is recorded.
+
+        Returns:
+            0 if the hashes agree, 1 otherwise.
+
+        """
         ini_hash = get_hash_str(comic.ini_file)
         metadata_file = comic.get_metadata_filepath()
         if not metadata_file.is_file():
@@ -2949,6 +3056,12 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def print_hash_errors(errors: HashErrors) -> None:
+        """Print the fault `check_hashes` recorded.
+
+        Args:
+            errors: The recorded fault.
+
+        """
         if errors.metadata_file is not None:
             print(
                 f"{ERROR_MSG_PREFIX}Comic has not been built - there is no"
@@ -3018,6 +3131,15 @@ class ComicsIntegrityChecker:
         return messages
 
     def check_out_of_date_files(self, comic: ComicBook) -> int:
+        """Check one comic's built files exist and are newer than what they were built from.
+
+        Args:
+            comic: The comic to check.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         title = get_safe_title(comic.get_comic_title())
         logger.info(f'Checking title "{title}".')
 
@@ -3037,6 +3159,16 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_srce_and_dest_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
+        """Check each dest page against its source pages, and for dest pages nothing accounts for.
+
+        A comic whose pages cannot be worked out at all is recorded as such and the rest
+        of its checks are skipped.
+
+        Args:
+            comic: The comic to check.
+            errors: Where the findings are recorded.
+
+        """
         errors.current_upscale_recipe = (
             f'"{self._current_upscale_recipe.recipe_id}" ({self._current_upscale_recipe.upscaler})'
         )
@@ -3097,6 +3229,19 @@ class ComicsIntegrityChecker:
         current_upscale_recipe_id: str = "",
         home_chains: Mapping[str, HomeChain] | None = None,
     ) -> None:
+        """Grade each dest page, and each stage of the chain behind it, against its inputs.
+
+        Args:
+            comic: The comic to check.
+            srce_and_dest_pages: The source pages and the dest pages built from them, in step.
+            errors: Where the findings are recorded.
+            check_image_size: Also compare each panel segments file's page size with the
+                restored image, which opens every restorable page.
+            current_upscale_recipe_id: The recipe an upscayled page must have been made with.
+            home_chains: For a collection, each staged page's restore chain in its home
+                volume, keyed by page.
+
+        """
         is_a_comic = comic.get_title_enum() not in NON_COMIC_TITLES
         # "Good Deeds" and "Silent Night" are built out of the fixes tree by design -
         # `get_final_srce_story_file` skips the restored tree for them - so their
@@ -3190,6 +3335,14 @@ class ComicsIntegrityChecker:
         srce_and_dest_pages: SrceAndDestPages,
         errors: OutOfDateErrors,
     ) -> None:
+        """Record the files in the dest image dir that are not one of the comic's pages.
+
+        Args:
+            comic: The comic to check.
+            srce_and_dest_pages: The comic's pages.
+            errors: Where the findings are recorded.
+
+        """
         dest_image_dir = comic.get_dest_image_dir()
         unexpected = unexpected_entries(
             dest_image_dir, (Path(page.page_filename) for page in srce_and_dest_pages.dest_pages)
@@ -3240,6 +3393,21 @@ class ComicsIntegrityChecker:
         allowed_zip_year_symlink_dirs: set[Path],
         allowed_zip_year_symlinks: list[Path],
     ) -> int:
+        """Sweep each directory of the comics tree for entries no title accounts for.
+
+        Args:
+            srce_dirs_list: What belongs in the library's root directory.
+            dest_dirs_info_list: Each title's `(ini file, dest dir)`.
+            allowed_zip_files: Every title's comic zip.
+            allowed_zip_series_symlink_dirs: The series directories.
+            allowed_zip_series_symlinks: Every title's series symlink.
+            allowed_zip_year_symlink_dirs: The year directories.
+            allowed_zip_year_symlinks: Every title's year symlink.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         allowed_main_dir_files = [
             THE_CHRONOLOGICAL_DIRS_DIR,
             THE_CHRONOLOGICAL_DIR,
@@ -3289,6 +3457,17 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def check_files_in_dir(file_type: str, dir_path: Path, allowed_files: Iterable[Path]) -> int:
+        """Report a directory that is missing, or the entries in it that do not belong.
+
+        Args:
+            file_type: What to call the directory's entries in a finding.
+            dir_path: The directory to sweep.
+            allowed_files: The entries that belong there.
+
+        Returns:
+            0 if nothing was found, 1 otherwise.
+
+        """
         unexpected = unexpected_entries(dir_path, allowed_files)
 
         if unexpected is None:
@@ -3301,6 +3480,13 @@ class ComicsIntegrityChecker:
         return 1 if unexpected else 0
 
     def check_zip_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
+        """Grade the comic's zip, and unless turned off its two symlinks, for freshness.
+
+        Args:
+            comic: The comic to check.
+            errors: Where the verdicts are recorded.
+
+        """
         errors.zip_errors = check_zip_freshness(
             comic.get_dest_comic_zip(), errors.max_srce, errors.max_dest
         )
@@ -3321,6 +3507,13 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def check_additional_files(comic: ComicBook, errors: OutOfDateErrors) -> None:
+        """Check the dest dir's info files are all there and newer than the newest source.
+
+        Args:
+            comic: The comic to check.
+            errors: Where the findings are recorded.
+
+        """
         dest_dir = comic.get_dest_dir()
         if not dest_dir.is_dir():
             errors.dest_dir_files_missing.append(dest_dir)
@@ -3337,6 +3530,12 @@ class ComicsIntegrityChecker:
                 errors.dest_dir_files_out_of_date.append(file_path)
 
     def print_check_errors(self, errors: OutOfDateErrors) -> None:
+        """Print everything recorded against one title.
+
+        Args:
+            errors: The title's findings.
+
+        """
         if errors.file_findings:
             self.print_out_of_date_or_missing_errors(errors)
 
@@ -3430,6 +3629,12 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def print_unexpected_dest_image_files_errors(errors: OutOfDateErrors) -> None:
+        """Print each dest image file that no page accounts for.
+
+        Args:
+            errors: The title's findings.
+
+        """
         for file in errors.unexpected_dest_image_files:
             print(f'{ERROR_MSG_PREFIX}The dest image file "{get_relpath(file)}" was unexpected.')
 
@@ -3529,6 +3734,12 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:
+        """Print the missing and out-of-date file findings.
+
+        Args:
+            errors: The title's findings.
+
+        """
         for srce_file, dest_file in errors.srce_and_dest_files_missing:
             print(
                 f'{ERROR_MSG_PREFIX}There is no dest file "{dest_file}"'

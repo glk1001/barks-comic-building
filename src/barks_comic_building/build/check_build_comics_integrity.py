@@ -35,6 +35,7 @@ def main(  # noqa: PLR0913
         " - every title, --volume 1 or 2, or its --title - do it at all.",
     ),
 ) -> None:
+    """Check the built comics, or with --fix-names plan or apply the artifact renames."""
     init_logging(APP_LOGGING_NAME, "check-build-comics-integrity.log", log_level_str)
 
     if apply and not fix_names:

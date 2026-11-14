@@ -17,6 +17,18 @@ TEMP_LINK_SUFFIX = ".new-link"
 
 
 def zip_comic_book(comic: ComicBook) -> None:
+    """Zip the comic's dest dir into its comic zip, replacing any zip already there.
+
+    Written under a temporary name and then renamed over the zip, so a failed archive
+    leaves the old one in place.
+
+    Args:
+        comic: The comic whose dest dir is to be zipped.
+
+    Raises:
+        RuntimeError: If the archive was not created.
+
+    """
     logger.info(
         f'Zipping directory "{get_relpath(comic.get_dest_dir())}" to'
         f' "{get_relpath(comic.get_dest_comic_zip())}".',
@@ -34,6 +46,15 @@ def zip_comic_book(comic: ComicBook) -> None:
 
 
 def create_symlinks_to_comic_zip(comic: ComicBook) -> None:
+    """Link the comic's zip from its series directory and its year directory.
+
+    Args:
+        comic: The comic whose zip is to be linked.
+
+    Raises:
+        FileNotFoundError: If the comic has no zip to link to.
+
+    """
     if not comic.get_dest_comic_zip().is_file():
         msg = f'Could not find comic zip file "{comic.get_dest_comic_zip()}".'
         raise FileNotFoundError(msg)

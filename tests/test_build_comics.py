@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from barks_build_comic_images.build_comic_images import PageDataError
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.page_classes import (
     CleanPage,
@@ -210,7 +211,14 @@ class TestProcessingThePages:
 
     @pytest.mark.parametrize(
         ("failure", "has_traceback"),
-        [(FileNotFoundError("gone"), False), (ZeroDivisionError("a bug"), True)],
+        [
+            (FileNotFoundError("gone"), False),
+            (PageDataError("no room for the inset"), False),
+            # Once counted as a data problem along with every other ValueError, so a
+            # slip in the code that raised one lost the traceback that would find it.
+            (ValueError("invalid literal for int()"), True),
+            (ZeroDivisionError("a bug"), True),
+        ],
     )
     def test_only_an_unexpected_failure_keeps_its_traceback(
         self,

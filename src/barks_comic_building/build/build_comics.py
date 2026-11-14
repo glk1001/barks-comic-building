@@ -8,7 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from barks_build_comic_images.build_comic_images import RGB_PROFILE, ComicBookImageBuilder
+from barks_build_comic_images.build_comic_images import (
+    RGB_PROFILE,
+    ComicBookImageBuilder,
+    PageDataError,
+)
 from barks_build_comic_images.consts import (
     DEST_JPG_COMPRESS_LEVEL,
     DEST_JPG_QUALITY,
@@ -66,7 +70,11 @@ if TYPE_CHECKING:
 # is not there, a source scan too small to build from. The message already says what to go
 # and fix, so these are reported as one line. Anything else keeps its traceback, because
 # an unexpected exception is a bug and the traceback is the whole point of it.
-_EXPECTED_PAGE_ERRORS = (FileNotFoundError, ValueError)
+#
+# `PageDataError` and not the `ValueError` it derives from: every slip in the code that
+# raised a ValueError - a bad int(), a wrong-length unpack - was being reported as if
+# the data were at fault, in one line, with the traceback that would have found it gone.
+_EXPECTED_PAGE_ERRORS = (FileNotFoundError, PageDataError)
 
 
 class BuildError(Exception):
@@ -288,7 +296,7 @@ class ComicBookBuilder:
                     f' Poor srce file resolution for "{srce_page.page_filename}":'
                     f" {srce_page_image.width} x {srce_page_image.height}."
                 )
-                raise ValueError(msg)
+                raise PageDataError(msg)
 
         # noinspection PyBroadException
         try:

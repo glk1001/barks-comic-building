@@ -31,9 +31,6 @@ def zip_comic_book(comic: ComicBook) -> None:
         raise RuntimeError(msg)
 
     temp_zip_file.replace(comic.get_dest_comic_zip())
-    if not comic.get_dest_comic_zip().is_file():
-        msg = f'Could not create final comic zip "{comic.get_dest_comic_zip()}".'
-        raise RuntimeError(msg)
 
 
 def create_symlinks_to_comic_zip(comic: ComicBook) -> None:
@@ -41,27 +38,24 @@ def create_symlinks_to_comic_zip(comic: ComicBook) -> None:
         msg = f'Could not find comic zip file "{comic.get_dest_comic_zip()}".'
         raise FileNotFoundError(msg)
 
-    create_symlink_zip(
-        comic.get_dest_comic_zip(),
-        comic.get_dest_series_zip_symlink_dir(),
-        comic.get_dest_series_comic_zip_symlink(),
-    )
-
-    create_symlink_zip(
-        comic.get_dest_comic_zip(),
-        comic.get_dest_year_zip_symlink_dir(),
-        comic.get_dest_year_comic_zip_symlink(),
-    )
+    create_symlink_zip(comic.get_dest_comic_zip(), comic.get_dest_series_comic_zip_symlink())
+    create_symlink_zip(comic.get_dest_comic_zip(), comic.get_dest_year_comic_zip_symlink())
 
 
-def create_symlink_zip(zip_file: Path, symlink_dir: Path, symlink: Path) -> None:
+def create_symlink_zip(zip_file: Path, symlink: Path) -> None:
+    """Make ``symlink`` a relative link to ``zip_file``, replacing any link already there.
+
+    Args:
+        zip_file: The comic zip to link to.
+        symlink: Where the link goes; its directory is created if need be.
+
+    """
     logger.info(
         f'Symlinking (relative) the comic zip file "{get_relpath(zip_file)}" to'
         f' "{get_relpath(symlink)}".',
     )
 
-    if not symlink_dir.is_dir():
-        symlink_dir.mkdir(parents=True, exist_ok=True)
+    symlink.parent.mkdir(parents=True, exist_ok=True)
 
     # Made beside the link under a temporary name and then renamed over it, which
     # replaces the old link in one step. Unlinking first left a window - a failed
@@ -72,10 +66,6 @@ def create_symlink_zip(zip_file: Path, symlink_dir: Path, symlink: Path) -> None
     temp_symlink.unlink(missing_ok=True)
     relative_symlink(zip_file, temp_symlink)
     temp_symlink.replace(symlink)
-
-    if not symlink.is_symlink():
-        msg = f'Could not create symlink "{symlink}".'
-        raise RuntimeError(msg)
 
 
 def relative_link_target(target: Path, destination: Path) -> Path:

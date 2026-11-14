@@ -240,6 +240,25 @@ def is_staged_copy(path: Path, source: Path) -> bool:
     return source.is_file() and filecmp.cmp(path, source, shallow=True)
 
 
+def _already_staged(link: Path, source: Path, *, copy: bool) -> bool:
+    """Return whether the slot already holds what staging ``source`` would put there.
+
+    Args:
+        link: The slot.
+        source: The file that would be staged into it.
+        copy: Whether the staging copies rather than links.
+
+    Returns:
+        True for a link already pointing at the source, or under ``--copy`` a real file
+        that is already a copy of it.
+
+    """
+    if copy:
+        return link.is_file() and not link.is_symlink() and is_staged_copy(link, source)
+
+    return links_to(link, source)
+
+
 def _resolves_to_slot(source: Path, link: Path) -> bool:
     """Return whether ``source`` resolves to the slot it would be staged into.
 
@@ -430,10 +449,11 @@ def stage(
             stale += _clear_slot_with_no_source(link, staged_sources)
             continue
 
-        # Only for symlinks: `--copy` asked for a file, so an existing link is not what
-        # was asked for however well it points, and `copy2` carries the source's mtime
-        # over anyway, which leaves a re-copy idempotent as far as staleness goes.
-        if not copy and links_to(link, source):
+        # Each mode leaves alone only what it would itself have made. `--copy` asked for
+        # a file, so an existing link is not what was asked for however well it points;
+        # a current copy is, and rewriting every upscayled png on every run bought
+        # nothing.
+        if _already_staged(link, source, copy=copy):
             unchanged += 1
             logger.debug(f'Already staged - leaving alone: "{link}".')
             continue
@@ -448,7 +468,7 @@ def stage(
 
     logger.info(f"{'Removed' if remove else 'Staged'} {count} {noun} links.")
     if unchanged:
-        logger.info(f"Left {unchanged} already-correct links untouched.")
+        logger.info(f"Left {unchanged} already-correct slots untouched.")
     if stale:
         logger.info(f"Removed {stale} stale links whose {noun} has no source to stage.")
     if kept:

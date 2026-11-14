@@ -142,7 +142,7 @@ class TestTheDryRunChangesNothing:
     def test_no_symlink_is_recreated(self, tmp_path: Path) -> None:
         zip_file = touch(tmp_path / "zips" / "212 A Title.cbz")
         symlink = tmp_path / "series" / "Donald Duck" / "212 A Title.cbz"
-        plan = RenamePlan(symlink_fixes=[SymlinkFix("A Title", zip_file, symlink.parent, symlink)])
+        plan = RenamePlan(symlink_fixes=[SymlinkFix("A Title", zip_file, symlink)])
 
         assert apply_rename_plan(plan, apply=False) == 1
         assert not symlink.exists()
@@ -183,7 +183,7 @@ class TestApplyingThePlan:
         plan = RenamePlan(
             dest_dir_steps=[RenameStep(dest_dir, tmp_path / "dirs" / "212 A Title")],
             zip_steps=[RenameStep(old_zip, new_zip)],
-            symlink_fixes=[SymlinkFix("A Title", new_zip, symlink.parent, symlink)],
+            symlink_fixes=[SymlinkFix("A Title", new_zip, symlink)],
         )
 
         assert apply_rename_plan(plan, apply=True) == 0
@@ -198,9 +198,7 @@ class TestApplyingThePlan:
         stale.parent.mkdir(parents=True, exist_ok=True)
         stale.symlink_to(zip_file)
 
-        plan = RenamePlan(
-            symlink_fixes=[SymlinkFix("A Title", zip_file, symlink.parent, symlink, stale=(stale,))]
-        )
+        plan = RenamePlan(symlink_fixes=[SymlinkFix("A Title", zip_file, symlink, stale=(stale,))])
 
         assert apply_rename_plan(plan, apply=True) == 0
         assert symlink.is_symlink()

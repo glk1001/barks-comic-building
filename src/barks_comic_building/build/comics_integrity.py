@@ -6,7 +6,7 @@ import json
 import stat
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import NamedTuple
@@ -1538,26 +1538,32 @@ class HashErrors:
 @dataclass
 class OutOfDateErrors:
     title: str
-    dest_dir_files_missing: list[Path]
-    dest_dir_files_out_of_date: list[Path]
-    srce_and_dest_files_missing: list[tuple[Path, Path]]
-    srce_and_dest_files_out_of_date: list[tuple[Path, Path]]
-    pages_built_without_restored_file: list[tuple[Path, Path]]
+    dest_dir_files_missing: list[Path] = field(default_factory=list)
+    dest_dir_files_out_of_date: list[Path] = field(default_factory=list)
+    srce_and_dest_files_missing: list[tuple[Path, Path]] = field(default_factory=list)
+    srce_and_dest_files_out_of_date: list[tuple[Path, Path]] = field(default_factory=list)
+    pages_built_without_restored_file: list[tuple[Path, Path]] = field(default_factory=list)
     # `(bounds override, segments json)` - the segments were computed before the
     # hand-drawn override they should have been computed from.
-    stale_panel_segments: list[tuple[Path, Path]]
+    stale_panel_segments: list[tuple[Path, Path]] = field(default_factory=list)
     # `(segments json, fault messages, staged source)` - the segments file's content is
     # wrong: panels out of reading order, overlapping, outside the page, or bounds that do
     # not add up. The third is the page's real path when it is staged into a synthetic
     # collection from another volume (see `staged_page_source`), and None when it is home.
-    invalid_panel_segments: list[tuple[Path, tuple[str, ...], Path | None]]
+    invalid_panel_segments: list[tuple[Path, tuple[str, ...], Path | None]] = field(
+        default_factory=list
+    )
     # Upscayled pages the build reads that were not made with the current upscale recipe.
-    stale_upscayled_files: list[StaleUpscale]
-    unexpected_dest_image_files: list[Path]
-    exception_errors: list[str]
-    zip_errors: ZipOutOfDateErrors
-    series_zip_symlink_errors: ZipSymlinkOutOfDateErrors
-    year_zip_symlink_errors: ZipSymlinkOutOfDateErrors
+    stale_upscayled_files: list[StaleUpscale] = field(default_factory=list)
+    unexpected_dest_image_files: list[Path] = field(default_factory=list)
+    exception_errors: list[str] = field(default_factory=list)
+    zip_errors: ZipOutOfDateErrors = field(default_factory=ZipOutOfDateErrors)
+    series_zip_symlink_errors: ZipSymlinkOutOfDateErrors = field(
+        default_factory=ZipSymlinkOutOfDateErrors
+    )
+    year_zip_symlink_errors: ZipSymlinkOutOfDateErrors = field(
+        default_factory=ZipSymlinkOutOfDateErrors
+    )
     max_srce: MaxTimestamp | None = None
     max_dest: MaxTimestamp | None = None
     # What `stale_upscayled_files` was graded against, for the report.
@@ -1801,22 +1807,8 @@ class ComicsIntegrityChecker:
 
     @staticmethod
     def make_out_of_date_errors(title: str) -> OutOfDateErrors:
-        return OutOfDateErrors(
-            title=title,
-            dest_dir_files_missing=[],
-            dest_dir_files_out_of_date=[],
-            srce_and_dest_files_out_of_date=[],
-            srce_and_dest_files_missing=[],
-            pages_built_without_restored_file=[],
-            stale_panel_segments=[],
-            invalid_panel_segments=[],
-            stale_upscayled_files=[],
-            unexpected_dest_image_files=[],
-            exception_errors=[],
-            zip_errors=ZipOutOfDateErrors(),
-            series_zip_symlink_errors=ZipSymlinkOutOfDateErrors(),
-            year_zip_symlink_errors=ZipSymlinkOutOfDateErrors(),
-        )
+        """Return one title's findings, with nothing found yet."""
+        return OutOfDateErrors(title=title)
 
     def check_comics_source_is_readonly(self) -> int:
         logger.info("Checking Fantagraphics original directories are readonly.")
@@ -2137,11 +2129,17 @@ class ComicsIntegrityChecker:
         if self.check_basic_fixes(spec, root_dir, images_dir) != 0:
             return 1
 
-        # Per-volume, so built once rather than per fixes file.
-        policy = AddedPagePolicy(
-            self.comics_database.get_num_pages_in_fantagraphics_volume(volume),
-            get_collection_page_nums(volume),
-            self._get_used_page_nums(volume),
+        # Per-volume, so built once rather than per fixes file - and only for the
+        # standard tree, the only one with an added-pages band. Building it loads every
+        # ini in the volume, which the upscayled pass then never looked at.
+        policy = (
+            AddedPagePolicy(
+                self.comics_database.get_num_pages_in_fantagraphics_volume(volume),
+                get_collection_page_nums(volume),
+                self._get_used_page_nums(volume),
+            )
+            if spec is STANDARD_FIXES
+            else None
         )
 
         ret_code = 0
@@ -2164,12 +2162,13 @@ class ComicsIntegrityChecker:
                 )
                 ret_code = 1
 
-            added_fault = policy.classify(stem)
-            if spec is UPSCAYLED_FIXES:
+            if policy is None:
                 # The upscayled tree has no added-pages band of its own: a page with no
                 # original is allowed only where the database says one was added.
+                added_fault = None
                 added_page_allowed = ComicBook.is_fixes_special_case_added(volume, stem)
             else:
+                added_fault = policy.classify(stem)
                 added_page_allowed = added_fault is None
 
             facts = FixesFileFacts(
@@ -2189,7 +2188,11 @@ class ComicsIntegrityChecker:
             if fault is None:
                 continue
 
-            if explain_as_added_page(fault, spec, added_fault) and added_fault is not None:
+            if (
+                explain_as_added_page(fault, spec, added_fault)
+                and added_fault is not None
+                and policy is not None
+            ):
                 print(_added_fixes_fault_msg(added_fault, spec, file, policy))
             else:
                 print(_fixes_fault_msg(fault, spec, file, original_file))
@@ -2245,10 +2248,6 @@ class ComicsIntegrityChecker:
             used.update(page.page_filenames for page in comic.page_images_in_order)
 
         return frozenset(used)
-
-    @staticmethod
-    def _not_used(page_num_str: str, used_page_nums: frozenset[str]) -> bool:
-        return page_num_str not in used_page_nums
 
     @staticmethod
     def _get_num_files_in_dir(dir_path: Path) -> int:
@@ -3006,19 +3005,9 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_srce_and_dest_files(self, comic: ComicBook, errors: OutOfDateErrors) -> None:
-        errors.max_srce = None
-        errors.max_dest = None
-        errors.srce_and_dest_files_missing = []
-        errors.srce_and_dest_files_out_of_date = []
-        errors.pages_built_without_restored_file = []
-        errors.stale_panel_segments = []
-        errors.invalid_panel_segments = []
-        errors.stale_upscayled_files = []
         errors.current_upscale_recipe = (
             f'"{self._current_upscale_recipe.recipe_id}" ({self._current_upscale_recipe.upscaler})'
         )
-        errors.exception_errors = []
-        errors.checks_skipped = False
 
         inset_file = comic.intro_inset_file
         if comic.get_title_enum() not in TITLES_WITHOUT_INSETS and not inset_file.is_file():

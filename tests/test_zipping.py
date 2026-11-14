@@ -207,7 +207,7 @@ class TestCreatingTheSymlinks:
         symlink.parent.mkdir(parents=True, exist_ok=True)
         symlink.symlink_to(touch(comic.dest_dir / "stale.cbz"))
 
-        create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
+        create_symlink_zip(comic.zip_file, symlink)
 
         assert symlink.resolve() == comic.zip_file.resolve()
 
@@ -229,7 +229,7 @@ class TestCreatingTheSymlinks:
         monkeypatch.setattr(zipping, "relative_symlink", fail)
 
         with pytest.raises(OSError, match="no space left"):
-            create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
+            create_symlink_zip(comic.zip_file, symlink)
 
         assert symlink.resolve() == old_target.resolve()
 
@@ -237,8 +237,8 @@ class TestCreatingTheSymlinks:
         zip_comic_book(as_comic(comic))
         symlink = comic.get_dest_series_comic_zip_symlink()
 
-        create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
-        create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
+        create_symlink_zip(comic.zip_file, symlink)
+        create_symlink_zip(comic.zip_file, symlink)
 
         assert list(comic.series_dir.iterdir()) == [symlink]
 
@@ -246,9 +246,7 @@ class TestCreatingTheSymlinks:
         zip_comic_book(as_comic(comic))
         assert not comic.series_dir.exists()
 
-        create_symlink_zip(
-            comic.zip_file, comic.series_dir, comic.get_dest_series_comic_zip_symlink()
-        )
+        create_symlink_zip(comic.zip_file, comic.get_dest_series_comic_zip_symlink())
 
         assert comic.series_dir.is_dir()
 

@@ -1,4 +1,4 @@
-# ruff: noqa: ERA001, E501
+# ruff: noqa: E501
 
 from __future__ import annotations
 
@@ -62,8 +62,6 @@ if TYPE_CHECKING:
     )
     from barks_fantagraphics.pages import SrceStoryFileResolver
     from PIL.Image import Image as PilImage
-
-USE_CONCURRENT_PROCESSES = True
 
 # Page failures that say something about the data rather than about the code: a file that
 # is not there, a source scan too small to build from. The message already says what to go
@@ -251,24 +249,16 @@ class ComicBookBuilder:
 
         self._page_errors = []
 
-        if USE_CONCURRENT_PROCESSES:
-            # max_workers = min(32, (os.cpu_count() or 1) + 4)
-            max_workers = None
-            # with concurrent.futures.ProcessPoolExecutor() as executor:
-            with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
-                for srce_page, dest_page in zip(
-                    self._srce_and_dest_pages.srce_pages,
-                    self._srce_and_dest_pages.dest_pages,
-                    strict=True,
-                ):
-                    executor.submit(self._process_page, srce_page, dest_page)
-        else:
+        # A thread per page: the time goes in image decoding and encoding, which release
+        # the GIL. `_process_page` catches everything a page can raise and records it, so
+        # no future needs collecting - the pool drains as the `with` block closes.
+        with concurrent.futures.ThreadPoolExecutor() as executor:
             for srce_page, dest_page in zip(
                 self._srce_and_dest_pages.srce_pages,
                 self._srce_and_dest_pages.dest_pages,
                 strict=True,
             ):
-                self._process_page(srce_page, dest_page)
+                executor.submit(self._process_page, srce_page, dest_page)
 
         if self._page_errors:
             assert self._srce_and_dest_pages
@@ -387,12 +377,7 @@ class ComicBookBuilder:
         write_dest_panels_bboxes(self._comic, self._srce_and_dest_pages.dest_pages)
 
     def _create_dest_dirs(self) -> None:
-        if not self._comic.get_dest_image_dir().is_dir():
-            self._comic.get_dest_image_dir().mkdir(parents=True)
-
-        if not self._comic.get_dest_image_dir().is_dir():
-            msg = f'Could not make directory "{self._comic.get_dest_image_dir()}".'
-            raise RuntimeError(msg)
+        self._comic.get_dest_image_dir().mkdir(parents=True, exist_ok=True)
 
     def _zip_and_symlink_comic_book(self) -> None:
         zip_comic_book(self._comic)

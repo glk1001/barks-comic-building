@@ -126,7 +126,6 @@ class SymlinkFix:
 
     key: str
     zip_file: Path
-    symlink_dir: Path
     symlink: Path
     stale: tuple[Path, ...] = ()
 
@@ -499,7 +498,6 @@ def _plan_symlinks(
                 SymlinkFix(
                     key=key,
                     zip_file=artifacts.zip_file,
-                    symlink_dir=want.parent,
                     symlink=want,
                     stale=stale,
                 ),
@@ -801,7 +799,7 @@ def _execute_plan(plan: RenamePlan) -> None:
 
     print(f"Recreating {len(plan.symlink_fixes)} symlinks...")
     for fix in plan.symlink_fixes:
-        create_symlink_zip(fix.zip_file, fix.symlink_dir, fix.symlink)
+        create_symlink_zip(fix.zip_file, fix.symlink)
         for stale in fix.stale:
             if stale.is_symlink():
                 logger.info(f'Removing stale symlink "{get_relpath(stale)}".')

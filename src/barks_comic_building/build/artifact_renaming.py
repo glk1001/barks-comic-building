@@ -14,6 +14,13 @@ a counter that moves independently of the chronological one. So the repair is dr
 entirely by matching on the *number-stripped* artifact name, which is unique across
 every title.
 
+That uniqueness is also why the renames need no ordering. A destination name carries
+its own title, so the only thing that can already be sitting at it is another artifact
+of the *same* title - never some other title's artifact waiting to move out of the way.
+Renames therefore cannot form a chain or a cycle, and a destination that is occupied is
+simply a conflict. `build_expected_artifacts` enforces the premise: a title whose
+expected names do not parse back to its own key is refused.
+
 Deletion invariant
 ------------------
 This module performs only `os.rename`, `os.symlink`, and `os.unlink` **on symlinks**.
@@ -25,7 +32,6 @@ from __future__ import annotations
 
 import os
 import re
-from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -53,11 +59,6 @@ ERROR_MSG_PREFIX = "ERROR: "
 
 # Artifact names are "NNN <title>" or "NNN <title> [<ISSUE>].cbz".
 _CHRONO_PREFIX_RE = re.compile(r"^\d{3} ")
-
-# Temp names encode their own destination and sit in the destination's directory, so
-# an interrupted run leaves a self-describing leftover that `check_files_in_dir` will
-# report as unexpected on the very next check.
-TEMP_SUFFIX = ".barks-fix-tmp"
 
 CBZ_SUFFIX = ".cbz"
 
@@ -113,11 +114,10 @@ class ArtifactFix:
 
 @dataclass(frozen=True)
 class RenameStep:
-    """A single rename. `is_temp` marks the two halves of a cycle break."""
+    """A single rename."""
 
     src: Path
     dst: Path
-    is_temp: bool = False
 
 
 @dataclass(frozen=True)
@@ -234,13 +234,25 @@ def build_expected_artifacts(
             )
             continue
 
+        zip_file = comic.get_dest_comic_zip()
+        series_symlink = comic.get_dest_series_comic_zip_symlink()
+        year_symlink = comic.get_dest_year_comic_zip_symlink()
+        if any(zip_key(path.name) != key for path in (zip_file, series_symlink, year_symlink)):
+            # The premise the whole fix rests on - see the module docstring. A title
+            # that breaks it could have its artifacts matched to another title's.
+            load_errors.append(
+                f'"{story_title}": its zip and symlink names do not all carry the key'
+                f' "{key}" its dest dir does.'
+            )
+            continue
+
         expected[key] = ExpectedArtifacts(
             story_title=story_title,
             key=key,
             dest_dir=comic.get_dest_dir(),
-            zip_file=comic.get_dest_comic_zip(),
-            series_symlink=comic.get_dest_series_comic_zip_symlink(),
-            year_symlink=comic.get_dest_year_comic_zip_symlink(),
+            zip_file=zip_file,
+            series_symlink=series_symlink,
+            year_symlink=year_symlink,
         )
 
     return expected, load_errors
@@ -326,37 +338,29 @@ def scan_actual_artifacts() -> ActualArtifacts:
     return actual
 
 
-def temp_path_for(dst: Path) -> Path:
-    """Return the temp path used to break a rename cycle ending at ``dst``.
-
-    It sits in the destination's own directory (so the rename is atomic) and encodes
-    its final destination in its name (so an interrupted run needs no journal to
-    recover from - the leftover says where it was going).
-    """
-    return dst.with_name(dst.name + TEMP_SUFFIX)
-
-
 def order_moves(moves: Mapping[Path, Path], occupied: AbstractSet[Path]) -> list[RenameStep]:
-    """Order a set of renames so no rename ever clobbers a live path.
+    """Check a set of renames is safe and return them in a fixed order.
 
-    ``moves`` is injective with distinct sources, so every component of the move
-    graph is a simple path or a simple cycle. Paths unroll from whichever end is
-    already free; each cycle is broken with exactly one temp rename.
+    No rename may land on a path that exists. That is the whole rule, and it needs no
+    cleverness: see the module docstring for why one artifact's destination is never
+    another's source. This used to unroll chains and break cycles through temp files,
+    with a recovery pass for a run killed half-way through one - all of it for a shape
+    the names cannot produce.
 
-    Pure - does no I/O. Deterministic, so a dry run and the subsequent apply print
+    Pure - does no I/O. Sorted by source, so a dry run and the subsequent apply print
     identically.
 
     Args:
-        moves: The renames to order, as source -> destination.
+        moves: The renames, as source -> destination.
         occupied: Every path that currently exists in the namespace, including
             entries that are not being moved.
 
     Returns:
-        The renames in a safe order.
+        The renames, in source order.
 
     Raises:
-        RenameConflictError: If two moves share a destination, a destination is held
-            by something that is not itself a source, or a move crosses directories.
+        RenameConflictError: If two moves share a destination, a destination already
+            exists, or a move crosses directories.
 
     """
     destinations = list(moves.values())
@@ -365,43 +369,14 @@ def order_moves(moves: Mapping[Path, Path], occupied: AbstractSet[Path]) -> list
         raise RenameConflictError(msg)
 
     for src, dst in moves.items():
-        if dst in occupied and dst not in moves:
-            msg = f'Destination "{dst}" is held by something that is not being moved.'
+        if dst in occupied:
+            msg = f'Destination "{dst}" already exists.'
             raise RenameConflictError(msg)
         if src.parent != dst.parent:
             msg = f'Cross-directory move: "{src}" -> "{dst}".'
             raise RenameConflictError(msg)
 
-    steps: list[RenameStep] = []
-    remaining = dict(moves)
-
-    # In-degree is at most 1, so at most one source ever waits on a given path.
-    blocked_on = {dst: src for src, dst in moves.items() if dst in occupied}
-
-    ready = deque(sorted(src for src, dst in remaining.items() if dst not in occupied))
-    while ready:
-        src = ready.popleft()
-        if src not in remaining:
-            continue
-        steps.append(RenameStep(src, remaining.pop(src)))
-        waiter = blocked_on.get(src)
-        if waiter is not None and waiter in remaining:
-            ready.append(waiter)
-
-    # Anything left lies on a cycle. Break each with one temp, then unroll backwards.
-    while remaining:
-        start = min(remaining)
-        start_dst = remaining.pop(start)
-        tmp = temp_path_for(start_dst)
-
-        steps.append(RenameStep(start, tmp, is_temp=True))
-        node = start
-        while (waiter := blocked_on.get(node)) is not None and waiter in remaining:
-            steps.append(RenameStep(waiter, remaining.pop(waiter)))
-            node = waiter
-        steps.append(RenameStep(tmp, start_dst, is_temp=True))
-
-    return steps
+    return [RenameStep(src, moves[src]) for src in sorted(moves)]
 
 
 def _check_expected_paths_are_distinct(
@@ -685,61 +660,12 @@ def _safe_rename(src: Path, dst: Path) -> None:
     os.rename(src, dst)  # noqa: PTH104
 
 
-def _interrupted_renames() -> list[Path]:
-    """Return every temp file an interrupted run has left in the two rename roots."""
-    return [
-        entry
-        for root in (THE_CHRONOLOGICAL_DIRS_DIR, THE_CHRONOLOGICAL_DIR)
-        for entry in _iter_visible(root)
-        if entry.name.endswith(TEMP_SUFFIX)
-    ]
-
-
-def recover_interrupted_renames(*, apply: bool) -> list[Path]:
-    """Complete any rename left half-done by an interrupted run.
-
-    A leftover is named "<destination><TEMP_SUFFIX>", so recovery needs no journal.
-    This runs *before* the plan is built: otherwise the leftover would look like an
-    orphan and the real artifact like a missing one, which reads as a false
-    "needs rebuild".
-
-    Args:
-        apply: Whether to actually perform the recovery renames.
-
-    Returns:
-        The temp paths that were (or would be) recovered.
-
-    """
-    recovered: list[Path] = []
-
-    for entry in _interrupted_renames():
-        final = entry.with_name(entry.name[: -len(TEMP_SUFFIX)])
-        if final.exists() or final.is_symlink():
-            # A cycle killed before its last step: the artifact still at `final` has
-            # its own rename to make first. `run_artifact_rename_fix` comes back for
-            # this one once the plan has run.
-            print(
-                f'Interrupted rename "{get_relpath(entry)}" cannot be completed yet:'
-                f' "{get_relpath(final)}" is still in place.',
-            )
-            continue
-
-        recovered.append(entry)
-        print(f'Recovering interrupted rename: "{entry.name}" -> "{final.name}".')
-        if apply:
-            _safe_rename(entry, final)
-
-    return recovered
-
-
 def _print_rename_steps(title: str, steps: list[RenameStep]) -> None:
     """Print one class of renames as names only - the parent dir is constant."""
     if not steps:
         return
 
-    num_temp = sum(1 for s in steps if s.is_temp)
-    temp_note = f", {num_temp} via temp" if num_temp else ""
-    print(f"\n{title} ({len(steps)}{temp_note}):")
+    print(f"\n{title} ({len(steps)}):")
     for step in steps:
         print(f'  "{step.src.name}"  ->  "{step.dst.name}"')
 
@@ -883,7 +809,7 @@ def _execute_plan(plan: RenamePlan) -> None:
 
 
 def run_artifact_rename_fix(comics_db: ComicsDatabase, *, apply: bool) -> int:
-    """Recover, plan, report and optionally execute the artifact rename fix.
+    """Plan, report and optionally execute the artifact rename fix.
 
     Args:
         comics_db: The comics database.
@@ -900,27 +826,4 @@ def run_artifact_rename_fix(comics_db: ComicsDatabase, *, apply: bool) -> int:
             "\n      'rsync --delete' will re-transfer every renamed comic.",
         )
 
-    recover_interrupted_renames(apply=apply)
-
-    ret_code = apply_rename_plan(build_rename_plan(comics_db), apply=apply)
-
-    # A leftover whose destination was occupied can only be finished after the plan has
-    # moved the occupant away. Without this second pass that took two more runs, the
-    # first of which reported the leftover's title as needing a rebuild. Whatever is
-    # recovered here was planned around as missing, so it is planned again.
-    if apply and ret_code == 0 and recover_interrupted_renames(apply=True):
-        ret_code = apply_rename_plan(build_rename_plan(comics_db), apply=True)
-
-    # Any leftover still here means the tree is not clean, whatever the plan said: an
-    # apply could not finish it, or a dry run has left it for the apply.
-    leftovers = _interrupted_renames()
-    if leftovers:
-        if apply:
-            print(f"\n{ERROR_MSG_PREFIX}Interrupted renames that could not be completed:")
-        else:
-            print("\nInterrupted renames waiting for --fix-names --apply:")
-        for leftover in leftovers:
-            print(f'  "{get_relpath(leftover)}"')
-        ret_code = 1
-
-    return ret_code
+    return apply_rename_plan(build_rename_plan(comics_db), apply=apply)

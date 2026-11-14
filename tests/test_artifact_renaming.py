@@ -1,35 +1,29 @@
-"""Tests for the artifact rename ordering - where the correctness argument lives.
+"""Tests for the artifact rename safety rule and the keys artifacts are matched on.
 
-`order_moves` reorders a set of renames so none ever clobbers a live path. Because
-the move map is injective with distinct sources, every component of its graph is a
-simple path or a simple cycle; paths unroll from the free end, cycles need one temp.
-Getting that wrong would silently destroy built comics, so it is tested directly and
-also property-tested by replaying the returned steps against an in-memory model of
-the filesystem.
+`order_moves` refuses any rename that would land on a path that exists, and returns the
+rest in a fixed order. There is nothing to order: an artifact's name carries its own
+title, so one artifact's destination is never another's source - the last test in this
+file pins that premise against the key functions. Getting the rule wrong would silently
+destroy built comics, so every accepted set of steps is also replayed against an
+in-memory model of the filesystem.
 """
 
 from __future__ import annotations
 
-import random
 from pathlib import Path
 
 import pytest
 
 from barks_comic_building.build.artifact_renaming import (
-    TEMP_SUFFIX,
     RenameConflictError,
     RenameStep,
     dest_dir_key,
     order_moves,
-    temp_path_for,
     zip_key,
 )
 
 DIR = Path("/comics/Chronological")
 OTHER_DIR = Path("/comics/Elsewhere")
-
-# Breaking one cycle costs exactly two temp steps: out to the temp, and back again.
-STEPS_PER_CYCLE_BREAK = 2
 
 
 def p(name: str) -> Path:
@@ -68,68 +62,26 @@ class TestOrderMoves:
         assert steps == [RenameStep(p("a"), p("b"))]
         assert replay(steps, {p("a")}) == {p("b")}
 
-    def test_chain_unrolls_from_the_free_end(self) -> None:
-        # a->b->c with c free: c must be vacated... it already is, so b->c goes first.
-        moves = {p("a"): p("b"), p("b"): p("c")}
-        occupied = {p("a"), p("b")}
+    def test_disjoint_moves_all_go(self) -> None:
+        moves = {p("002 B"): p("003 B"), p("001 A"): p("002 A")}
+        occupied = {p("001 A"), p("002 B")}
         steps = order_moves(moves, occupied)
 
-        assert steps == [RenameStep(p("b"), p("c")), RenameStep(p("a"), p("b"))]
-        assert replay(steps, occupied) == {p("b"), p("c")}
+        assert replay(steps, occupied) == {p("002 A"), p("003 B")}
 
-    def test_descending_chain(self) -> None:
-        # The shape your renumbering actually produces: everything shifts down one.
-        moves = {p("002"): p("001"), p("003"): p("002"), p("004"): p("003")}
-        occupied = {p("002"), p("003"), p("004")}
-        steps = order_moves(moves, occupied)
+    def test_a_move_onto_another_moves_source_is_rejected(self) -> None:
+        # A chain. Real artifact names cannot form one, so it is refused rather than
+        # unrolled - the machinery that unrolled it guarded a state that never arises.
+        with pytest.raises(RenameConflictError, match="already exists"):
+            order_moves({p("a"): p("b"), p("b"): p("c")}, {p("a"), p("b")})
 
-        assert steps[0] == RenameStep(p("002"), p("001"))
-        assert replay(steps, occupied) == {p("001"), p("002"), p("003")}
-
-    def test_ascending_chain(self) -> None:
-        # Everything shifts up one: the far end must move first.
-        moves = {p("001"): p("002"), p("002"): p("003"), p("003"): p("004")}
-        occupied = {p("001"), p("002"), p("003")}
-        steps = order_moves(moves, occupied)
-
-        assert steps[0] == RenameStep(p("003"), p("004"))
-        assert replay(steps, occupied) == {p("002"), p("003"), p("004")}
-
-    def test_two_cycle_uses_one_temp(self) -> None:
-        moves = {p("a"): p("b"), p("b"): p("a")}
-        occupied = {p("a"), p("b")}
-        steps = order_moves(moves, occupied)
-
-        assert sum(1 for s in steps if s.is_temp) == STEPS_PER_CYCLE_BREAK
-        assert replay(steps, occupied) == {p("a"), p("b")}
-
-    def test_three_cycle_uses_one_temp(self) -> None:
-        moves = {p("a"): p("b"), p("b"): p("c"), p("c"): p("a")}
-        occupied = {p("a"), p("b"), p("c")}
-        steps = order_moves(moves, occupied)
-
-        assert sum(1 for s in steps if s.is_temp) == STEPS_PER_CYCLE_BREAK
-        assert replay(steps, occupied) == {p("a"), p("b"), p("c")}
-
-    def test_chain_feeding_a_cycle(self) -> None:
-        # d->a joins a 3-cycle a->b->c->a. The chain cannot move until the cycle
-        # breaks, so this only works if the cycle is handled first.
-        moves = {p("a"): p("b"), p("b"): p("c"), p("c"): p("a"), p("d"): p("e")}
-        occupied = {p("a"), p("b"), p("c"), p("d")}
-        steps = order_moves(moves, occupied)
-
-        assert replay(steps, occupied) == {p("a"), p("b"), p("c"), p("e")}
-
-    def test_disjoint_components(self) -> None:
-        moves = {p("a"): p("b"), p("x"): p("y"), p("m"): p("n"), p("n"): p("o")}
-        occupied = {p("a"), p("x"), p("m"), p("n")}
-        steps = order_moves(moves, occupied)
-
-        assert replay(steps, occupied) == {p("b"), p("y"), p("n"), p("o")}
+    def test_a_swap_is_rejected(self) -> None:
+        with pytest.raises(RenameConflictError, match="already exists"):
+            order_moves({p("a"): p("b"), p("b"): p("a")}, {p("a"), p("b")})
 
     def test_move_onto_an_untouched_occupant_is_rejected(self) -> None:
         # "b" exists and is not itself being moved, so nothing can ever vacate it.
-        with pytest.raises(RenameConflictError, match="not being moved"):
+        with pytest.raises(RenameConflictError, match="already exists"):
             order_moves({p("a"): p("b")}, {p("a"), p("b")})
 
     def test_duplicate_destinations_are_rejected(self) -> None:
@@ -143,32 +95,21 @@ class TestOrderMoves:
 
     def test_ordering_is_deterministic(self) -> None:
         # A dry run and the subsequent apply must print identically.
-        moves = {p(f"{i:03d}"): p(f"{i + 2:03d}") for i in range(1, 40)}
+        moves = {p(f"{i:03d} Title {i}"): p(f"{i + 2:03d} Title {i}") for i in range(1, 40)}
         occupied = set(moves)
 
-        assert order_moves(moves, occupied) == order_moves(moves, occupied)
+        steps = order_moves(moves, occupied)
 
-    @pytest.mark.parametrize("seed", range(25))
-    def test_random_permutation_never_clobbers(self, seed: int) -> None:
-        """Any permutation must replay safely and land exactly on the targets."""
-        rng = random.Random(seed)
-        names = [p(f"{i:03d}") for i in range(rng.randint(2, 30))]
-        shuffled = names[:]
-        rng.shuffle(shuffled)
+        assert steps == order_moves(dict(reversed(moves.items())), occupied)
+        assert [step.src for step in steps] == sorted(moves)
 
-        moves = {src: dst for src, dst in zip(names, shuffled, strict=True) if src != dst}
-        occupied = set(names)
+    def test_a_whole_renumbering_never_lands_on_a_live_path(self) -> None:
+        # Every title shifts down one - the shape inserting a title produces. Each
+        # destination carries its own title, so none is another title's source.
+        moves = {p(f"{i:03d} Title {i}"): p(f"{i - 1:03d} Title {i}") for i in range(2, 40)}
+        occupied = set(moves)
 
-        # replay() asserts no step ever clobbers or moves a missing source.
-        assert replay(order_moves(moves, occupied), occupied) == set(names)
-
-    def test_temp_path_encodes_its_destination(self) -> None:
-        # This is what makes an interrupted run recoverable without a journal.
-        tmp = temp_path_for(p("212 Foo Bar.cbz"))
-
-        assert tmp.parent == p("212 Foo Bar.cbz").parent
-        assert tmp.name.endswith(TEMP_SUFFIX)
-        assert tmp.name[: -len(TEMP_SUFFIX)] == "212 Foo Bar.cbz"
+        assert replay(order_moves(moves, occupied), occupied) == set(moves.values())
 
 
 class TestMatchKeys:

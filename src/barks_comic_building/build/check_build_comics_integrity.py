@@ -66,10 +66,9 @@ def main(  # noqa: PLR0913
         sys.exit(checker.check_censorship_fixes_csv())
 
     if fix_names and (volumes_str or title_str):
-        # The renames form a permutation over the whole namespace. A filtered subset
-        # is not a permutation: the artifact blocking a rename may sit outside the
-        # filter, so the ordering could not be completed. Reject it up front rather
-        # than failing obscurely half-way through.
+        # The fix matches every artifact on disk against every configured title, and
+        # reports what matches nothing. Against a filtered subset of titles, every
+        # other title's artifacts would be orphans. Reject it up front.
         msg = (
             "Option --fix-names works on the whole tree, so it cannot be combined"
             " with --volume or --title."

@@ -37,6 +37,7 @@ from barks_comic_building.build.artifact_renaming import (
     apply_rename_plan,
     build_rename_plan,
     recover_interrupted_renames,
+    run_artifact_rename_fix,
     scan_actual_artifacts,
 )
 from barks_comic_building.build.zipping import relative_symlink
@@ -190,6 +191,56 @@ class TestRecoveringAnInterruptedRun:
     @pytest.mark.usefixtures("chrono_roots")
     def test_a_clean_tree_recovers_nothing(self) -> None:
         assert recover_interrupted_renames(apply=True) == []
+
+
+class TestALeftoverWhoseDestinationIsStillOccupied:
+    """A cycle killed before its last step, finished in the run that finds it.
+
+    The leftover's destination is held by an artifact with its own rename still to make.
+    Recovery ran only before the plan, so it refused the leftover, the plan moved the
+    occupant, and it took another run - which first called the leftover's title unbuilt -
+    to finish the job.
+    """
+
+    def test_it_is_recovered_once_the_plan_has_moved_the_occupant(
+        self, chrono_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dirs_root, _zips_root = chrono_roots
+        leftover = touch(dirs_root / f"212 A Title{TEMP_SUFFIX}")
+        occupant = touch(dirs_root / "212 A Title")
+        moved_to = dirs_root / "300 Another Title"
+        plans = [RenamePlan(dest_dir_steps=[RenameStep(occupant, moved_to)]), RenamePlan()]
+        monkeypatch.setattr(artifact_renaming, "build_rename_plan", lambda _db: plans.pop(0))
+
+        ret_code = run_artifact_rename_fix(cast("ComicsDatabase", object()), apply=True)
+
+        assert ret_code == 0
+        assert moved_to.exists()
+        assert (dirs_root / "212 A Title").exists()
+        assert not leftover.exists()
+        assert plans == [], "what was recovered is planned again"
+
+    def test_one_that_still_cannot_be_recovered_fails_the_fix(
+        self, chrono_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dirs_root, _zips_root = chrono_roots
+        leftover = touch(dirs_root / f"212 A Title{TEMP_SUFFIX}")
+        touch(dirs_root / "212 A Title")
+        monkeypatch.setattr(artifact_renaming, "build_rename_plan", lambda _db: RenamePlan())
+
+        assert run_artifact_rename_fix(cast("ComicsDatabase", object()), apply=True) == 1
+        assert leftover.exists()
+
+    def test_a_dry_run_leaves_it_and_does_not_call_the_tree_clean(
+        self, chrono_roots: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dirs_root, _zips_root = chrono_roots
+        leftover = touch(dirs_root / f"212 A Title{TEMP_SUFFIX}")
+        touch(dirs_root / "212 A Title")
+        monkeypatch.setattr(artifact_renaming, "build_rename_plan", lambda _db: RenamePlan())
+
+        assert run_artifact_rename_fix(cast("ComicsDatabase", object()), apply=False) == 1
+        assert leftover.exists()
 
 
 class TestTheDryRunChangesNothing:

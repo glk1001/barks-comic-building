@@ -685,6 +685,16 @@ def _safe_rename(src: Path, dst: Path) -> None:
     os.rename(src, dst)  # noqa: PTH104
 
 
+def _interrupted_renames() -> list[Path]:
+    """Return every temp file an interrupted run has left in the two rename roots."""
+    return [
+        entry
+        for root in (THE_CHRONOLOGICAL_DIRS_DIR, THE_CHRONOLOGICAL_DIR)
+        for entry in _iter_visible(root)
+        if entry.name.endswith(TEMP_SUFFIX)
+    ]
+
+
 def recover_interrupted_renames(*, apply: bool) -> list[Path]:
     """Complete any rename left half-done by an interrupted run.
 
@@ -702,23 +712,22 @@ def recover_interrupted_renames(*, apply: bool) -> list[Path]:
     """
     recovered: list[Path] = []
 
-    for root in (THE_CHRONOLOGICAL_DIRS_DIR, THE_CHRONOLOGICAL_DIR):
-        for entry in _iter_visible(root):
-            if not entry.name.endswith(TEMP_SUFFIX):
-                continue
+    for entry in _interrupted_renames():
+        final = entry.with_name(entry.name[: -len(TEMP_SUFFIX)])
+        if final.exists() or final.is_symlink():
+            # A cycle killed before its last step: the artifact still at `final` has
+            # its own rename to make first. `run_artifact_rename_fix` comes back for
+            # this one once the plan has run.
+            print(
+                f'Interrupted rename "{get_relpath(entry)}" cannot be completed yet:'
+                f' "{get_relpath(final)}" is still in place.',
+            )
+            continue
 
-            final = entry.with_name(entry.name[: -len(TEMP_SUFFIX)])
-            if final.exists() or final.is_symlink():
-                print(
-                    f"{ERROR_MSG_PREFIX}Cannot recover interrupted rename"
-                    f' "{get_relpath(entry)}": "{get_relpath(final)}" already exists.',
-                )
-                continue
-
-            recovered.append(entry)
-            print(f'Recovering interrupted rename: "{entry.name}" -> "{final.name}".')
-            if apply:
-                _safe_rename(entry, final)
+        recovered.append(entry)
+        print(f'Recovering interrupted rename: "{entry.name}" -> "{final.name}".')
+        if apply:
+            _safe_rename(entry, final)
 
     return recovered
 
@@ -893,4 +902,25 @@ def run_artifact_rename_fix(comics_db: ComicsDatabase, *, apply: bool) -> int:
 
     recover_interrupted_renames(apply=apply)
 
-    return apply_rename_plan(build_rename_plan(comics_db), apply=apply)
+    ret_code = apply_rename_plan(build_rename_plan(comics_db), apply=apply)
+
+    # A leftover whose destination was occupied can only be finished after the plan has
+    # moved the occupant away. Without this second pass that took two more runs, the
+    # first of which reported the leftover's title as needing a rebuild. Whatever is
+    # recovered here was planned around as missing, so it is planned again.
+    if apply and ret_code == 0 and recover_interrupted_renames(apply=True):
+        ret_code = apply_rename_plan(build_rename_plan(comics_db), apply=True)
+
+    # Any leftover still here means the tree is not clean, whatever the plan said: an
+    # apply could not finish it, or a dry run has left it for the apply.
+    leftovers = _interrupted_renames()
+    if leftovers:
+        if apply:
+            print(f"\n{ERROR_MSG_PREFIX}Interrupted renames that could not be completed:")
+        else:
+            print("\nInterrupted renames waiting for --fix-names --apply:")
+        for leftover in leftovers:
+            print(f'  "{get_relpath(leftover)}"')
+        ret_code = 1
+
+    return ret_code

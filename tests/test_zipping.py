@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from barks_comic_building.build import zipping
 from barks_comic_building.build.zipping import (
     create_symlink_zip,
     create_symlinks_to_comic_zip,
@@ -209,6 +210,37 @@ class TestCreatingTheSymlinks:
         create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
 
         assert symlink.resolve() == comic.zip_file.resolve()
+
+    def test_a_link_that_cannot_be_remade_is_left_as_it_was(
+        self, comic: FakeComic, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The old link used to be unlinked first, so a failure here left the comic with
+        # no link at all.
+        zip_comic_book(as_comic(comic))
+        symlink = comic.get_dest_series_comic_zip_symlink()
+        old_target = touch(comic.dest_dir / "previous.cbz")
+        symlink.parent.mkdir(parents=True, exist_ok=True)
+        symlink.symlink_to(old_target)
+
+        def fail(_target: Path, _destination: Path) -> None:
+            msg = "no space left on device"
+            raise OSError(msg)
+
+        monkeypatch.setattr(zipping, "relative_symlink", fail)
+
+        with pytest.raises(OSError, match="no space left"):
+            create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
+
+        assert symlink.resolve() == old_target.resolve()
+
+    def test_replacing_a_link_leaves_nothing_else_in_its_directory(self, comic: FakeComic) -> None:
+        zip_comic_book(as_comic(comic))
+        symlink = comic.get_dest_series_comic_zip_symlink()
+
+        create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
+        create_symlink_zip(comic.zip_file, comic.series_dir, symlink)
+
+        assert list(comic.series_dir.iterdir()) == [symlink]
 
     def test_the_symlink_directory_is_created_if_it_is_not_there(self, comic: FakeComic) -> None:
         zip_comic_book(as_comic(comic))

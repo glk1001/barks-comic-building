@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from barks_fantagraphics.comic_book import ComicBook
 
 
+TEMP_LINK_SUFFIX = ".new-link"
+
+
 def zip_comic_book(comic: ComicBook) -> None:
     logger.info(
         f'Zipping directory "{get_relpath(comic.get_dest_dir())}" to'
@@ -59,10 +62,17 @@ def create_symlink_zip(zip_file: Path, symlink_dir: Path, symlink: Path) -> None
 
     if not symlink_dir.is_dir():
         symlink_dir.mkdir(parents=True, exist_ok=True)
-    if symlink.is_symlink():
-        symlink.unlink()
 
-    relative_symlink(zip_file, symlink)
+    # Made beside the link under a temporary name and then renamed over it, which
+    # replaces the old link in one step. Unlinking first left a window - a failed
+    # `symlink`, or a kill - in which the comic had no link at all, and the rename fix
+    # runs this over the whole library. The temporary name is a dotfile, so a leftover
+    # is not mistaken for a comic by anything that scans these directories.
+    temp_symlink = symlink.with_name(f".{symlink.name}{TEMP_LINK_SUFFIX}")
+    temp_symlink.unlink(missing_ok=True)
+    relative_symlink(zip_file, temp_symlink)
+    temp_symlink.replace(symlink)
+
     if not symlink.is_symlink():
         msg = f'Could not create symlink "{symlink}".'
         raise RuntimeError(msg)

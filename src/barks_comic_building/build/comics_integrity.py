@@ -82,7 +82,11 @@ from barks_comic_building.build.collection_sources import (
     original_scan_source,
     upscayled_scan_source,
 )
-from barks_comic_building.build.collection_staging import is_staged_copy, original_scan_slot
+from barks_comic_building.build.collection_staging import (
+    derived_image_slots,
+    is_staged_copy,
+    original_scan_slot,
+)
 from barks_comic_building.build.stage_covers import (
     get_staged_links_by_title as get_cover_staged_links,
 )
@@ -156,6 +160,44 @@ TITLES_WITHOUT_INSETS = frozenset(NON_COMIC_TITLES) | frozenset(SYNTHETIC_TITLES
 def _as_str(timestamp: float) -> str:
     """Render a timestamp for a finding, in the one format every finding uses."""
     return get_timestamp_as_str(timestamp, *TIMESTAMP_SEPS)
+
+
+# What a zip or a symlink is stale against when it is the newest dest file, which is
+# named by its timestamp alone.
+_MAX_DEST_REFERENCE = "the max dest file timestamp:"
+
+
+def _stale_artifact_msg(  # noqa: PLR0913
+    title: str,
+    what: str,
+    path: Path | None,
+    reference: str,
+    timestamp: float,
+    reference_timestamp: float,
+) -> str:
+    """Describe a built artifact that is older than something it was built from.
+
+    The one layout for the zip and both its symlinks, against the source and against the
+    dest. It was written out four times, each a chance for one to drift from the rest.
+
+    Args:
+        title: The title the artifact belongs to.
+        what: What the artifact is - "zip file", "series symlink".
+        path: The artifact.
+        reference: What it is older than, as the rest of "is out of date with ...".
+        timestamp: The artifact's timestamp.
+        reference_timestamp: The timestamp it should not be older than.
+
+    Returns:
+        The multi-line message.
+
+    """
+    return (
+        f'{ERROR_MSG_PREFIX}For "{title}", the {what}\n'
+        f'{BLANK_ERR_MSG_PREFIX}"{path}"\n'
+        f"{BLANK_ERR_MSG_PREFIX}is out of date with {reference}\n"
+        f"{BLANK_ERR_MSG_PREFIX}'{_as_str(timestamp)}' < '{_as_str(reference_timestamp)}'."
+    )
 
 
 class AddedFixesFault(StrEnum):
@@ -1260,8 +1302,8 @@ def _content_checked_files(links: list[tuple[Path, Path]]) -> list[Path]:
     """Return a member's real upscayled and restored files - the ones held to its scan.
 
     Only real files: a link's picture is its target's, and where a link points is graded
-    on its own. Only the plain ``.png`` slots: the ``.svg.png`` is line art, which matches
-    its scan too loosely to judge by, and the svg and the segments json are not pictures.
+    on its own. Which slots those are is `derived_image_slots`' to say; the ``.svg.png``
+    it leaves out is line art, which matches its scan too loosely to judge by.
 
     Args:
         links: One member's `(link, source)` candidates.
@@ -1270,17 +1312,7 @@ def _content_checked_files(links: list[tuple[Path, Path]]) -> list[Path]:
         The member's real image files other than its scan, in candidate order.
 
     """
-    scan_slot = original_scan_slot(links)
-
-    return [
-        link
-        for link, _source in links
-        if link != scan_slot
-        and link.suffix == PNG_FILE_EXT
-        and not link.name.endswith(SVG_FILE_EXT + PNG_FILE_EXT)
-        and link.exists()
-        and not link.is_symlink()
-    ]
+    return [link for link in derived_image_slots(links) if link.exists() and not link.is_symlink()]
 
 
 def _scan_thumbnails(
@@ -3326,23 +3358,29 @@ class ComicsIntegrityChecker:
                 f' the year symlink "{errors.year_zip_symlink_errors.symlink}" is missing.',
             )
 
-        if errors.zip_errors.out_of_date_wrt_srce and errors.max_srce is not None:
+        zip_errors = errors.zip_errors
+        if zip_errors.out_of_date_wrt_srce and errors.max_srce is not None:
             print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the zip file\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the srce file"
-                f' "{errors.max_srce.file}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}'{_as_str(errors.zip_errors.timestamp)}'"
-                f" < '{_as_str(errors.max_srce.timestamp)}'.",
+                _stale_artifact_msg(
+                    errors.title,
+                    "zip file",
+                    zip_errors.file,
+                    f'the srce file "{errors.max_srce.file}"',
+                    zip_errors.timestamp,
+                    errors.max_srce.timestamp,
+                )
             )
 
-        if errors.zip_errors.out_of_date_wrt_dest and errors.max_dest is not None:
+        if zip_errors.out_of_date_wrt_dest and errors.max_dest is not None:
             print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the zip file\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the max dest file timestamp:\n"
-                f"{BLANK_ERR_MSG_PREFIX}'{_as_str(errors.zip_errors.timestamp)}'"
-                f" < '{_as_str(errors.max_dest.timestamp)}'.",
+                _stale_artifact_msg(
+                    errors.title,
+                    "zip file",
+                    zip_errors.file,
+                    _MAX_DEST_REFERENCE,
+                    zip_errors.timestamp,
+                    errors.max_dest.timestamp,
+                )
             )
 
         self.print_symlink_findings(errors, "series", errors.series_zip_symlink_errors)
@@ -3368,21 +3406,26 @@ class ComicsIntegrityChecker:
         """
         if symlink_errors.out_of_date_wrt_zip:
             print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the {which} symlink\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{symlink_errors.symlink}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the zip file\n"
-                f'{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}":\n'
-                f"{BLANK_ERR_MSG_PREFIX}'{_as_str(symlink_errors.timestamp)}'"
-                f" < '{_as_str(errors.zip_errors.timestamp)}'.",
+                _stale_artifact_msg(
+                    errors.title,
+                    f"{which} symlink",
+                    symlink_errors.symlink,
+                    f'the zip file\n{BLANK_ERR_MSG_PREFIX}"{errors.zip_errors.file}":',
+                    symlink_errors.timestamp,
+                    errors.zip_errors.timestamp,
+                )
             )
 
         if symlink_errors.out_of_date_wrt_dest and errors.max_dest is not None:
             print(
-                f'{ERROR_MSG_PREFIX}For "{errors.title}", the {which} symlink\n'
-                f'{BLANK_ERR_MSG_PREFIX}"{symlink_errors.symlink}"\n'
-                f"{BLANK_ERR_MSG_PREFIX}is out of date with the max dest file timestamp:\n"
-                f"{BLANK_ERR_MSG_PREFIX}'{_as_str(symlink_errors.timestamp)}'"
-                f" < '{_as_str(errors.max_dest.timestamp)}'.",
+                _stale_artifact_msg(
+                    errors.title,
+                    f"{which} symlink",
+                    symlink_errors.symlink,
+                    _MAX_DEST_REFERENCE,
+                    symlink_errors.timestamp,
+                    errors.max_dest.timestamp,
+                )
             )
 
     @staticmethod

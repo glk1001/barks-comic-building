@@ -38,6 +38,7 @@ from barks_fantagraphics.page_classes import CleanPage, ComicDimensions, Require
 from barks_fantagraphics.panel_geometry import BoundingBox
 
 from barks_comic_building.build.additional_file_writing import (
+    get_dimension_params,
     get_page_counts,
     write_dest_panels_bboxes,
     write_json_metadata,
@@ -88,6 +89,9 @@ REQUIRED_DIM = RequiredDimensions(
 BBOX = (10, 20, 30, 40)
 
 SUBMITTED_YEAR = 1948
+
+# The column the summary file pads its labels to.
+SUMMARY_LABEL_WIDTH = 24
 
 # An mtime far in the future, for the touched-but-unedited case.
 FUTURE = 2_000_000_000.0
@@ -477,3 +481,27 @@ class TestTheReadme:
 
         assert "A Fake Title" in text
         assert comic.ini_file.name in text
+
+
+class TestTheDimensionParams:
+    """The one list the build log and the summary file both report."""
+
+    def test_the_calculated_height_scales_the_average_box_to_the_required_width(self) -> None:
+        params = dict(get_dimension_params(SRCE_DIM, REQUIRED_DIM))
+
+        # 1500 high at 1100 wide, scaled to 1600 wide.
+        assert params["calc panels bbox height"] == str(round(1500 * 1600 / 1100))
+
+    def test_the_source_and_required_boxes_are_all_reported(self) -> None:
+        params = dict(get_dimension_params(SRCE_DIM, REQUIRED_DIM))
+
+        assert params["srce min panels bbox wid"] == "1000"
+        assert params["srce max panels bbox_hgt"] == "1600"
+        assert params["req panels bbox width"] == "1600"
+        assert params["page num y bottom"] == "2300"
+
+    def test_every_label_fits_the_summary_files_column(self) -> None:
+        # The summary pads its labels so that the "=" signs line up.
+        labels = [label for label, _ in get_dimension_params(SRCE_DIM, REQUIRED_DIM)]
+
+        assert all(len(label) <= SUMMARY_LABEL_WIDTH for label in labels)

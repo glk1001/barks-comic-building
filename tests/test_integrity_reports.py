@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from barks_comic_building.build.comics_integrity import ComicsIntegrityChecker
+from barks_comic_building.build.comics_integrity import (
+    ComicsIntegrityChecker,
+    _stale_artifact_msg,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -151,3 +154,23 @@ class TestOneRunShowsEveryFaultOfATitle:
         checker, _ran = recording_checker(monkeypatch, structure=0, attributes=1)
 
         assert checker.check_single_title("A Title") == 1
+
+
+class TestTheStaleArtifactMessage:
+    def test_it_names_the_title_the_artifact_and_what_it_is_older_than(
+        self, tmp_path: Path
+    ) -> None:
+        msg = _stale_artifact_msg(
+            "A Title", "zip file", tmp_path / "a.cbz", 'the srce file "b.png"', 100.0, 200.0
+        )
+
+        lines = msg.split("\n")
+        assert lines[0] == 'ERROR: For "A Title", the zip file'
+        assert lines[1].strip() == f'"{tmp_path / "a.cbz"}"'
+        assert lines[2].strip() == 'is out of date with the srce file "b.png"'
+        assert " < " in lines[3]
+
+    def test_continuation_lines_are_indented_to_the_prefix(self, tmp_path: Path) -> None:
+        msg = _stale_artifact_msg("A Title", "year symlink", tmp_path / "a", "x", 1.0, 2.0)
+
+        assert all(line.startswith(" " * len("ERROR: ")) for line in msg.split("\n")[1:])

@@ -23,7 +23,7 @@ import filecmp
 import shutil
 from typing import TYPE_CHECKING
 
-from comic_utils.comic_consts import PNG_FILE_EXT
+from comic_utils.comic_consts import PNG_FILE_EXT, SVG_FILE_EXT
 from loguru import logger
 
 from barks_comic_building.build.collection_sources import (
@@ -126,6 +126,36 @@ def original_scan_slot(links: Sequence[tuple[Path, Path]]) -> Path | None:
     return link
 
 
+def derived_image_slots(links: Sequence[tuple[Path, Path]]) -> list[Path]:
+    """Return a member's upscayled and restored slots - its pictures other than the scan.
+
+    The other half of what `original_scan_slot` says: a candidate carries no label, so
+    which artifact a slot holds is read off its position and its name, and both readings
+    live here, beside the functions that build the candidates, rather than in whatever
+    module needs to know. These are the plain ``.png`` slots after the scan. The
+    ``.svg.png`` is line art and the svg and the segments json are not pictures.
+
+    A stager that adds another plain ``.png`` artifact changes what this returns, and
+    must say here whether that artifact belongs.
+
+    Args:
+        links: One member's ``(link, source)`` candidates, in stager order.
+
+    Returns:
+        The slots, in candidate order, whether or not anything is staged in them.
+
+    """
+    scan_slot = original_scan_slot(links)
+
+    return [
+        link
+        for link, _source in links
+        if link != scan_slot
+        and link.suffix == PNG_FILE_EXT
+        and not link.name.endswith(SVG_FILE_EXT + PNG_FILE_EXT)
+    ]
+
+
 def missing_volume_dirs(
     comics_database: ComicsDatabase, members: Sequence[Member]
 ) -> list[tuple[int, Path]]:
@@ -147,6 +177,40 @@ def missing_volume_dirs(
             missing[volume] = image_dir
 
     return sorted(missing.items())
+
+
+def report_missing_volumes(
+    comics_database: ComicsDatabase, members: Sequence[Member], *, noun: str, consequence: str
+) -> bool:
+    """Log every volume the members need that is not on disk, and say whether any is.
+
+    The guard both stagers run before staging, and only before staging: ``--remove``
+    must still clean up after a volume goes missing. It was written out in each stager's
+    command, differing only in what a missing volume costs that collection.
+
+    Args:
+        comics_database: The database supplying the volume directory paths.
+        members: The located members whose volumes must be reachable.
+        noun: What one member is called.
+        consequence: What staging anyway would do, as the rest of a sentence.
+
+    Returns:
+        True if a volume is missing, so the caller must not stage.
+
+    """
+    missing = missing_volume_dirs(comics_database, members)
+    if not missing:
+        return False
+
+    for volume, image_dir in missing:
+        logger.error(f'Volume {volume} original image dir not found: "{image_dir}".')
+    logger.error(
+        f"A located {noun} points at a volume that is not on disk, {consequence}"
+        " Check each volume's VOLUME_nn constant in fanta_comics_info.py names its actual"
+        f' directory in the "{comics_database.get_fantagraphics_original_root_dir()}" tree.'
+    )
+
+    return True
 
 
 def original_scan_candidate(

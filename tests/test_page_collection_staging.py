@@ -40,7 +40,11 @@ from barks_comic_building.build.collection_sources import (
     original_scan_source,
     superseded_links,
 )
-from barks_comic_building.build.collection_staging import original_scan_slot
+from barks_comic_building.build.collection_staging import (
+    derived_image_slots,
+    original_scan_slot,
+    report_missing_volumes,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -71,6 +75,9 @@ class FakeComicsDatabase:
 
     def _volume_images(self, tree: str, volume: int) -> Path:
         return self._root / tree / f"volume-{volume:02d}" / IMAGES_SUBDIR
+
+    def get_fantagraphics_original_root_dir(self) -> Path:
+        return self._root / "original"
 
     def get_fantagraphics_volume_image_dir(self, volume_num: int) -> Path:
         return self._volume_images("original", volume_num)
@@ -988,6 +995,90 @@ class TestACopiedSlotWhoseSourceIsNotThere:
         stage_covers.stage(as_database(database), remove=False, copy=True)
 
         assert second_slot.read_text() == "upscayled in the collection"
+
+
+class TestACurrentCopyIsLeftAlone:
+    def test_recopying_an_unchanged_source_does_not_rewrite_the_slot(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # Every run used to rewrite every copy, upscayled pngs included.
+        link, _source = TestStagingCoversByCopy._first_cover_link_and_source(database)  # noqa: SLF001
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+        inode = link.stat().st_ino
+
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+
+        assert link.stat().st_ino == inode
+
+    def test_a_changed_source_is_copied_again(self, database: FakeComicsDatabase) -> None:
+        link, source = TestStagingCoversByCopy._first_cover_link_and_source(database)  # noqa: SLF001
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+        source.write_text("a corrected scan")
+
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+
+        assert link.read_text() == "a corrected scan"
+
+    def test_a_link_is_not_what_copy_asked_for(self, database: FakeComicsDatabase) -> None:
+        link, _source = TestStagingCoversByCopy._first_cover_link_and_source(database)  # noqa: SLF001
+        stage_covers.stage(as_database(database), remove=False, copy=False)
+        assert link.is_symlink()
+
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+
+        assert link.is_file()
+        assert not link.is_symlink()
+
+
+class TestTheMissingVolumeGuard:
+    """Both stagers refuse to stage when a located member's volume is not on disk."""
+
+    def test_a_missing_volume_is_reported(self, database: FakeComicsDatabase) -> None:
+        members = [(get_located_one_pagers()[0], 3, 10)]
+
+        assert report_missing_volumes(
+            as_database(database), members, noun="one-pager", consequence="so nothing stages."
+        )
+
+    def test_volumes_that_are_all_there_pass(self, database: FakeComicsDatabase) -> None:
+        database.get_fantagraphics_volume_image_dir(3).mkdir(parents=True)
+        members = [(get_located_one_pagers()[0], 3, 10)]
+
+        assert not report_missing_volumes(
+            as_database(database), members, noun="one-pager", consequence="so nothing stages."
+        )
+
+
+class TestWhichSlotsArePictures:
+    def test_a_one_pagers_derived_pictures_are_its_upscayl_and_its_restore(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        links = stage_one_pagers.get_staged_links_by_title(as_database(database))[
+            get_located_one_pagers()[0]
+        ]
+
+        slots = derived_image_slots(links)
+
+        assert [slot.parent.parent.parent.name for slot in slots] == ["upscayled", "restored"]
+        assert all(slot.suffix == PNG for slot in slots)
+
+    def test_a_png_scan_slot_is_not_one_of_them(self, database: FakeComicsDatabase) -> None:
+        # The scan slot takes its source's extension, so a png fix makes it a `.png` too -
+        # which is why it is told apart by position and not by suffix.
+        title = get_located_one_pagers()[0]
+        volume, page, _issue_page = ONE_PAGER_LOCATIONS[title]
+        touch(database.get_fantagraphics_fixes_volume_image_dir(volume) / f"{page:03d}{PNG}")
+        links = stage_one_pagers.get_staged_links_by_title(as_database(database))[title]
+        assert links[0][0].suffix == PNG
+
+        assert links[0][0] not in derived_image_slots(links)
+
+    def test_a_cover_has_one(self, database: FakeComicsDatabase) -> None:
+        links = stage_covers.get_staged_links_by_title(as_database(database))[
+            get_cover_title(get_located_covers()[0])
+        ]
+
+        assert derived_image_slots(links) == [links[1][0]]
 
 
 class TestTheCollectionsOwnFilesAreNeverStagedOver:

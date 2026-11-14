@@ -50,6 +50,48 @@ from comic_utils.sys_utils import get_hash_str
 from comic_utils.timing import Timing
 
 
+def get_dimension_params(
+    srce_dim: ComicDimensions, required_dim: RequiredDimensions
+) -> list[tuple[str, str]]:
+    """Return the dimensions a build worked to, as ``(label, value)`` pairs.
+
+    The dest constants, the source panel boxes measured across the comic, and what they
+    required of each page. Listed once here for the build log and the summary file, which
+    each used to list all of them and each recompute the calculated height.
+
+    Args:
+        srce_dim: The source panel box dimensions measured across the comic.
+        required_dim: The dest panel box every page is fitted to.
+
+    Returns:
+        The pairs, in the order they are reported.
+
+    """
+    calc_panels_bbox_height = round(
+        (srce_dim.av_panels_bbox_height * required_dim.panels_bbox_width)
+        / srce_dim.av_panels_bbox_width,
+    )
+
+    return [
+        ("DEST_TARGET_X_MARGIN", str(DEST_TARGET_X_MARGIN)),
+        ("DEST_TARGET_WIDTH", str(DEST_TARGET_WIDTH)),
+        ("DEST_TARGET_HEIGHT", str(DEST_TARGET_HEIGHT)),
+        ("DEST_TARGET_ASPECT_RATIO", f"{DEST_TARGET_ASPECT_RATIO:.2f}"),
+        ("DEST_JPG_QUALITY", str(DEST_JPG_QUALITY)),
+        ("DEST_JPG_COMPRESS_LEVEL", str(DEST_JPG_COMPRESS_LEVEL)),
+        ("srce min panels bbox wid", str(srce_dim.min_panels_bbox_width)),
+        ("srce max panels bbox wid", str(srce_dim.max_panels_bbox_width)),
+        ("srce av panels bbox wid", str(srce_dim.av_panels_bbox_width)),
+        ("srce min panels bbox hgt", str(srce_dim.min_panels_bbox_height)),
+        ("srce max panels bbox_hgt", str(srce_dim.max_panels_bbox_height)),
+        ("srce av panels bbox hgt", str(srce_dim.av_panels_bbox_height)),
+        ("req panels bbox width", str(required_dim.panels_bbox_width)),
+        ("req panels bbox height", str(required_dim.panels_bbox_height)),
+        ("calc panels bbox height", str(calc_panels_bbox_height)),
+        ("page num y bottom", str(required_dim.page_num_y_bottom)),
+    ]
+
+
 def write_summary_file(  # noqa: PLR0913, PLR0915
     comic: ComicBook,
     srce_dim: ComicDimensions,
@@ -59,11 +101,6 @@ def write_summary_file(  # noqa: PLR0913, PLR0915
     timing: Timing,
 ) -> None:
     summary_file = comic.get_dest_dir() / SUMMARY_FILENAME
-
-    calc_panels_bbox_height = round(
-        (srce_dim.av_panels_bbox_height * required_dim.panels_bbox_width)
-        / srce_dim.av_panels_bbox_width,
-    )
 
     series_symlink_timestamp = get_timestamp_str(comic.get_dest_series_comic_zip_symlink())
     year_symlink_timestamp = get_timestamp_str(comic.get_dest_year_comic_zip_symlink())
@@ -129,22 +166,10 @@ def write_summary_file(  # noqa: PLR0913, PLR0915
         f.write(f'intro inset file         = "{intro_inset_file}"\n')
         f.write(f"title font size          = {comic.title_font_size}\n")
         f.write(f"author font size         = {comic.author_font_size}\n")
-        f.write(f"DEST_TARGET_X_MARGIN     = {DEST_TARGET_X_MARGIN}\n")
-        f.write(f"DEST_TARGET_WIDTH        = {DEST_TARGET_WIDTH}\n")
-        f.write(f"DEST_TARGET_HEIGHT       = {DEST_TARGET_HEIGHT}\n")
-        f.write(f"DEST_TARGET_ASPECT_RATIO = {DEST_TARGET_ASPECT_RATIO:.2f}\n")
-        f.write(f"DEST_JPG_QUALITY         = {DEST_JPG_QUALITY}\n")
-        f.write(f"DEST_JPG_COMPRESS_LEVEL  = {DEST_JPG_COMPRESS_LEVEL}\n")
-        f.write(f"srce min panels bbox wid = {srce_dim.min_panels_bbox_width}\n")
-        f.write(f"srce max panels bbox wid = {srce_dim.max_panels_bbox_width}\n")
-        f.write(f"srce av panels bbox wid  = {srce_dim.av_panels_bbox_width}\n")
-        f.write(f"srce min panels bbox hgt = {srce_dim.min_panels_bbox_height}\n")
-        f.write(f"srce max panels bbox_hgt = {srce_dim.max_panels_bbox_height}\n")
-        f.write(f"srce av panels bbox hgt  = {srce_dim.av_panels_bbox_height}\n")
-        f.write(f"req panels bbox width    = {required_dim.panels_bbox_width}\n")
-        f.write(f"req panels bbox height   = {required_dim.panels_bbox_height}\n")
-        f.write(f"calc panels bbox height  = {calc_panels_bbox_height}\n")
-        f.write(f"page num y bottom        = {required_dim.page_num_y_bottom}\n")
+        f.writelines(
+            f"{label:<24} = {value}\n"
+            for label, value in get_dimension_params(srce_dim, required_dim)
+        )
         f.write("\n")
 
         f.write("Pages Config Summary:\n")

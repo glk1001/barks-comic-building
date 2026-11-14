@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from barks_fantagraphics.censorship_fixes import CENSORSHIP_FIXES_HEADER, CensorshipFixRow
+from barks_fantagraphics.printed_pages import get_printed_page
 from typer.testing import CliRunner
 
 from barks_comic_building.build import censorship_csv
@@ -19,6 +20,11 @@ from barks_comic_building.build.censorship_csv import (
     find_disagreements,
     render_csv,
     row_sort_key,
+)
+from barks_comic_building.build.comics_integrity import (
+    CensorshipRowFacts,
+    CensorshipRowFault,
+    classify_censorship_row,
 )
 
 FANTA_PAGE = CENSORSHIP_FIXES_HEADER.index("Fanta_page")
@@ -189,3 +195,63 @@ class TestTheCommand:
 
         assert self.run(csv_file) == 0
         assert csv_file.read_text(encoding="utf-8") == render_csv([row().as_cells()])
+
+
+class TestTheTwoRowChecksAgree:
+    """`barks-censorship-csv --check` and `barks-check-build` judge a row alike.
+
+    The rules for whether a row agrees with its story are written twice: once here as
+    cell-by-cell disagreements a rewrite can act on, once in the integrity check as a
+    single classified fault. They are different shapes for different jobs, so they are
+    not merged - but they had already drifted once, over a story that would not resolve,
+    and nothing held them together. Every shape of row is put to both.
+    """
+
+    ROWS = (
+        ("a correct row", row()),
+        ("a wrong volume", row(volume=17)),
+        ("a wrong image", row(image="041")),
+        ("a blank image", row(image="")),
+        ("a page the story does not have", row(image="", fanta_page="", comic_page="99")),
+        ("a wrong printed page", row(fanta_page="154")),
+        ("a blank printed page", row(fanta_page="")),
+        ("a whole-story row", row(image="", fanta_page="", comic_page="")),
+        (
+            "a cover row",
+            row(story=COVER_STORY, volume=6, image="213", fanta_page="208", comic_page=""),
+        ),
+        (
+            "a cover row with an image that is no cover",
+            row(story=COVER_STORY, volume=6, image="999", fanta_page="", comic_page=""),
+        ),
+        (
+            "a cover row with a wrong printed page",
+            row(story=COVER_STORY, volume=6, image="213", fanta_page="0", comic_page=""),
+        ),
+    )
+
+    @staticmethod
+    def integrity_fault(stored: CensorshipFixRow) -> CensorshipRowFault | None:
+        """Judge the row as `check_censorship_fixes_rows` does, from the same location."""
+        location = LOCATIONS[stored.story]
+
+        return classify_censorship_row(
+            CensorshipRowFacts(
+                stored_volume=stored.volume,
+                stored_image=stored.image,
+                stored_comic_page=stored.comic_page,
+                expected_volume=location.volume,
+                expected_image=location.images.get(stored.comic_page),
+                image_is_unnumbered_page=stored.image in location.unnumbered_images,
+                stored_fanta_page=stored.fanta_page,
+                expected_fanta_page=get_printed_page(stored.volume, stored.image) or "",
+            )
+        )
+
+    @pytest.mark.parametrize(("shape", "stored"), ROWS, ids=[shape for shape, _ in ROWS])
+    def test_a_row_is_faulted_by_both_or_by_neither(
+        self, shape: str, stored: CensorshipFixRow
+    ) -> None:
+        disagreements = find_disagreements([stored], build_rows([stored], LOCATIONS), LOCATIONS)
+
+        assert bool(disagreements) == (self.integrity_fault(stored) is not None), shape

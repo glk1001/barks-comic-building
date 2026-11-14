@@ -16,8 +16,6 @@ from barks_build_comic_images.consts import (
 )
 from barks_build_comic_images.image_io import open_image_for_reading
 from barks_fantagraphics.comics_consts import (
-    DEST_TARGET_ASPECT_RATIO,
-    DEST_TARGET_HEIGHT,
     DEST_TARGET_WIDTH,
     DEST_TARGET_X_MARGIN,
     PAGES_WITHOUT_PANELS,
@@ -40,6 +38,7 @@ from comic_utils.timing import Timing
 from loguru import logger
 
 from barks_comic_building.build.additional_file_writing import (
+    get_dimension_params,
     write_dest_panels_bboxes,
     write_json_metadata,
     write_metadata_file,
@@ -389,33 +388,14 @@ class ComicBookBuilder:
         assert self._srce_dim
         assert self._required_dim
 
-        calc_panels_bbox_height = round(
-            (self._srce_dim.av_panels_bbox_height * self._required_dim.panels_bbox_width)
-            / self._srce_dim.av_panels_bbox_width,
-        )
-
         # fmt: off
         logger.info(f'Comic book series:    "{self._comic.series_name}".')
         logger.info(f'Comic book title:     "{get_safe_title(self._comic.get_comic_title())}".')
         logger.info(f'Comic issue title:    "{self._comic.get_comic_issue_title()}".')
         logger.info(f"Number in series:     {self._comic.number_in_series}.")
         logger.info(f"Chronological number  {self._comic.chronological_number}.")
-        logger.info(f"Dest x margin:        {DEST_TARGET_X_MARGIN}.")
-        logger.info(f"Dest width:           {DEST_TARGET_WIDTH}.")
-        logger.info(f"Dest height:          {DEST_TARGET_HEIGHT}.")
-        logger.info(f"Dest aspect ratio:    {DEST_TARGET_ASPECT_RATIO :.2f}.")
-        logger.info(f"Dest jpeg quality:    {DEST_JPG_QUALITY}.")
-        logger.info(f"Dest compress level:  {DEST_JPG_COMPRESS_LEVEL}.")
-        logger.info(f"Srce min bbox wid:    {self._srce_dim.min_panels_bbox_width}.")
-        logger.info(f"Srce max bbox wid:    {self._srce_dim.max_panels_bbox_width}.")
-        logger.info(f"Srce min bbox hgt:    {self._srce_dim.min_panels_bbox_height}.")
-        logger.info(f"Srce max bbox hgt:    {self._srce_dim.max_panels_bbox_height}.")
-        logger.info(f"Srce av bbox wid:     {self._srce_dim.av_panels_bbox_width}.")
-        logger.info(f"Srce av bbox hgt:     {self._srce_dim.av_panels_bbox_height}.")
-        logger.info(f"Req panels bbox wid:  {self._required_dim.panels_bbox_width}.")
-        logger.info(f"Req panels bbox hgt:  {self._required_dim.panels_bbox_height}.")
-        logger.info(f"Calc panels bbox ht:  {calc_panels_bbox_height}.")
-        logger.info(f"Page num y bottom:    {self._required_dim.page_num_y_bottom}.")
+        for label, value in get_dimension_params(self._srce_dim, self._required_dim):
+            logger.info(f"{label + ':':<25} {value}.")
         logger.info(f'Ini file:             "{get_clean_path(self._comic.ini_file)}".')
         logger.info(f'Srce dir:             "{get_abbrev_path(self._comic.dirs.srce_dir)}".')
         logger.info(f'Srce upscayled dir:   "{get_abbrev_path(self._comic.dirs.srce_upscayled_dir)}".')

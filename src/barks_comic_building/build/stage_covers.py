@@ -56,7 +56,6 @@ from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comic_book_info import COVER_COLLECTION_VOLUME
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg  # noqa: TC002
-from loguru import logger
 
 from barks_comic_building.build import collection_staging
 from barks_comic_building.cli_setup import init_logging
@@ -211,21 +210,19 @@ def main(
     init_logging(APP_LOGGING_NAME, "stage-covers.log", log_level_str)
     comics_database = ComicsDatabase(for_building_comics=True)
 
-    # Checked here rather than in `stage` because it is a precondition of staging, not of
-    # working out the links: `--remove` must still clean up after a volume goes missing.
-    if not remove:
-        missing = missing_volume_dirs(comics_database)
-        if missing:
-            for volume, image_dir in missing:
-                logger.error(f'Volume {volume} original image dir not found: "{image_dir}".')
-            logger.error(
-                "A located cover points at a volume that is not on disk. Restaging now"
-                " would leave its pages attached to whichever covers held those page"
-                " numbers before. Check each volume's VOLUME_nn constant in"
-                " fanta_comics_info.py names its actual directory in the"
-                f' "{comics_database.get_fantagraphics_original_root_dir()}" tree.'
-            )
-            raise typer.Exit(1)
+    # A precondition of staging, not of working out the links - see
+    # `collection_staging.report_missing_volumes`. `missing_volume_dirs` says why a
+    # restage is worse than a no-op here.
+    if not remove and collection_staging.report_missing_volumes(
+        comics_database,
+        _located_members(),
+        noun=_NOUN,
+        consequence=(
+            "so restaging now would leave its pages attached to whichever covers held"
+            " those page numbers before."
+        ),
+    ):
+        raise typer.Exit(1)
 
     stage(comics_database, remove=remove, copy=copy)
 

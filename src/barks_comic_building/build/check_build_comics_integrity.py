@@ -97,9 +97,9 @@ def main(  # noqa: PLR0913
     )
 
     if exit_code != 0:
-        # A dry-run fix exits non-zero because the tree is still stale, but it found
-        # no errors of its own - it already said what it would do, so do not follow
-        # that with an error banner.
+        # A dry-run fix exits non-zero when the tree is stale, but that is not an error
+        # of its own - it already said what it would do, so do not follow that with an
+        # error banner.
         if not (fix_names and not apply):
             print(f"\nThere were errors: exit code = {exit_code}.")  # noqa: T201
         sys.exit(exit_code)

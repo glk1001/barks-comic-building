@@ -68,6 +68,23 @@ def create_symlink_zip(zip_file: Path, symlink_dir: Path, symlink: Path) -> None
         raise RuntimeError(msg)
 
 
+def relative_link_target(target: Path, destination: Path) -> Path:
+    """Return what a relative symlink at ``destination`` holds to point at ``target``.
+
+    The one place that path is worked out, so that a check of whether a link is already
+    right compares against exactly what `relative_symlink` would write.
+
+    Args:
+        target: The file the symlink points to.
+        destination: The location of the symlink itself.
+
+    Returns:
+        ``target``, relative to the symlink's own directory.
+
+    """
+    return target.relative_to(destination.parent, walk_up=True)
+
+
 def relative_symlink(target: Path, destination: Path) -> None:
     """Create a symlink pointing to ``target`` from ``location``.
 
@@ -79,7 +96,7 @@ def relative_symlink(target: Path, destination: Path) -> None:
     target_dir = destination.parent
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    relative_source = target.relative_to(target_dir, walk_up=True)
+    relative_source = relative_link_target(target, destination)
 
     logger.debug(f'"{relative_source}" -> "{destination.name}" in "{get_relpath(target_dir)}"')
     target_dir_fd = os.open(str(target_dir.absolute()), os.O_RDONLY)

@@ -38,6 +38,7 @@ from barks_comic_building.build.artifact_renaming import (
     recover_interrupted_renames,
     scan_actual_artifacts,
 )
+from barks_comic_building.build.zipping import relative_symlink
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -189,12 +190,18 @@ class TestRecoveringAnInterruptedRun:
 
 
 class TestTheDryRunChangesNothing:
-    def test_no_rename_happens_and_the_call_succeeds(self, tmp_path: Path) -> None:
+    """And its exit code says whether there was anything to change.
+
+    It used to be 0 here and then unconditionally 1 one level up, so a script could not
+    tell a stale tree from a clean one.
+    """
+
+    def test_no_rename_happens_and_the_pending_work_is_signalled(self, tmp_path: Path) -> None:
         src = touch(tmp_path / "dirs" / "001 A Title")
         dst = tmp_path / "dirs" / "212 A Title"
         plan = RenamePlan(dest_dir_steps=[RenameStep(src, dst)])
 
-        assert apply_rename_plan(plan, apply=False) == 0
+        assert apply_rename_plan(plan, apply=False) == 1
         assert src.exists()
         assert not dst.exists()
 
@@ -203,8 +210,30 @@ class TestTheDryRunChangesNothing:
         symlink = tmp_path / "series" / "Donald Duck" / "212 A Title.cbz"
         plan = RenamePlan(symlink_fixes=[SymlinkFix("A Title", zip_file, symlink.parent, symlink)])
 
-        assert apply_rename_plan(plan, apply=False) == 0
+        assert apply_rename_plan(plan, apply=False) == 1
         assert not symlink.exists()
+
+    def test_a_clean_tree_is_reported_as_clean(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert apply_rename_plan(RenamePlan(), apply=False) == 0
+        assert "Nothing to do." in capsys.readouterr().out
+
+
+class TestATitleThatDidNotLoadFailsTheFix:
+    """Its artifacts are matched to nothing, so "Done." with exit 0 was not true."""
+
+    def test_an_apply_does_the_rest_and_still_fails(self, tmp_path: Path) -> None:
+        src = touch(tmp_path / "zips" / "001 A Title.cbz")
+        dst = tmp_path / "zips" / "212 A Title.cbz"
+        plan = RenamePlan(zip_steps=[RenameStep(src, dst)], load_errors=['"Bad": ValueError'])
+
+        assert apply_rename_plan(plan, apply=True) == 1
+        assert dst.is_file()
+
+    def test_a_tree_with_nothing_else_to_do_still_fails(self) -> None:
+        plan = RenamePlan(load_errors=['"Bad": ValueError'])
+
+        assert apply_rename_plan(plan, apply=True) == 1
+        assert apply_rename_plan(plan, apply=False) == 1
 
 
 class TestApplyingThePlan:
@@ -470,6 +499,55 @@ class TestClassifyingSymlinks:
 
         assert symlink_fixes == []
         assert {f.disposition for f in fixes} == {Disposition.MISSING}
+
+    def test_a_symlink_already_right_is_left_alone(self, tmp_path: Path) -> None:
+        # Recreating these too meant no plan was ever empty.
+        artifacts = expected_for("A Title", tmp_path, 212)
+        touch(artifacts.zip_file)
+        for symlink in (artifacts.series_symlink, artifacts.year_symlink):
+            relative_symlink(artifacts.zip_file, symlink)
+        actual = ActualArtifacts(
+            zips={"A Title": artifacts.zip_file},
+            series_symlinks={"A Title": [artifacts.series_symlink]},
+            year_symlinks={"A Title": [artifacts.year_symlink]},
+        )
+        fixes: list[ArtifactFix] = []
+
+        assert _plan_symlinks({"A Title": artifacts}, actual, fixes) == []
+        assert {f.disposition for f in fixes} == {Disposition.OK}
+
+    def test_a_link_to_the_zips_old_name_is_recreated(self, tmp_path: Path) -> None:
+        # It still resolves today, because the zip has not been renamed yet - which is
+        # why the link's own text is compared rather than where it leads.
+        artifacts = expected_for("A Title", tmp_path, 212)
+        old_zip = touch(artifacts.zip_file.with_name("001 A Title.cbz"))
+        relative_symlink(old_zip, artifacts.series_symlink)
+        actual = ActualArtifacts(
+            zips={"A Title": old_zip}, series_symlinks={"A Title": [artifacts.series_symlink]}
+        )
+        fixes: list[ArtifactFix] = []
+
+        symlink_fixes = _plan_symlinks({"A Title": artifacts}, actual, fixes)
+
+        assert artifacts.series_symlink in {fix.symlink for fix in symlink_fixes}
+
+    def test_a_right_link_with_a_stale_copy_beside_it_is_still_fixed(self, tmp_path: Path) -> None:
+        artifacts = expected_for("A Title", tmp_path, 212)
+        touch(artifacts.zip_file)
+        relative_symlink(artifacts.zip_file, artifacts.series_symlink)
+        stale = artifacts.series_symlink.with_name("001 A Title.cbz")
+        relative_symlink(artifacts.zip_file, stale)
+        actual = ActualArtifacts(
+            zips={"A Title": artifacts.zip_file},
+            series_symlinks={"A Title": [stale, artifacts.series_symlink]},
+        )
+        fixes: list[ArtifactFix] = []
+
+        symlink_fixes = _plan_symlinks({"A Title": artifacts}, actual, fixes)
+
+        assert [fix.stale for fix in symlink_fixes if fix.symlink == artifacts.series_symlink] == [
+            (stale,)
+        ]
 
     def test_a_symlink_is_planned_for_every_built_zip(self, tmp_path: Path) -> None:
         artifacts = expected_for("A Title", tmp_path, 212)

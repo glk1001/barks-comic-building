@@ -41,7 +41,7 @@ from barks_fantagraphics.comics_utils import get_relpath
 from loguru import logger
 
 from barks_comic_building.build.utils import COMIC_LOAD_ERRORS, error_summary
-from barks_comic_building.build.zipping import create_symlink_zip
+from barks_comic_building.build.zipping import create_symlink_zip, relative_link_target
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -472,6 +472,16 @@ def _plan_renames(
     return order_moves(moves, occupied)
 
 
+def _symlink_is_current(symlink: Path, zip_file: Path) -> bool:
+    """Return whether ``symlink`` already holds exactly the link to ``zip_file``.
+
+    Compared as the link's own text against what `relative_symlink` would write, not by
+    resolving it: the zip may be about to be renamed, so a link to its old name still
+    resolves today and is still wrong.
+    """
+    return symlink.is_symlink() and symlink.readlink() == relative_link_target(zip_file, symlink)
+
+
 def _plan_symlinks(
     expected: Mapping[str, ExpectedArtifacts],
     actual: ActualArtifacts,
@@ -479,11 +489,15 @@ def _plan_symlinks(
 ) -> list[SymlinkFix]:
     """Plan symlink recreation for every title whose zip will exist.
 
-    Symlinks are recreated unconditionally rather than renamed. They are relative,
-    so renaming one preserves a now-wrong target; and `number_in_series` shifts
-    independently of the chronological number, so "which symlinks changed" needs
-    case analysis that recreating everything makes unnecessary. ~900 symlinks costs
-    microseconds.
+    A symlink is recreated rather than renamed. They are relative, so renaming one
+    preserves a now-wrong target; and `number_in_series` shifts independently of the
+    chronological number, so "which symlinks moved" needs case analysis that recreating
+    makes unnecessary.
+
+    One that is already at its expected name, holding the link to the final zip name,
+    with no stale copy elsewhere, is OK and gets no fix. Recreating those too meant a
+    plan was never empty: a dry run could not say the tree was clean, and every apply
+    rewrote every link in the library.
     """
     symlink_fixes: list[SymlinkFix] = []
 
@@ -498,6 +512,11 @@ def _plan_symlinks(
                 fixes.append(ArtifactFix(kind, Disposition.MISSING, key, None, want))
                 continue
 
+            stale = tuple(sorted(p for p in current if p != want))
+            if not stale and _symlink_is_current(want, artifacts.zip_file):
+                fixes.append(ArtifactFix(kind, Disposition.OK, key, want, want))
+                continue
+
             fixes.append(
                 ArtifactFix(kind, Disposition.RELINK, key, current[0] if current else None, want),
             )
@@ -507,7 +526,7 @@ def _plan_symlinks(
                     zip_file=artifacts.zip_file,
                     symlink_dir=want.parent,
                     symlink=want,
-                    stale=tuple(sorted(p for p in current if p != want)),
+                    stale=stale,
                 ),
             )
 
@@ -782,7 +801,10 @@ def apply_rename_plan(plan: RenamePlan, *, apply: bool) -> int:
         apply: Whether to actually change anything.
 
     Returns:
-        0 on success, 1 if the plan has conflicts or a stage failed.
+        0 if the tree is now known to be right: nothing needed doing, or everything
+        was done. 1 if the plan has conflicts, a stage failed, a dry run found work it
+        did not do, or a title could not be loaded - its artifacts were matched to
+        nothing, so the tree cannot be called clean whatever else succeeded.
 
     """
     if plan.conflicts:
@@ -794,18 +816,26 @@ def apply_rename_plan(plan: RenamePlan, *, apply: bool) -> int:
 
     print_rename_plan(plan)
 
+    # Reported by `print_rename_plan` above; this is what makes the exit code agree.
+    load_failed = 1 if plan.load_errors else 0
+    if load_failed:
+        print(
+            f"\n{ERROR_MSG_PREFIX}{len(plan.load_errors)} title(s) could not be loaded,"
+            f" so their artifacts were not matched and are listed as orphans.",
+        )
+
     num_renames = len(plan.dest_dir_steps) + len(plan.zip_steps)
+    if not num_renames and not plan.symlink_fixes:
+        print("\nNothing to do.")
+        return load_failed
+
     if not apply:
         print("\nDRY RUN - nothing was changed.")
         print(
             f"Re-run with --fix-names --apply to perform {num_renames} renames"
             f" and {len(plan.symlink_fixes)} symlink recreations.",
         )
-        return 0
-
-    if not num_renames and not plan.symlink_fixes:
-        print("\nNothing to do.")
-        return 0
+        return 1
 
     print(f"\nApplying {num_renames} renames...")
     try:
@@ -815,8 +845,8 @@ def apply_rename_plan(plan: RenamePlan, *, apply: bool) -> int:
         print("Aborted part-way. Re-run to complete the remaining work.")
         return 1
 
-    print("\nDone.")
-    return 0
+    print("\nDone." if not load_failed else "\nDone, apart from the titles that did not load.")
+    return load_failed
 
 
 def _execute_plan(plan: RenamePlan) -> None:
@@ -846,7 +876,7 @@ def run_artifact_rename_fix(comics_db: ComicsDatabase, *, apply: bool) -> int:
         apply: Whether to actually change anything.
 
     Returns:
-        0 on success, 1 otherwise.
+        0 if the artifact names are right, 1 otherwise - see `apply_rename_plan`.
 
     """
     if not apply:

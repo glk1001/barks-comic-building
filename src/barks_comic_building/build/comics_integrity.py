@@ -1735,17 +1735,15 @@ class ComicsIntegrityChecker:
             f" in {num_volumes} volume(s)."
         )
 
-        if fix_names:
-            # A third tier, between the other two: the gates validate the build's
-            # *inputs*, this repairs its *outputs*, and the report below then
-            # describes whatever remains. Its findings stay out of `OutOfDateErrors`
-            # because it is a whole-tree operation with no per-title home.
-            if run_artifact_rename_fix(self.comics_database, apply=apply_fixes) != 0:
-                return 1
-            if not apply_fixes:
-                # A dry run deliberately changed nothing, so there is no point
-                # reporting on a tree we already know is stale.
-                return 1
+        # A third tier, between the other two: the gates validate the build's *inputs*,
+        # this repairs its *outputs*, and the report below then describes whatever
+        # remains. Its findings stay out of `OutOfDateErrors` because it is a whole-tree
+        # operation with no per-title home.
+        # Non-zero also covers a dry run that found work to do: it deliberately changed
+        # nothing, so there is no point reporting on a tree it has just said is stale. A
+        # dry run that found nothing carries on, like an apply.
+        if fix_names and run_artifact_rename_fix(self.comics_database, apply=apply_fixes) != 0:
+            return 1
 
         unexpected_files = self.check_no_unexpected_files() != 0
 

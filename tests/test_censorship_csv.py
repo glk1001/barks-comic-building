@@ -133,6 +133,23 @@ class TestTheCommand:
 
         assert self.run(csv_file, "--check") == 0
 
+    def test_an_unknown_story_fails_cleanly_and_writes_nothing(self, csv_file: Path) -> None:
+        # It used to leave the command as an uncaught exception, not an exit code.
+        content = render_csv([row(story="No Such Story At All").as_cells()])
+        csv_file.write_text(content, encoding="utf-8", newline="")
+
+        result = CliRunner().invoke(censorship_csv.app, ["--csv-file", str(csv_file), "--check"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+        assert csv_file.read_text(encoding="utf-8") == content
+
+    def test_a_missing_csv_file_fails_cleanly(self, csv_file: Path) -> None:
+        result = CliRunner().invoke(censorship_csv.app, ["--csv-file", str(csv_file), "--check"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+
     def test_a_contradiction_fails_and_writes_nothing(self, csv_file: Path) -> None:
         content = render_csv([row(fanta_page="154").as_cells()])
         csv_file.write_text(content, encoding="utf-8", newline="")

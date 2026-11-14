@@ -30,7 +30,7 @@ from barks_fantagraphics.censorship_fixes import (
     read_censorship_fixes,
     resolve_censorship_story,
 )
-from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comics_database import ComicsDatabase, TitleNotFoundError
 from barks_fantagraphics.printed_pages import get_printed_page
 from comic_utils.common_typer_options import LogLevelArg
 from rich import box
@@ -88,7 +88,7 @@ def locate_story(comics_database: ComicsDatabase, story: str) -> StoryLocation:
     try:
         title = resolve_censorship_story(comics_database, story)
         pages = censorship_story_pages(comics_database, title)
-    except CensorshipFixesError as e:
+    except (CensorshipFixesError, TitleNotFoundError) as e:
         raise CensorshipCsvError(str(e)) from e
 
     if not pages.body_images:
@@ -104,6 +104,34 @@ def locate_story(comics_database: ComicsDatabase, story: str) -> StoryLocation:
         pages.unnumbered_images,
         get_printed_page(pages.volume, first_image),
     )
+
+
+def locate_stories(
+    comics_database: ComicsDatabase, stored_rows: list[CensorshipFixRow]
+) -> tuple[dict[str, StoryLocation], dict[str, str]]:
+    """Resolve every distinct story the CSV names, keeping the ones that will not.
+
+    Once per distinct story, not once per row: each call loads the story's ini file and
+    walks its pages, and the CSV runs several rows to the story.
+
+    Args:
+        comics_database: The comics database.
+        stored_rows: The rows as stored.
+
+    Returns:
+        The location of each story that resolved, and the reason for each that did not,
+        both keyed by the `Story` cell and in the file's order.
+
+    """
+    locations: dict[str, StoryLocation] = {}
+    unresolved: dict[str, str] = {}
+    for story in dict.fromkeys(row.story for row in stored_rows):
+        try:
+            locations[story] = locate_story(comics_database, story)
+        except CensorshipCsvError as e:
+            unresolved[story] = str(e)
+
+    return locations, unresolved
 
 
 def read_fix_records(file: Path) -> list[CensorshipFixRow]:
@@ -427,6 +455,46 @@ def print_story_summary(rows: list[CensorshipFixRow], locations: dict[str, Story
     _console.print(table)
 
 
+def _read_and_locate(
+    comics_database: ComicsDatabase, csv_file: Path
+) -> tuple[list[CensorshipFixRow], dict[str, StoryLocation]]:
+    """Read the CSV and resolve its stories, or say why not and exit.
+
+    A file that cannot be read and a story that cannot be resolved are both the CSV's
+    own faults, to be reported in its terms. They used to leave as a traceback.
+
+    Args:
+        comics_database: The comics database.
+        csv_file: The censorship fixes CSV.
+
+    Returns:
+        The rows as stored, and every story's location.
+
+    Raises:
+        typer.Exit: With code 1, once the fault has been printed.
+
+    """
+    try:
+        stored_rows = read_fix_records(csv_file)
+    except CensorshipCsvError as e:
+        _console.print(f"[red]{e}[/]")
+        raise typer.Exit(code=1) from e
+
+    locations, unresolved = locate_stories(comics_database, stored_rows)
+    if unresolved:
+        # Every one of them, not just the first: a row cannot be derived without its
+        # story, so nothing further can run, but one typo should not hide the next.
+        for story, reason in unresolved.items():
+            _console.print(f'[red]Cannot resolve the story "{story}": {reason}[/]')
+        _console.print(
+            f"[red]{len(unresolved)} story name(s) could not be resolved."
+            f" Nothing will be rewritten until they are settled.[/]"
+        )
+        raise typer.Exit(code=1)
+
+    return stored_rows, locations
+
+
 app = typer.Typer()
 
 
@@ -445,13 +513,8 @@ def main(
 
     comics_database = ComicsDatabase(for_building_comics=False)
 
-    stored_rows = read_fix_records(csv_file)
-    # Once per distinct story, not once per row: each call loads the story's ini file and
-    # walks its pages, and the CSV runs several rows to the story.
-    locations = {
-        story: locate_story(comics_database, story)
-        for story in dict.fromkeys(row.story for row in stored_rows)
-    }
+    stored_rows, locations = _read_and_locate(comics_database, csv_file)
+
     rows = build_rows(stored_rows, locations)
 
     print_story_summary(stored_rows, locations)

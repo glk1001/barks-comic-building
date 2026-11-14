@@ -12,6 +12,7 @@ from loguru import logger
 
 from barks_comic_building.build.additional_file_writing import write_summary_file
 from barks_comic_building.build.build_comics import BuildError, ComicBookBuilder
+from barks_comic_building.build.utils import COMIC_LOAD_ERRORS, error_summary
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
 
 APP_LOGGING_NAME = "bbld"
@@ -23,7 +24,14 @@ def process_comic_book_titles(comics_database: ComicsDatabase, titles: list[str]
     ret_code = 0
 
     for title in titles:
-        comic = comics_database.get_comic_book(title)
+        try:
+            comic = comics_database.get_comic_book(title)
+        except COMIC_LOAD_ERRORS as exc:
+            # One title that will not load must not cost the batch every title after it.
+            logger.error(f'Could not load "{title}": {error_summary(exc)}')
+            ret_code = ret_code or 1
+            continue
+
         ret = process_comic_book(comic)
         if ret != 0:
             ret_code = ret_code or ret

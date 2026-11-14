@@ -41,11 +41,20 @@ if TYPE_CHECKING:
 FIXES_EXTS = (JPG_FILE_EXT, PNG_FILE_EXT)
 
 
+class FixesPairError(RuntimeError):
+    """A page has both a ``.jpg`` and a ``.png`` fixes file, so neither can be chosen.
+
+    Its own type so that the integrity check can report the pair as a finding. It used
+    to be a bare `RuntimeError`, which nothing could catch without also catching every
+    other one, so the check died on the pair it should have been reporting.
+    """
+
+
 def _sole_fixes_file(fixes_dir: Path, page: str) -> Path | None:
     """Return the volume's fixes file for ``page``, or None if it has none.
 
     Raises:
-        RuntimeError: If the page has both a ``.jpg`` and a ``.png`` fixes file. Which
+        FixesPairError: If the page has both a ``.jpg`` and a ``.png`` fixes file. Which
             one supersedes the original is then unanswerable, and picking either would
             stage an image nobody chose. `ComicBook.get_srce_original_fixes_story_file`
             refuses the same pair for the same reason.
@@ -56,7 +65,7 @@ def _sole_fixes_file(fixes_dir: Path, page: str) -> Path | None:
 
     if len(found) > 1:
         msg = f'Cannot have both .jpg and .png fixes file "{found[0]}".'
-        raise RuntimeError(msg)
+        raise FixesPairError(msg)
 
     return found[0] if found else None
 

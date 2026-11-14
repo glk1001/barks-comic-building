@@ -16,12 +16,14 @@ at ERROR - in different words - is how one fault came to be described two ways.
 
 from __future__ import annotations
 
+import configparser
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from barks_fantagraphics import panel_bounding
+from barks_fantagraphics.comics_database import TitleNotFoundError
 from barks_fantagraphics.comics_utils import (
     get_abbrev_path,
     get_timestamp,
@@ -42,6 +44,38 @@ HOUR_SEP = ":"
 # One tuple, so no call site can format a timestamp without separators. One of the eleven
 # used to, and rendered its timestamp in a different format from the other ten.
 TIMESTAMP_SEPS = (DATE_SEP, DATE_TIME_SEP, HOUR_SEP)
+
+# What loading one title's `ComicBook` raises when the title's own data is at fault: an
+# ini that will not parse, a field of the wrong type, a file it names that is not there, a
+# title that is not configured. A tool that works through many titles catches these per
+# title and carries on - one bad ini must not stop the build, the integrity check or the
+# rename fix from reaching the titles after it. Wide on purpose: the loader raises all of
+# these, and each call site reports what it caught rather than swallowing it.
+COMIC_LOAD_ERRORS = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    KeyError,
+    AssertionError,
+    configparser.Error,
+    TitleNotFoundError,
+)
+
+
+def error_summary(exc: BaseException) -> str:
+    """Return a one-line description of an exception, for a finding or a log line.
+
+    Args:
+        exc: The exception.
+
+    Returns:
+        The exception's type and message, or just its type if it has no message - a
+        bare ``assert`` would otherwise be reported as an empty string.
+
+    """
+    detail = str(exc)
+
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
 def links_to(link: Path, source: Path) -> bool:

@@ -40,6 +40,7 @@ from barks_fantagraphics.comics_consts import (
 from barks_fantagraphics.comics_utils import get_relpath
 from loguru import logger
 
+from barks_comic_building.build.utils import COMIC_LOAD_ERRORS, error_summary
 from barks_comic_building.build.zipping import create_symlink_zip
 
 if TYPE_CHECKING:
@@ -219,9 +220,9 @@ def build_expected_artifacts(
     for story_title in comics_db.get_all_story_titles():
         try:
             comic = comics_db.get_comic_book(story_title)
-        except (OSError, RuntimeError, KeyError, AssertionError) as exc:
+        except COMIC_LOAD_ERRORS as exc:
             # One malformed ini must not abort a whole-tree repair.
-            load_errors.append(f'"{story_title}": {exc}')
+            load_errors.append(f'"{story_title}": {error_summary(exc)}')
             continue
 
         # Derive the key from the dest dir name so both sides of the match go through

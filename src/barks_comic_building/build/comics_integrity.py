@@ -78,6 +78,7 @@ from PIL import Image
 
 from barks_comic_building.build.artifact_renaming import run_artifact_rename_fix
 from barks_comic_building.build.collection_sources import (
+    FixesPairError,
     original_scan_source,
     upscayled_scan_source,
 )
@@ -92,6 +93,7 @@ from barks_comic_building.build.stage_one_pagers import (
     get_staged_links_by_title as get_one_pager_staged_links,
 )
 from barks_comic_building.build.utils import (
+    COMIC_LOAD_ERRORS,
     TIMESTAMP_SEPS,
     MaxTimestamp,
     ZipOutOfDateErrors,
@@ -99,6 +101,7 @@ from barks_comic_building.build.utils import (
     check_zip_freshness,
     check_zip_symlink_freshness,
     dating_dependencies,
+    error_summary,
     fold_max,
     get_file_out_of_date_with_other_file_msg,
     get_file_out_of_date_wrt_max_timestamp_msg,
@@ -503,6 +506,27 @@ class FixesFileFacts:
     original_exists: bool
     present_in_other_tree: bool
     added_page_allowed: bool
+
+
+def is_second_of_fixes_pair(file: Path, spec: FixesTreeSpec) -> bool:
+    """Return whether ``file`` is the ``.png`` of a page fixed in both extensions.
+
+    Only the standard fixes tree can hold the pair - an upscayled fix is always a
+    ``.png`` - and only its ``.png`` half answers True, so the pair is reported once.
+
+    Args:
+        file: A file in a fixes tree's images dir.
+        spec: Which of the two trees it is in.
+
+    Returns:
+        True if a ``.jpg`` for the same page sits beside this ``.png``.
+
+    """
+    return (
+        spec is STANDARD_FIXES
+        and file.suffix == PNG_FILE_EXT
+        and file.with_suffix(JPG_FILE_EXT).is_file()
+    )
 
 
 def classify_fixes_file(
@@ -1048,7 +1072,9 @@ def check_panel_segments_file(
     try:
         with segments_file.open() as f:
             segment_info = json.load(f)
-    except json.JSONDecodeError as e:
+    except (OSError, ValueError) as e:
+        # `ValueError` covers both a json that will not parse and bytes that are not
+        # text at all - a flipped bit can produce either.
         return (f"Not valid JSON: {e}.",)
     if not isinstance(segment_info, dict):
         return ("The top-level JSON value is not an object.",)
@@ -1060,7 +1086,12 @@ def check_panel_segments_file(
         except (ValueError, json.JSONDecodeError) as e:
             return (f'Bad panel order override "{get_relpath(panel_order_file)}": {e}',)
 
-    actual_page_size = None if restored_image is None else get_image_size(restored_image)
+    actual_page_size = None
+    if restored_image is not None:
+        try:
+            actual_page_size = get_image_size(restored_image)
+        except (OSError, ValueError) as e:
+            return (f'Cannot read the restored image "{get_relpath(restored_image)}": {e}',)
 
     findings = validate_panel_segments(
         segment_info,
@@ -1497,6 +1528,7 @@ def check_contiguous_page_numbers(stems: Sequence[str]) -> PageNumberFaults:
 @dataclass
 class HashErrors:
     metadata_file: Path | None = None
+    metadata_unreadable: tuple[Path, str] | None = None
     metadata_missing_hash: Path | None = None
     expected_hash: str = ""
     file_to_hash: Path | None = None
@@ -1644,6 +1676,37 @@ class ComicsIntegrityChecker:
         # The recipe a re-run of the upscale would use, so that a page passes only if
         # upscaling it again would change nothing.
         self._current_upscale_recipe = get_current_recipe(DEFAULT_UPSCALER, UPSCALE_SCALE)
+        # Titles whose `ComicBook` would not load. Several checks load every title, so
+        # this is what keeps one bad ini to one finding - and what fails the run for a
+        # bad title that the run's own title list never reached.
+        self._failed_load_titles: set[str] = set()
+
+    def _load_comic(self, title: str) -> ComicBook | None:
+        """Load one title's comic, reporting a title that will not load as a finding.
+
+        Every check that walks the titles goes through here. A malformed ini used to
+        raise straight out of whichever check met it first and end the run, so the one
+        tool meant to report a damaged file was stopped by it.
+
+        Args:
+            title: The story title.
+
+        Returns:
+            The comic, or None if it could not be loaded; the reason is printed the first
+            time that title fails.
+
+        """
+        try:
+            return self.comics_database.get_comic_book(title)
+        except COMIC_LOAD_ERRORS as e:
+            if title not in self._failed_load_titles:
+                self._failed_load_titles.add(title)
+                print(
+                    f'\n{ERROR_MSG_PREFIX}Could not load "{title}", so nothing about it'
+                    f" was checked.\n"
+                    f"{BLANK_ERR_MSG_PREFIX}{error_summary(e)}",
+                )
+            return None
 
     def check_comics_integrity(
         self, titles: list[str], *, fix_names: bool = False, apply_fixes: bool = False
@@ -1687,6 +1750,9 @@ class ComicsIntegrityChecker:
         unexpected_files = self.check_no_unexpected_files() != 0
 
         ret_code = self.check_titles_by_volume(titles_to_check)
+
+        if self._failed_load_titles:
+            ret_code = 1
 
         if ret_code == 0:
             if unexpected_files:
@@ -2089,6 +2155,17 @@ class ComicsIntegrityChecker:
             stem = file.name[: -len(FIXES_NOTE_SUFFIX)] if is_note else file.stem
             original_file = original_image_dir / (stem + JPG_FILE_EXT)
 
+            if is_second_of_fixes_pair(file, spec):
+                # Each file passes on its own, so the pair went unreported until a
+                # build - or this check's own staging gate - refused it.
+                print(
+                    f"{ERROR_MSG_PREFIX}Page {stem} has both a {JPG_FILE_EXT} and a"
+                    f' {PNG_FILE_EXT} {spec.tree_label} file: "{file}".\n'
+                    f"{BLANK_ERR_MSG_PREFIX}Which one replaces the original cannot be"
+                    f" told, and the build refuses the pair. Remove one.",
+                )
+                ret_code = 1
+
             added_fault = policy.classify(stem)
             if spec is UPSCAYLED_FIXES:
                 # The upscayled tree has no added-pages band of its own: a page with no
@@ -2164,7 +2241,9 @@ class ComicsIntegrityChecker:
         for title, _info in self.comics_database.get_configured_titles_in_fantagraphics_volumes(
             [volume]
         ):
-            comic = self.comics_database.get_comic_book(title)
+            comic = self._load_comic(title)
+            if comic is None:
+                continue
             used.update(page.page_filenames for page in comic.page_images_in_order)
 
         return frozenset(used)
@@ -2279,10 +2358,23 @@ class ComicsIntegrityChecker:
         logger.info("Checking the synthetic collections' staged links.")
 
         ret_code = 0
-        for collection, links_by_title in (
-            (Titles.ALL_ONE_PAGERS, get_one_pager_staged_links(self.comics_database)),
-            (Titles.ALL_COVERS, get_cover_staged_links(self.comics_database)),
+        for collection, get_links_by_title in (
+            (Titles.ALL_ONE_PAGERS, get_one_pager_staged_links),
+            (Titles.ALL_COVERS, get_cover_staged_links),
         ):
+            try:
+                links_by_title = get_links_by_title(self.comics_database)
+            except FixesPairError as e:
+                # Which file a member is staged from cannot be worked out, so neither
+                # can whether its link is right.
+                print(
+                    f"{ERROR_MSG_PREFIX}Cannot check the staged links of"
+                    f' "{ENUM_TO_STR_TITLE[collection]}": {e}\n'
+                    f"{BLANK_ERR_MSG_PREFIX}Remove whichever of the two is not the fix.",
+                )
+                ret_code = 1
+                continue
+
             check_content = self._check_slot_content and (
                 not titles or ENUM_TO_STR_TITLE[collection] in titles
             )
@@ -2388,7 +2480,9 @@ class ComicsIntegrityChecker:
         zip_year_symlink_dirs = set()
         zip_year_symlinks = []
         for title in self.comics_database.get_all_story_titles():
-            comic = self.comics_database.get_comic_book(title)
+            comic = self._load_comic(title)
+            if comic is None:
+                continue
 
             dest_dirs.append((self.comics_database.get_ini_file(title), comic.get_dest_dir()))
             zip_files.append(comic.get_dest_comic_zip())
@@ -2483,7 +2577,9 @@ class ComicsIntegrityChecker:
         pages_by_volume: dict[int, dict[str, str]] = {}
 
         for title in HAND_RESTORED_TITLES:
-            comic = self.comics_database.get_comic_book(title)
+            comic = self._load_comic(title)
+            if comic is None:
+                continue
             volume_pages = pages_by_volume.setdefault(comic.fanta_book.volume, {})
             for page in comic.page_images_in_order:
                 if page.page_type in RESTORABLE_PAGE_TYPES:
@@ -2674,19 +2770,41 @@ class ComicsIntegrityChecker:
         return ret_code
 
     def check_single_title(self, title: str) -> int:
-        ret_code = 0
+        """Check one title, turning anything that stops the check into a finding.
 
-        comic = self.comics_database.get_comic_book(title)
-        title_str = get_safe_title(comic.get_comic_title())
+        Args:
+            title: The story title.
 
-        if (
-            self.check_comic_structure(comic, title_str) != 0
-            or self.check_story_attributes(comic, title_str) != 0
-            or self.check_out_of_date_files(comic) != 0
-        ):
-            ret_code = 1
+        Returns:
+            0 if the title has no problems, 1 otherwise.
 
-        return ret_code
+        """
+        comic = self._load_comic(title)
+        if comic is None:
+            return 1
+
+        try:
+            title_str = get_safe_title(comic.get_comic_title())
+
+            if (
+                self.check_comic_structure(comic, title_str) != 0
+                or self.check_story_attributes(comic, title_str) != 0
+                or self.check_out_of_date_files(comic) != 0
+            ):
+                return 1
+        except Exception as e:  # noqa: BLE001
+            # The backstop. A known kind of damage is reported by the check that met it;
+            # anything else is a bug in a check or damage nobody has seen yet, so it
+            # keeps its traceback - but it costs this title its result, not every title
+            # after it theirs.
+            logger.exception(f'Unexpected error checking "{title}":')
+            print(
+                f'\n{ERROR_MSG_PREFIX}The check of "{title}" did not finish.\n'
+                f"{BLANK_ERR_MSG_PREFIX}{error_summary(e)}",
+            )
+            return 1
+
+        return 0
 
     def check_titles_by_volume(self, titles: list[str]) -> int:
         """Check the titles a volume at a time, logging a line as each volume finishes.
@@ -2754,7 +2872,17 @@ class ComicsIntegrityChecker:
             errors.metadata_file = metadata_file
             return 1
 
-        metadata = json.loads(metadata_file.read_text())
+        try:
+            metadata = json.loads(metadata_file.read_text())
+        except (OSError, ValueError) as e:
+            # A truncated or bit-flipped file. One title's finding, like the missing
+            # file above - it used to end the whole run with a traceback.
+            errors.metadata_unreadable = (metadata_file, error_summary(e))
+            return 1
+        if not isinstance(metadata, dict):
+            errors.metadata_unreadable = (metadata_file, "its top-level value is not an object")
+            return 1
+
         if "ini_hash" not in metadata:
             # Reported, not warned past. This hash is now the *only* check on the ini -
             # `dating_dependencies` drops its timestamp deliberately - so a comic whose
@@ -2778,6 +2906,15 @@ class ComicsIntegrityChecker:
             print(
                 f"{ERROR_MSG_PREFIX}Comic has not been built - there is no"
                 f' metadata file: "{errors.metadata_file}".',
+            )
+            return
+
+        if errors.metadata_unreadable is not None:
+            metadata_file, reason = errors.metadata_unreadable
+            print(
+                f"{ERROR_MSG_PREFIX}Comic metadata file cannot be read - rebuild it:"
+                f' "{metadata_file}".\n'
+                f"{BLANK_ERR_MSG_PREFIX}{reason}",
             )
             return
 

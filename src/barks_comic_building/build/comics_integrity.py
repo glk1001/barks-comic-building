@@ -61,6 +61,7 @@ from barks_fantagraphics.pages import (
     SrceDependency,
     get_full_srce_filepath,
     get_required_pages_in_order,
+    get_restore_stage_dependencies,
     get_restored_srce_dependencies,
     get_sorted_srce_and_dest_pages,
 )
@@ -1061,25 +1062,19 @@ def get_home_chain(comics_database: ComicsDatabase, volume: int, page: str) -> H
 
     """
     upscayled_file = upscayled_scan_source(comics_database, volume, page)
-    stages = [
-        comics_database.get_fantagraphics_restored_upscayled_volume_image_dir(volume)
-        / (page + PNG_FILE_EXT),
-        comics_database.get_fantagraphics_restored_svg_volume_image_dir(volume)
-        / (page + SVG_FILE_EXT),
-        upscayled_file,
-        original_scan_source(comics_database, volume, page),
-    ]
     plain_upscayled_dir = comics_database.get_fantagraphics_upscayled_volume_image_dir(volume)
 
     return HomeChain(
         restored_file=comics_database.get_fantagraphics_restored_volume_image_dir(volume)
         / (page + PNG_FILE_EXT),
-        dependencies=[
-            SrceDependency(
-                stage, get_timestamp(stage) if stage.is_file() else -1, independent=False
-            )
-            for stage in stages
-        ],
+        dependencies=get_restore_stage_dependencies(
+            comics_database.get_fantagraphics_restored_upscayled_volume_image_dir(volume)
+            / (page + PNG_FILE_EXT),
+            comics_database.get_fantagraphics_restored_svg_volume_image_dir(volume)
+            / (page + SVG_FILE_EXT),
+            upscayled_file,
+            original_scan_source(comics_database, volume, page),
+        ),
         upscayled_file=upscayled_file if upscayled_file.parent == plain_upscayled_dir else None,
         is_hand_restored=(volume, page) in HAND_RESTORED_PAGES,
     )

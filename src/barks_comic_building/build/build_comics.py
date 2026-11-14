@@ -36,6 +36,7 @@ from barks_fantagraphics.pages import (
     get_sorted_srce_and_dest_pages_with_dimensions,
 )
 from comic_utils.pil_image_utils import METADATA_PROPERTY_GROUP
+from comic_utils.timing import Timing
 from loguru import logger
 
 from barks_comic_building.build.additional_file_writing import (
@@ -44,6 +45,7 @@ from barks_comic_building.build.additional_file_writing import (
     write_metadata_file,
     write_readme_file,
     write_srce_dest_map,
+    write_summary_file,
 )
 from barks_comic_building.build.zipping import create_symlinks_to_comic_zip, zip_comic_book
 
@@ -144,6 +146,15 @@ class ComicBookBuilder:
         return get_max_timestamp(self._srce_and_dest_pages.dest_pages)
 
     def build(self) -> None:
+        """Build the comic: its pages, its info files, its zip, its links, its summary.
+
+        The summary is the last thing written because it records the zip's and the
+        links' timestamps, which is also why it is the one info file not in the cbz. It
+        is written here and not by the caller: the integrity check requires it, so a
+        build that did not write it is not a finished build, whoever ran it.
+        """
+        timing = Timing()
+
         self._init_pages()
 
         self._create_comic_book()
@@ -151,6 +162,15 @@ class ComicBookBuilder:
         self._log_comic_book_params()
 
         self._zip_and_symlink_comic_book()
+
+        write_summary_file(
+            self._comic,
+            self.get_srce_dim(),
+            self.get_required_dim(),
+            self.get_srce_and_dest_pages(),
+            self.get_max_dest_page_timestamp(),
+            timing,
+        )
 
     def _init_pages(self) -> None:
         logger.debug("Initializing pages...")

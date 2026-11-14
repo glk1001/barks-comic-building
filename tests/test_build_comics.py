@@ -8,10 +8,13 @@ from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.page_classes import CleanPage
 from barks_fantagraphics.panel_geometry import BoundingBox
 
+from barks_comic_building.build import build_comics
 from barks_comic_building.build.build_comics import ComicBookBuilder, find_missing_srce_files
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 
 class TestFindingMissingSourceFiles:
@@ -51,3 +54,33 @@ class TestTheJpegComments:
 
         assert any(line.endswith("Srce panels bbox: 1, 2, 3, 4") for line in comments)
         assert any(line.endswith("Dest panels bbox: 5, 6, 7, 8") for line in comments)
+
+
+class TestTheSummaryIsTheBuildersToWrite:
+    """The integrity check requires the summary, so `build` writes it, not its caller."""
+
+    def test_build_writes_the_summary_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ran: list[str] = []
+        builder = ComicBookBuilder.__new__(ComicBookBuilder)
+        for step in (
+            "_init_pages",
+            "_create_comic_book",
+            "_log_comic_book_params",
+            "_zip_and_symlink_comic_book",
+        ):
+            monkeypatch.setattr(builder, step, lambda step=step: ran.append(step))
+        for getter in (
+            "get_srce_dim",
+            "get_required_dim",
+            "get_srce_and_dest_pages",
+            "get_max_dest_page_timestamp",
+        ):
+            monkeypatch.setattr(builder, getter, lambda: None)
+        monkeypatch.setattr(builder, "_comic", None, raising=False)
+        monkeypatch.setattr(
+            build_comics, "write_summary_file", lambda *_args: ran.append("summary")
+        )
+
+        builder.build()
+
+        assert ran[-2:] == ["_zip_and_symlink_comic_book", "summary"]

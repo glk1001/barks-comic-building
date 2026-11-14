@@ -10,7 +10,6 @@ from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from comic_utils.timing import Timing
 from loguru import logger
 
-from barks_comic_building.build.additional_file_writing import write_summary_file
 from barks_comic_building.build.build_comics import BuildError, ComicBookBuilder
 from barks_comic_building.build.utils import COMIC_LOAD_ERRORS, error_summary
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
@@ -54,15 +53,6 @@ def process_comic_book(comic: ComicBook) -> int:
 
         logger.info(
             f"Time taken to complete comic: {process_timing.get_elapsed_time_in_seconds()} seconds",
-        )
-
-        write_summary_file(
-            comic,
-            comic_book_builder.get_srce_dim(),
-            comic_book_builder.get_required_dim(),
-            comic_book_builder.get_srce_and_dest_pages(),
-            comic_book_builder.get_max_dest_page_timestamp(),
-            process_timing,
         )
     except BuildError as exc:
         # Already reported page by page, in terms of the files that are wrong. A

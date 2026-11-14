@@ -423,7 +423,7 @@ class TestARowWithTheWrongPrintedPage:
 
 
 class TestARowThatNamesAPageAndNoImage:
-    """The one shape `barks-ocr-censorship-csv` cannot report on its own.
+    """The one shape `barks-censorship-csv` cannot report on its own.
 
     That tool derives Image from the page, then reports the derived value where it
     differs from the stored one. A page the story does not have derives to blank, and the

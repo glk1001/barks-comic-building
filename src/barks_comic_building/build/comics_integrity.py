@@ -611,7 +611,7 @@ def _censorship_row_fault_msg(  # noqa: PLR0911 - one wording per fault
         return (
             f"{ERROR_MSG_PREFIX}The {where} names no image, but that page was printed"
             f' on image "{expected.expected_image}".'
-            f" Run `barks-ocr-censorship-csv` to fill the derived columns in."
+            f" Run `barks-censorship-csv` to fill the derived columns in."
         )
 
     if fault is CensorshipRowFault.WRONG_VOLUME:
@@ -2255,18 +2255,32 @@ class ComicsIntegrityChecker:
         return len(list(dir_path.iterdir()))
 
     def check_folder_and_contents_are_readonly(self, dir_path: Path) -> int:
+        """Check that a directory and everything under it is read-only.
+
+        The directory itself is checked here, by the call that was given it, and each
+        entry is then either recursed into or checked as a file - never both. A
+        writable directory whose contents were fine used to fall through and be
+        reported a second time as a "File", and the directory first passed in was
+        checked by nobody.
+
+        Args:
+            dir_path: The directory to check.
+
+        Returns:
+            0 if nothing is writable, 1 otherwise.
+
+        """
         ret_code = 0
+
+        if dir_path.stat().st_mode & stat.S_IWRITE:
+            print(f'{ERROR_MSG_PREFIX}Directory "{dir_path}" is not readonly.')
+            ret_code = 1
 
         for file_path in sorted(dir_path.iterdir()):
             if file_path.is_dir():
-                if file_path.stat().st_mode & stat.S_IWRITE:
-                    print(f'{ERROR_MSG_PREFIX}Directory "{file_path}" is not readonly.')
-                    ret_code = 1
                 if self.check_folder_and_contents_are_readonly(file_path) != 0:
                     ret_code = 1
-                    continue
-
-            if file_path.stat().st_mode & stat.S_IWRITE:
+            elif file_path.stat().st_mode & stat.S_IWRITE:
                 print(f'{ERROR_MSG_PREFIX}File "{file_path}" is not readonly.')
                 ret_code = 1
 
@@ -2784,11 +2798,15 @@ class ComicsIntegrityChecker:
         try:
             title_str = get_safe_title(comic.get_comic_title())
 
-            if (
-                self.check_comic_structure(comic, title_str) != 0
-                or self.check_story_attributes(comic, title_str) != 0
-                or self.check_out_of_date_files(comic) != 0
-            ):
+            # The attributes are read from the ini alone, so they are checked whatever
+            # the structure check found: chained with `or`, a hash mismatch hid them
+            # until the rebuild that cleared it, and it took a second run to see both.
+            # The out-of-date check stays behind the structure check - against a title
+            # that is unbuilt, or built from another ini, every dest file is a finding
+            # and none of them says more than the structure fault already has.
+            structure_failed = self.check_comic_structure(comic, title_str) != 0
+            attributes_failed = self.check_story_attributes(comic, title_str) != 0
+            if structure_failed or attributes_failed or self.check_out_of_date_files(comic) != 0:
                 return 1
         except Exception as e:  # noqa: BLE001
             # The backstop. A known kind of damage is reported by the check that met it;
@@ -2924,7 +2942,7 @@ class ComicsIntegrityChecker:
             return
 
         print(
-            f'{ERROR_MSG_PREFIX} Hash mismatch for "{errors.file_to_hash}":'
+            f'{ERROR_MSG_PREFIX}Hash mismatch for "{errors.file_to_hash}":'
             f' expected hash = "{errors.expected_hash}", file hash = "{errors.file_hash}".',
         )
 
@@ -3381,7 +3399,7 @@ class ComicsIntegrityChecker:
     @staticmethod
     def print_unexpected_dest_image_files_errors(errors: OutOfDateErrors) -> None:
         for file in errors.unexpected_dest_image_files:
-            print(f'{ERROR_MSG_PREFIX} The dest image file "{get_relpath(file)}" was unexpected.')
+            print(f'{ERROR_MSG_PREFIX}The dest image file "{get_relpath(file)}" was unexpected.')
 
     @staticmethod
     def _print_dest_dir_findings(errors: OutOfDateErrors) -> None:
@@ -3407,12 +3425,12 @@ class ComicsIntegrityChecker:
 
         if errors.exception_errors:
             for err_msg in errors.exception_errors:
-                print(f'{ERROR_MSG_PREFIX} For "{errors.title}", there was an error: {err_msg}.')
+                print(f'{ERROR_MSG_PREFIX}For "{errors.title}", there was an error: {err_msg}.')
             if errors.checks_skipped:
                 # Without this the errors above read as the whole of what is wrong with the
                 # title, when in fact they are the reason nothing else about it was looked at.
                 print(
-                    f'{ERROR_MSG_PREFIX} For "{errors.title}", the page and dest dir checks'
+                    f'{ERROR_MSG_PREFIX}For "{errors.title}", the page and dest dir checks'
                     f" were skipped: the above had to be fixed first."
                 )
             print()
@@ -3438,7 +3456,7 @@ class ComicsIntegrityChecker:
 
         if counted:
             print(
-                f'{ERROR_MSG_PREFIX} For "{errors.title}", there were {" and ".join(counted)}.\n',
+                f'{ERROR_MSG_PREFIX}For "{errors.title}", there were {" and ".join(counted)}.\n',
             )
 
     @staticmethod
@@ -3453,7 +3471,7 @@ class ComicsIntegrityChecker:
             return
 
         print(
-            f'{ERROR_MSG_PREFIX} For "{errors.title}", {len(errors.stale_upscayled_files)}'
+            f'{ERROR_MSG_PREFIX}For "{errors.title}", {len(errors.stale_upscayled_files)}'
             f" upscayled page(s) were not made with the current upscale recipe"
             f" {errors.current_upscale_recipe}:"
         )
@@ -3481,14 +3499,14 @@ class ComicsIntegrityChecker:
     def print_out_of_date_or_missing_errors(errors: OutOfDateErrors) -> None:
         for srce_file, dest_file in errors.srce_and_dest_files_missing:
             print(
-                f'{ERROR_MSG_PREFIX} There is no dest file "{dest_file}"'
+                f'{ERROR_MSG_PREFIX}There is no dest file "{dest_file}"'
                 f' matching srce file "{srce_file}".',
             )
         for srce_file, dest_file in errors.srce_and_dest_files_out_of_date:
             print(get_file_out_of_date_with_other_file_msg(dest_file, srce_file, ERROR_MSG_PREFIX))
         for srce_file, dest_file in errors.pages_built_without_restored_file:
             print(
-                f'{ERROR_MSG_PREFIX} The dest file "{get_relpath(dest_file)}"\n'
+                f'{ERROR_MSG_PREFIX}The dest file "{get_relpath(dest_file)}"\n'
                 f"{BLANK_ERR_MSG_PREFIX}is a restorable page built from a file outside the"
                 f" restored tree:\n"
                 f'{BLANK_ERR_MSG_PREFIX}"{get_relpath(srce_file)}".\n'
@@ -3509,7 +3527,7 @@ class ComicsIntegrityChecker:
             )
         for segments_file, faults, staged_from in errors.invalid_panel_segments:
             print(
-                f'{ERROR_MSG_PREFIX} The panel segments file "{get_relpath(segments_file)}"'
+                f'{ERROR_MSG_PREFIX}The panel segments file "{get_relpath(segments_file)}"'
                 f" is invalid:"
             )
             for fault in faults:

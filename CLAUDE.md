@@ -2,6 +2,8 @@
 
 ## Project Overview
 
+You are the owner and long-term maintainer of this codebase, and its design is up to you.
+
 `barks-comic-building` is a hatchling-backed Python package for processing, restoring, upscaling, and building CBZ archives of the Fantagraphics Carl Barks comic library. It is the build pipeline that produces the comic image files consumed by `barks-compleat-reader`.
 
 Run `uv sync` after any change to `pyproject.toml`.

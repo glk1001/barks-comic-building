@@ -18,6 +18,7 @@ both an original and a fixed scan, and what `stage` does to links that already e
 
 from __future__ import annotations
 
+import shutil
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -940,6 +941,55 @@ class TestStagingCoversByCopy:
         assert not link.exists()
 
 
+class TestACopiedSlotWhoseSourceIsNotThere:
+    """The `--copy` form of `TestASlotWhoseSourceIsNotThere`.
+
+    A copied slot is a real file, so clearing only symlinks left the previous occupant's
+    copy in a slot its new member had nothing to stage into - and "All Covers" built
+    that page from the wrong cover.
+    """
+
+    @staticmethod
+    def _upscayled_pairs(database: FakeComicsDatabase) -> list[tuple[Path, Path]]:
+        """Return the first two located covers' upscayled ``(slot, source)`` pairs."""
+        links_by_title = stage_covers.get_staged_links_by_title(as_database(database))
+
+        return [links_by_title[get_cover_title(cover)][1] for cover in get_located_covers()[:2]]
+
+    @staticmethod
+    def _write(path: Path, text: str) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+        return path
+
+    def test_the_previous_occupants_copy_is_removed(self, database: FakeComicsDatabase) -> None:
+        (_first_slot, first_source), (second_slot, second_source) = self._upscayled_pairs(database)
+        self._write(first_source, "the first cover, upscayled")
+        # The table gained an entry: the first cover used to be staged where the second
+        # is now, and the second has no upscayl of its own yet.
+        second_slot.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(first_source, second_slot)
+        assert not second_source.exists()
+
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+
+        assert not second_slot.exists()
+
+    def test_a_file_that_is_no_members_copy_is_left_alone(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # The counterweight: the pipeline's own output for a cover whose volume never
+        # built an upscayl. It is a copy of nothing the collection stages.
+        (_first_slot, first_source), (second_slot, _second_source) = self._upscayled_pairs(database)
+        self._write(first_source, "the first cover, upscayled")
+        self._write(second_slot, "upscayled in the collection")
+
+        stage_covers.stage(as_database(database), remove=False, copy=True)
+
+        assert second_slot.read_text() == "upscayled in the collection"
+
+
 class TestTheCollectionsOwnFilesAreNeverStagedOver:
     """A real file in a slot is the pipeline's output, and often the only copy of it.
 
@@ -986,6 +1036,24 @@ class TestTheCollectionsOwnFilesAreNeverStagedOver:
 
         assert not slot.is_symlink()
         assert slot.read_text() == "restored in the collection"
+
+    def test_a_real_file_in_the_other_extension_is_not_deleted(
+        self, database: FakeComicsDatabase
+    ) -> None:
+        # Staging clears the page's slot in the other extension first, on the grounds
+        # that it is a previous staging. A real file there is not one, and the guard on
+        # the slot itself did not cover it: it was unlinked with an INFO line.
+        links_by_title = stage_one_pagers.get_staged_links_by_title(as_database(database))
+        slot, source = links_by_title[get_located_one_pagers()[0]][0]
+        assert slot.suffix == JPG
+        touch(source)
+        sibling = self._write(slot.with_suffix(PNG), "a hand-made fix in the collection")
+
+        stage_one_pagers.stage(as_database(database), remove=False)
+
+        assert sibling.read_text() == "a hand-made fix in the collection"
+        # Not staged beside it either: two fixes files for one page is refused downstream.
+        assert not slot.is_symlink()
 
     def test_a_source_linking_back_to_its_slot_is_not_staged(
         self, database: FakeComicsDatabase

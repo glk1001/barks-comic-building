@@ -81,7 +81,7 @@ from barks_comic_building.build.collection_sources import (
     original_scan_source,
     upscayled_scan_source,
 )
-from barks_comic_building.build.collection_staging import original_scan_slot
+from barks_comic_building.build.collection_staging import is_staged_copy, original_scan_slot
 from barks_comic_building.build.stage_covers import (
     get_staged_links_by_title as get_cover_staged_links,
 )
@@ -1401,15 +1401,25 @@ def check_collection_staged_links(
                     f" {restage_msg}.",
                 )
                 ret_code = 1
-            elif link.exists() and not link.is_symlink() and source.is_file():
+            elif (
+                link.exists()
+                and not link.is_symlink()
+                and source.is_file()
+                and not is_staged_copy(link, source)
+            ):
                 # A real file with no upstream source is normal - the pipeline fills a
-                # missing stage in place. One that *does* have an upstream source has
-                # diverged from it and will not pick up a re-restore.
+                # missing stage in place - and so is one that still holds exactly what
+                # its source holds, which is what `barks-stage-covers --copy` leaves.
+                # One that differs from an upstream source has diverged from it and will
+                # not pick up a re-restore. A plain restage will not replace it either:
+                # the stager never links over a real file.
                 print(
                     f"{ERROR_MSG_PREFIX}Staged file for"
-                    f' "{title_str}" is a copy, not a link: "{get_relpath(link)}".\n'
+                    f' "{title_str}" is a real file that differs from its source:'
+                    f' "{get_relpath(link)}".\n'
                     f"{BLANK_ERR_MSG_PREFIX}It will not track"
-                    f' "{get_relpath(source)}". {restage_msg}.',
+                    f' "{get_relpath(source)}". If it is an out-of-date copy, restage'
+                    f' "{collection_str}" with --copy; otherwise move it aside and restage.',
                 )
                 ret_code = 1
 

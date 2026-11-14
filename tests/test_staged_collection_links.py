@@ -14,6 +14,7 @@ unlike as two different gags, and a lightened copy is as alike as a page and its
 from __future__ import annotations
 
 import random
+import shutil
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -165,13 +166,24 @@ class TestStagingFaults:
         assert member.check() == 1
 
     def test_a_diverged_copy_is_caught(self, member: StagedMember) -> None:
-        # A real file whose upstream source also exists: it will not pick up a
-        # re-restore of that source.
+        # A real file whose upstream source also exists and holds something else: it
+        # will not pick up a re-restore of that source.
         member.stage_correctly()
-        write_gag(member.srce_artifact, member.gag, restored=True)
+        write_gag(member.srce_artifact, member.gag)
         member.write_artifact_in_place()
 
+        assert member.link_artifact.read_bytes() != member.srce_artifact.read_bytes()
         assert member.check() == 1
+
+    def test_a_faithful_copy_is_not_a_fault(self, member: StagedMember) -> None:
+        # What `barks-stage-covers --copy` leaves in every slot. Reporting it failed the
+        # whole precondition, and restaging with `--copy` only reproduced it.
+        write_gag(member.srce_artifact, member.gag, restored=True)
+        shutil.copy2(member.srce_scan, member.link_scan)
+        shutil.copy2(member.srce_artifact, member.link_artifact)
+
+        assert not member.link_scan.is_symlink()
+        assert member.check() == 0
 
     def test_a_member_with_no_staged_scan_is_caught(self, member: StagedMember) -> None:
         # A location was authored but the stager was never run, so the collection has

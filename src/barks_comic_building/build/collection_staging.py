@@ -219,13 +219,23 @@ def _create_staged_file(link: Path, source: Path, *, copy: bool) -> None:
         link.symlink_to(source)
 
 
-def _is_staged_copy(path: Path, source: Path) -> bool:
+def is_staged_copy(path: Path, source: Path) -> bool:
     """Return whether a real file in a slot is a ``--copy`` staging of ``source``.
 
     `shutil.copy2` keeps the source's size and mtime, which is the signature a shallow
-    `filecmp.cmp` compares. Any other real file in a slot is the pipeline's own output -
-    a one-pager that belongs to no story is upscayled, restored and segmented in place
-    in the collection, and that output has no source to be a copy of.
+    `filecmp.cmp` compares first; when the signatures differ it falls back to comparing
+    the bytes, so a copy whose mtime was disturbed still counts. Any other real file in
+    a slot is the pipeline's own output - a one-pager that belongs to no story is
+    upscayled, restored and segmented in place in the collection, and that output has no
+    source to be a copy of.
+
+    Args:
+        path: The real file in the slot.
+        source: The file the slot is staged from.
+
+    Returns:
+        True if ``path`` holds exactly what ``source`` holds.
+
     """
     return source.is_file() and filecmp.cmp(path, source, shallow=True)
 
@@ -248,6 +258,12 @@ def _must_not_stage_over(link: Path, source: Path, *, copy: bool) -> bool:
     an explicit request for real files, and a re-copy after the source changed has to
     replace the old copy, so it keeps replacing.
 
+    The same goes for the page's slot in the other extension, which `_create_staged_file`
+    clears before it stages: a real file there is not a previous staging, and removing it
+    would break the promise `stage` makes about the slot itself. Leaving it and staging
+    beside it is no better - two fixes files for one page is the pair the build refuses -
+    so the page is not staged at all until the file has been moved aside.
+
     Args:
         link: The slot.
         source: The file that would be staged into it.
@@ -261,12 +277,24 @@ def _must_not_stage_over(link: Path, source: Path, *, copy: bool) -> bool:
         logger.error(f'Not staging "{source}": it resolves back to its own slot "{link}".')
         return True
 
-    if not copy and link.exists() and not link.is_symlink():
+    if copy:
+        return False
+
+    if link.exists() and not link.is_symlink():
         logger.warning(
             f'Not staging "{source}" over "{link}": that is the pipeline\'s own output.'
             " Move it aside by hand if the source should replace it."
         )
         return True
+
+    for sibling in superseded_links(link):
+        if not sibling.is_symlink():
+            logger.warning(
+                f'Not staging "{source}" as "{link}": "{sibling}" is a real file for the'
+                " same page, and staging would have to delete it."
+                " Move it aside by hand if the source should replace it."
+            )
+            return True
 
     return False
 
@@ -281,7 +309,7 @@ def _remove_staged_slot(link: Path, source: Path) -> int:
     reports success. The create path already clears the same siblings.
 
     Only what staging put there goes: a link, or a ``--copy`` of ``source``. Any other
-    real file is the pipeline's own output and is kept - see `_is_staged_copy`.
+    real file is the pipeline's own output and is kept - see `is_staged_copy`.
 
     Args:
         link: The slot the current source names.
@@ -293,7 +321,7 @@ def _remove_staged_slot(link: Path, source: Path) -> int:
     """
     removed = 0
     for path in [link, *superseded_links(link)]:
-        if path.is_symlink() or (path.exists() and _is_staged_copy(path, source)):
+        if path.is_symlink() or (path.exists() and is_staged_copy(path, source)):
             path.unlink()
             removed += 1
             logger.info(f'Removed staged link "{path}".')
@@ -303,7 +331,7 @@ def _remove_staged_slot(link: Path, source: Path) -> int:
     return removed
 
 
-def _clear_slot_with_no_source(link: Path) -> int:
+def _clear_slot_with_no_source(link: Path, staged_sources: Sequence[Path]) -> int:
     """Delete this page's staged links when there is no source to stage into it.
 
     A slot with no source is not simply "nothing to do". The collection numbers member
@@ -315,15 +343,23 @@ def _clear_slot_with_no_source(link: Path) -> int:
     upscayl or restore yet, so all five derived slots were passed over and stayed
     pointing at the member that used to sit there.
 
-    Only symlinks go. A real file in one of these slots is the pipeline's own output,
-    written in place for a page whose source volume never built it (see
-    `superseded_links`), and nothing here staged it or may remove it.
+    Symlinks go, and so does a real file that is a ``--copy`` of some member's source:
+    that is the same inherited page, staged by copy rather than by link, and it builds
+    the same wrong cover. This slot has no source of its own to compare against, so the
+    copy is identified by matching it against every source the collection stages. A
+    copy of a member that has since left the location table matches none of them and is
+    kept; `find_misplaced_files` in the integrity check is what reports that one.
+
+    Any other real file is the pipeline's own output, written in place for a page whose
+    source volume never built it (see `superseded_links`), and nothing here staged it or
+    may remove it.
 
     Args:
         link: The slot whose source is absent.
+        staged_sources: Every source the collection stages that exists on disk.
 
     Returns:
-        How many stale links were removed; usually zero.
+        How many stale links or copies were removed; usually zero.
 
     """
     removed = 0
@@ -332,6 +368,14 @@ def _clear_slot_with_no_source(link: Path) -> int:
             path.unlink()
             removed += 1
             logger.info(f'Removed stale staged link "{path}" - it has no source.')
+        elif path.exists() and any(
+            is_staged_copy(path, source)
+            for source in staged_sources
+            if source.suffix == path.suffix
+        ):
+            path.unlink()
+            removed += 1
+            logger.info(f'Removed stale staged copy "{path}" - it has no source.')
 
     return removed
 
@@ -350,14 +394,14 @@ def stage(
     artifacts are reused and missing ones are simply left for the pipeline), and only
     when it is not already pointing where it should - see `links_to`; with ``copy``,
     files are copied instead of symlinked. A slot whose source does not exist is not
-    left as it was but emptied of any *staged* link - see `_clear_slot_with_no_source` for
-    the wrong page that leaving it produced. On remove, the staged link or copy is
-    deleted, in either extension.
+    left as it was but emptied of any *staged* link or copy - see
+    `_clear_slot_with_no_source` for the wrong page that leaving it produced. On remove,
+    the staged link or copy is deleted, in either extension.
 
-    A real file in a slot is never replaced by a link, nor deleted on remove unless it
-    is a ``--copy`` of its source. It is the pipeline's own output for a member whose
-    source volume never built it, and often the only copy. Nor is a source staged that
-    resolves back to its own slot.
+    A real file in a slot - in either extension - is never replaced by a link, nor
+    deleted on remove unless it is a ``--copy`` of its source. It is the pipeline's own
+    output for a member whose source volume never built it, and often the only copy. Nor
+    is a source staged that resolves back to its own slot.
 
     Args:
         candidates: Every ``(link, source)`` pair the collection could stage.
@@ -371,6 +415,8 @@ def stage(
         logger.warning(nothing_to_do)
         return
 
+    staged_sources = [] if remove else [source for _, source in candidates if source.is_file()]
+
     count = 0
     unchanged = 0
     stale = 0
@@ -381,7 +427,7 @@ def stage(
             continue
 
         if not source.is_file():
-            stale += _clear_slot_with_no_source(link)
+            stale += _clear_slot_with_no_source(link, staged_sources)
             continue
 
         # Only for symlinks: `--copy` asked for a file, so an existing link is not what

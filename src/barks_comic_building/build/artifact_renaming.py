@@ -82,6 +82,7 @@ class Disposition(StrEnum):
     RELINK = "relink"  # symlink: recreate against the final zip name
     MISSING = "missing"  # nothing on disk - needs a real build
     ORPHAN = "orphan"  # on disk, claimed by no configured title
+    DUPLICATE = "duplicate"  # a second artifact for a title already at its expected path
     CONFLICT = "conflict"  # cannot be repaired safely - abort before any I/O
 
 
@@ -138,6 +139,10 @@ class ActualArtifacts:
     series_symlinks: dict[str, list[Path]] = field(default_factory=dict)
     year_symlinks: dict[str, list[Path]] = field(default_factory=dict)
     unparsable: list[tuple[ArtifactKind, Path]] = field(default_factory=list)
+    # Every path found for a dest dir or zip key that turned up more than once, the one
+    # indexed above included. Those two indexes hold a single path per key, so without
+    # this a stale "212 Foo" beside a rebuilt "215 Foo" simply vanished from the scan.
+    duplicates: dict[tuple[ArtifactKind, str], list[Path]] = field(default_factory=dict)
 
 
 @dataclass
@@ -265,6 +270,16 @@ def _scan_symlink_namespace(
             index.setdefault(key, []).append(entry)
 
 
+def _index_single(
+    kind: ArtifactKind, key: str, entry: Path, index: dict[str, Path], actual: ActualArtifacts
+) -> None:
+    """Index ``entry`` under ``key``, recording it as a duplicate if the key is taken."""
+    if key in index:
+        actual.duplicates.setdefault((kind, key), [index[key]]).append(entry)
+    else:
+        index[key] = entry
+
+
 def scan_actual_artifacts() -> ActualArtifacts:
     """Scan the four artifact namespaces on disk and index them by match key.
 
@@ -284,7 +299,7 @@ def scan_actual_artifacts() -> ActualArtifacts:
         if key is None:
             actual.unparsable.append((ArtifactKind.DEST_DIR, entry))
         else:
-            actual.dest_dirs[key] = entry
+            _index_single(ArtifactKind.DEST_DIR, key, entry, actual.dest_dirs, actual)
 
     for entry in _iter_visible(THE_CHRONOLOGICAL_DIR):
         if entry.suffix != CBZ_SUFFIX:
@@ -294,7 +309,7 @@ def scan_actual_artifacts() -> ActualArtifacts:
         if key is None:
             actual.unparsable.append((ArtifactKind.ZIP, entry))
         else:
-            actual.zips[key] = entry
+            _index_single(ArtifactKind.ZIP, key, entry, actual.zips, actual)
 
     known_subdirs = {THE_CHRONOLOGICAL_DIRS_DIR, THE_CHRONOLOGICAL_DIR, THE_YEARS_COMICS_DIR}
     series_dirs = [
@@ -507,6 +522,63 @@ def _plan_symlinks(
     return symlink_fixes
 
 
+def _resolve_duplicates(
+    expected: Mapping[str, ExpectedArtifacts], actual: ActualArtifacts, plan: RenamePlan
+) -> None:
+    """Decide what each title found more than once on disk means, before any planning.
+
+    Three cases, by what the configuration expects:
+
+    * One of the copies is already at the expected path. That one is the title's
+      artifact; the others are reported as duplicates and left alone.
+    * None of them is. Which one to rename onto the expected path is a guess, and a
+      wrong guess keeps the stale build and strands the current one - so it is a
+      conflict, and nothing is changed until the extras are removed by hand.
+    * The title is not configured at all. Every copy is an orphan.
+
+    Args:
+        expected: The configured titles' expected artifacts, by key.
+        actual: The disk scan; its single-path indexes are corrected in place.
+        plan: The plan the duplicate and conflict findings are added to.
+
+    """
+    for (kind, key), paths in sorted(actual.duplicates.items()):
+        index = actual.dest_dirs if kind == ArtifactKind.DEST_DIR else actual.zips
+        artifacts = expected.get(key)
+
+        if artifacts is None:
+            # `_plan_renames` reports the indexed one; the rest are orphans too.
+            plan.fixes.extend(
+                ArtifactFix(kind, Disposition.ORPHAN, key, path, None)
+                for path in paths
+                if path != index[key]
+            )
+            continue
+
+        want = artifacts.dest_dir if kind == ArtifactKind.DEST_DIR else artifacts.zip_file
+        if want in paths:
+            index[key] = want
+            plan.fixes.extend(
+                ArtifactFix(kind, Disposition.DUPLICATE, key, path, want)
+                for path in paths
+                if path != want
+            )
+            continue
+
+        names = ", ".join(f'"{path.name}"' for path in paths)
+        plan.conflicts.append(
+            ArtifactFix(
+                kind,
+                Disposition.CONFLICT,
+                key,
+                None,
+                want,
+                note=f"is on disk {len(paths)} times, none under that name: {names}."
+                " Remove the stale ones by hand",
+            ),
+        )
+
+
 def build_rename_plan(comics_db: ComicsDatabase) -> RenamePlan:
     """Work out how to move every stale built artifact onto its current name.
 
@@ -530,6 +602,10 @@ def build_rename_plan(comics_db: ComicsDatabase) -> RenamePlan:
 
     actual = scan_actual_artifacts()
     plan.unparsable = actual.unparsable
+
+    _resolve_duplicates(expected, actual, plan)
+    if plan.conflicts:
+        return plan
 
     try:
         plan.dest_dir_steps = _plan_renames(
@@ -635,6 +711,20 @@ def _print_rename_steps(title: str, steps: list[RenameStep]) -> None:
         print(f'  "{step.src.name}"  ->  "{step.dst.name}"')
 
 
+def _print_duplicates(plan: RenamePlan) -> None:
+    """Print the artifacts found beside one already at its title's expected name."""
+    duplicates = [f for f in plan.fixes if f.disposition == Disposition.DUPLICATE]
+    if not duplicates:
+        return
+
+    print(
+        f"\nDuplicates - a second artifact for a title already at its expected name"
+        f" ({len(duplicates)}). Left alone; remove them by hand:",
+    )
+    for fix in duplicates:
+        print(f'  [{fix.kind}] "{fix.current}"')
+
+
 def print_rename_plan(plan: RenamePlan) -> None:
     """Print the whole plan: summary table, renames, and everything left alone."""
     print("\nArtifact rename plan")
@@ -654,6 +744,8 @@ def print_rename_plan(plan: RenamePlan) -> None:
     print(f"\nOrphans - on disk but claimed by no configured title ({len(orphans)}). Left alone.")
     for fix in orphans:
         print(f'  [{fix.kind}] "{fix.current}"')
+
+    _print_duplicates(plan)
 
     if plan.unbuilt_titles:
         print(
@@ -693,7 +785,7 @@ def apply_rename_plan(plan: RenamePlan, *, apply: bool) -> int:
 
     """
     if plan.conflicts:
-        print(f"\n{ERROR_MSG_PREFIX}Cannot fix artifact names - conflicting expected paths:")
+        print(f"\n{ERROR_MSG_PREFIX}Cannot fix artifact names - conflicts:")
         for fix in plan.conflicts:
             print(f'  [{fix.kind}] "{fix.expected or fix.current or ""}" {fix.note}')
         print("\nNothing was changed.")

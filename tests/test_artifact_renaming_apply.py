@@ -32,9 +32,11 @@ from barks_comic_building.build.artifact_renaming import (
     _check_expected_paths_are_distinct,
     _plan_renames,
     _plan_symlinks,
+    _resolve_duplicates,
     _safe_rename,
     apply_rename_plan,
     recover_interrupted_renames,
+    scan_actual_artifacts,
 )
 
 if TYPE_CHECKING:
@@ -361,6 +363,100 @@ class TestClassifyingRenames:
 
         assert [f.disposition for f in fixes] == [Disposition.ORPHAN]
         assert steps == []
+
+
+class TestATitleFoundTwiceOnDisk:
+    """A stale artifact beside a rebuilt one must not vanish from the scan.
+
+    The dest dir and zip indexes hold one path per title, so the second "NNN Title" to
+    be scanned used to overwrite the first: with the rebuilt one at its expected name the
+    stale one was listed nowhere, and with neither there the last to sort was renamed.
+    """
+
+    @staticmethod
+    def _scan(
+        chrono_roots: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> ActualArtifacts:
+        (tmp_path / "years").mkdir()
+        monkeypatch.setattr(artifact_renaming, "THE_COMICS_DIR", tmp_path)
+        monkeypatch.setattr(artifact_renaming, "THE_YEARS_COMICS_DIR", tmp_path / "years")
+        assert chrono_roots[0].parent == tmp_path
+
+        return scan_actual_artifacts()
+
+    def test_the_scan_records_every_path_for_a_repeated_title(
+        self,
+        chrono_roots: tuple[Path, Path],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        dirs_root, zips_root = chrono_roots
+        stale_dir = touch(dirs_root / "212 A Title")
+        new_dir = touch(dirs_root / "215 A Title")
+        stale_zip = touch(zips_root / "212 A Title [WDCS 31].cbz")
+        new_zip = touch(zips_root / "215 A Title [WDCS 31].cbz")
+        touch(dirs_root / "001 Another Title")
+
+        actual = self._scan(chrono_roots, tmp_path, monkeypatch)
+
+        assert actual.duplicates == {
+            (ArtifactKind.DEST_DIR, "A Title"): [stale_dir, new_dir],
+            (ArtifactKind.ZIP, "A Title"): [stale_zip, new_zip],
+        }
+
+    def test_the_copy_at_the_expected_path_is_the_titles_artifact(self, tmp_path: Path) -> None:
+        artifacts = expected_for("A Title", tmp_path, 215)
+        stale = tmp_path / "dirs" / "212 A Title"
+        # Indexed under the stale path, which is what scanning in sorted order leaves
+        # when the stale number is the lower one.
+        actual = ActualArtifacts(
+            dest_dirs={"A Title": stale},
+            duplicates={(ArtifactKind.DEST_DIR, "A Title"): [stale, artifacts.dest_dir]},
+        )
+        plan = RenamePlan()
+
+        _resolve_duplicates({"A Title": artifacts}, actual, plan)
+
+        assert plan.conflicts == []
+        assert actual.dest_dirs == {"A Title": artifacts.dest_dir}
+        assert [(f.disposition, f.current) for f in plan.fixes] == [(Disposition.DUPLICATE, stale)]
+
+    def test_copies_that_are_all_misnamed_are_a_conflict(self, tmp_path: Path) -> None:
+        # Renaming either onto the expected name is a guess, and a wrong one keeps the
+        # stale build.
+        artifacts = expected_for("A Title", tmp_path, 215)
+        found = [
+            tmp_path / "zips" / "210 A Title.cbz",
+            tmp_path / "zips" / "212 A Title.cbz",
+        ]
+        actual = ActualArtifacts(
+            zips={"A Title": found[0]}, duplicates={(ArtifactKind.ZIP, "A Title"): found}
+        )
+        plan = RenamePlan()
+
+        _resolve_duplicates({"A Title": artifacts}, actual, plan)
+
+        assert [(f.kind, f.disposition, f.expected) for f in plan.conflicts] == [
+            (ArtifactKind.ZIP, Disposition.CONFLICT, artifacts.zip_file)
+        ]
+        assert apply_rename_plan(plan, apply=True) == 1
+
+    def test_every_copy_of_an_unconfigured_title_is_an_orphan(self, tmp_path: Path) -> None:
+        root = tmp_path / "dirs"
+        found = [root / "998 Who Knows", root / "999 Who Knows"]
+        actual = ActualArtifacts(
+            dest_dirs={"Who Knows": found[0]},
+            duplicates={(ArtifactKind.DEST_DIR, "Who Knows"): found},
+        )
+        plan = RenamePlan()
+
+        _resolve_duplicates({}, actual, plan)
+        _plan_renames(ArtifactKind.DEST_DIR, {}, actual.dest_dirs, root, plan.fixes)
+
+        assert sorted((f.disposition, f.current) for f in plan.fixes) == [
+            (Disposition.ORPHAN, found[0]),
+            (Disposition.ORPHAN, found[1]),
+        ]
 
 
 class TestClassifyingSymlinks:

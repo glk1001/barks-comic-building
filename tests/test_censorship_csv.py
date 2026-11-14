@@ -23,6 +23,7 @@ from barks_comic_building.build.censorship_csv import (
 
 FANTA_PAGE = CENSORSHIP_FIXES_HEADER.index("Fanta_page")
 IMAGE = CENSORSHIP_FIXES_HEADER.index("Image")
+STORY = CENSORSHIP_FIXES_HEADER.index("Story")
 
 SMOKE_WRITER = "WDCS 194"
 COVER_STORY = "WDCS  95"
@@ -105,6 +106,23 @@ class TestWritingTheFile:
             )
 
         assert sort_key("188") < sort_key("188a") < sort_key("189")
+
+    def test_stories_with_no_printed_page_do_not_interleave(self) -> None:
+        # Two stories censored out of one volume. Every row keyed alike up to the comic
+        # page, so page 1 of each came out before page 2 of either.
+        rows = [
+            row(story=story, image=image, fanta_page="", comic_page=comic_page).as_cells()
+            for story, image, comic_page in (
+                ("Story B", "120", "1"),
+                ("Story A", "100", "1"),
+                ("Story B", "121", "2"),
+                ("Story A", "101", "2"),
+            )
+        ]
+
+        in_order = sorted(rows, key=row_sort_key)
+
+        assert [cells[STORY] for cells in in_order] == ["Story A", "Story A", "Story B", "Story B"]
 
     def test_every_cell_is_quoted_and_lines_end_in_a_newline(self) -> None:
         assert render_csv([row().as_cells()]).endswith(

@@ -361,6 +361,10 @@ def row_sort_key(row: list[str]) -> tuple:
     not. A row with no printed page at all - a story censored out of its volume - leads
     its volume, since it stands for the whole story rather than a page of it.
 
+    Rows that tie on the printed page - above all the ones with none - then go by image
+    and by story, so that two such stories in one volume each stay together instead of
+    interleaving page by page.
+
     Args:
         row: One output row, in `CENSORSHIP_FIXES_HEADER` order.
 
@@ -385,11 +389,14 @@ def row_sort_key(row: list[str]) -> tuple:
     page_key = (int(folio[1]), folio[2]) if folio else (0, "")
 
     comic_page = cell("Comic_page")
+    image = cell("Image")
 
     return (
         int(cell("Volume")),
         bool(fanta_page),
         page_key,
+        int(image) if image.isdigit() else 0,
+        cell("Story"),
         int(comic_page) if comic_page.isdigit() else 0,
         panel_key(cell("Panel")),
     )

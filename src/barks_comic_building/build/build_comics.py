@@ -90,7 +90,7 @@ def find_missing_srce_files(srce_pages: list[CleanPage]) -> list[str]:
 
     """
     return sorted(
-        {str(page.page_filename) for page in srce_pages if not Path(page.page_filename).is_file()}
+        {page.page_filename for page in srce_pages if not Path(page.page_filename).is_file()}
     )
 
 

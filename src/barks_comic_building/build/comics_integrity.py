@@ -1125,7 +1125,7 @@ def check_panel_segments_file(
     if panel_order_file is not None:
         try:
             panel_order = read_panel_order_override(panel_order_file)
-        except (ValueError, json.JSONDecodeError) as e:
+        except ValueError as e:  # includes json.JSONDecodeError
             return (f'Bad panel order override "{get_relpath(panel_order_file)}": {e}',)
 
     actual_page_size = None

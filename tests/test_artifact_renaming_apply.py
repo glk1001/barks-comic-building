@@ -13,7 +13,7 @@ that quietly renamed something would be worse than no dry run at all.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -35,6 +35,7 @@ from barks_comic_building.build.artifact_renaming import (
     _resolve_duplicates,
     _safe_rename,
     apply_rename_plan,
+    build_rename_plan,
     recover_interrupted_renames,
     scan_actual_artifacts,
 )
@@ -42,6 +43,8 @@ from barks_comic_building.build.zipping import relative_symlink
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from barks_fantagraphics.comics_database import ComicsDatabase
 
 
 # A leftover in each of the two recovery roots.
@@ -303,6 +306,32 @@ class TestAPlanWithConflicts:
         assert apply_rename_plan(plan, apply=True) == 1
         assert src.exists()
         assert not dst.exists()
+
+    def test_a_dest_dir_conflict_is_reported_as_a_dest_dir_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Both stages' conflicts used to be recorded as a zip conflict.
+        def refuse_dest_dirs(kind: ArtifactKind, *_args: object) -> list[RenameStep]:
+            if kind == ArtifactKind.DEST_DIR:
+                msg = "Destination is held by something that is not being moved"
+                raise RenameConflictError(msg)
+            return []
+
+        monkeypatch.setattr(artifact_renaming, "build_expected_artifacts", lambda _db: ({}, []))
+        monkeypatch.setattr(artifact_renaming, "scan_actual_artifacts", ActualArtifacts)
+        monkeypatch.setattr(artifact_renaming, "_plan_renames", refuse_dest_dirs)
+
+        plan = build_rename_plan(cast("ComicsDatabase", object()))
+
+        assert [fix.kind for fix in plan.conflicts] == [ArtifactKind.DEST_DIR]
+
+    def test_a_conflict_with_no_path_prints_no_empty_quotes(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        conflict = ArtifactFix(ArtifactKind.DEST_DIR, Disposition.CONFLICT, None, None, None, "why")
+
+        assert apply_rename_plan(RenamePlan(conflicts=[conflict]), apply=False) == 1
+        assert '""' not in capsys.readouterr().out
 
     def test_a_conflicting_plan_is_refused_on_a_dry_run_too(self, tmp_path: Path) -> None:
         # Otherwise the dry run would advertise renames that applying would never do.

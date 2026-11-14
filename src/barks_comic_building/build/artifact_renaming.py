@@ -627,16 +627,20 @@ def build_rename_plan(comics_db: ComicsDatabase) -> RenamePlan:
     if plan.conflicts:
         return plan
 
+    # Tracked so that a conflict is reported under the kind that raised it. Both used to
+    # be recorded as a zip conflict, which sent a dest dir problem to the wrong directory.
+    kind = ArtifactKind.DEST_DIR
     try:
         plan.dest_dir_steps = _plan_renames(
-            ArtifactKind.DEST_DIR,
+            kind,
             {k: e.dest_dir for k, e in expected.items()},
             actual.dest_dirs,
             THE_CHRONOLOGICAL_DIRS_DIR,
             plan.fixes,
         )
+        kind = ArtifactKind.ZIP
         plan.zip_steps = _plan_renames(
-            ArtifactKind.ZIP,
+            kind,
             {k: e.zip_file for k, e in expected.items()},
             actual.zips,
             THE_CHRONOLOGICAL_DIR,
@@ -644,7 +648,7 @@ def build_rename_plan(comics_db: ComicsDatabase) -> RenamePlan:
         )
     except RenameConflictError as exc:
         plan.conflicts.append(
-            ArtifactFix(ArtifactKind.ZIP, Disposition.CONFLICT, None, None, None, str(exc)),
+            ArtifactFix(kind, Disposition.CONFLICT, None, None, None, str(exc)),
         )
         return plan
 
@@ -810,7 +814,8 @@ def apply_rename_plan(plan: RenamePlan, *, apply: bool) -> int:
     if plan.conflicts:
         print(f"\n{ERROR_MSG_PREFIX}Cannot fix artifact names - conflicts:")
         for fix in plan.conflicts:
-            print(f'  [{fix.kind}] "{fix.expected or fix.current or ""}" {fix.note}')
+            path = fix.expected or fix.current
+            print(f"  [{fix.kind}] " + (f'"{path}" ' if path else "") + fix.note)
         print("\nNothing was changed.")
         return 1
 

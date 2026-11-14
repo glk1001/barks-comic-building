@@ -185,13 +185,49 @@ def write_readme_file(comic: ComicBook) -> None:
         f.write(f'Archived ini file: "{comic.ini_file.name}"\n')
 
 
+def get_double_pages(dest_pages: list[CleanPage]) -> dict[int, tuple[int, int]]:
+    """Return the two-page spread each page belongs to, keyed by its 1-based position.
+
+    Spreads are paired off within each unbroken run of spread-capable pages (see
+    `DOUBLE_PAGES`), left then right. A page of any other type ends the run, so the next
+    run starts on a left page again, and the last page of an odd run has no partner and
+    gets no entry - it is shown on its own. Pairing by one alternation over the whole
+    comic instead put every page after such a break in a spread with the wrong
+    page, and could name a page past the end of the comic.
+
+    Args:
+        dest_pages: The comic's dest pages, in order.
+
+    Returns:
+        ``(left, right)`` for every page that is half of a spread, in page order.
+
+    """
+    runs: list[list[int]] = []
+    in_run = False
+    for index, page in enumerate(dest_pages):
+        if page.page_type not in DOUBLE_PAGES:
+            in_run = False
+            continue
+        if not in_run:
+            runs.append([])
+            in_run = True
+        runs[-1].append(index + 1)
+
+    double_pages: dict[int, tuple[int, int]] = {}
+    for run in runs:
+        for left, right in zip(run[::2], run[1::2], strict=False):
+            double_pages[left] = (left, right)
+            double_pages[right] = (left, right)
+
+    return double_pages
+
+
 def write_metadata_file(comic: ComicBook, dest_pages: list[CleanPage]) -> None:
     metadata_file = comic.get_dest_dir() / METADATA_FILENAME
 
-    double_pages = {}
+    double_pages = get_double_pages(dest_pages)
     page_num_str = {}
     body_start_page_num = -1
-    left = True
     for index, page in enumerate(dest_pages):
         orig_page_num = index + 1
         if page.page_type not in FRONT_MATTER_PAGES and body_start_page_num == -1:
@@ -204,18 +240,10 @@ def write_metadata_file(comic: ComicBook, dest_pages: list[CleanPage]) -> None:
             page_num_str[orig_page_num] = get_front_matter_page_num_str(page, orig_page_num)
         else:
             page_num_str[orig_page_num] = str(orig_page_num - body_start_page_num + 1)
-        if page.page_type in DOUBLE_PAGES:
-            if left:
-                double_pages[orig_page_num] = (orig_page_num, orig_page_num + 1)
-            else:
-                double_pages[orig_page_num] = (orig_page_num - 1, orig_page_num)
-            left = not left
 
     with metadata_file.open("w") as f:
         f.write(f"[{DOUBLE_PAGES_SECTION}]\n")
-        for page in double_pages:
-            left_page = double_pages[page][0]
-            right_page = double_pages[page][1]
+        for page, (left_page, right_page) in double_pages.items():
             f.write(f"{page}: {left_page},{right_page}" + "\n")
         f.write("\n")
 

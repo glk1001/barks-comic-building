@@ -306,6 +306,39 @@ class TestTheWrittenDoublePages:
 
         assert "1" not in read_metadata(comic)[DOUBLE_PAGES_SECTION]
 
+    def test_a_page_outside_the_spread_set_restarts_the_pairing(self, comic: FakeComic) -> None:
+        # Three body pages, a back-matter page, then two more spread pages. One
+        # alternation over the whole comic paired page 3 with the back-matter page and
+        # page 5 with page 4.
+        assert PageType.BACK_MATTER not in DOUBLE_PAGES
+        pages = [
+            page(PageType.BODY, "001.jpg"),
+            page(PageType.BODY, "002.jpg"),
+            page(PageType.BODY, "003.jpg"),
+            page(PageType.BACK_MATTER, "004.jpg"),
+            page(PageType.BLANK_PAGE, "005.jpg"),
+            page(PageType.BLANK_PAGE, "006.jpg"),
+        ]
+
+        write_metadata_file(as_comic(comic), pages)
+
+        assert dict(read_metadata(comic)[DOUBLE_PAGES_SECTION]) == {
+            "1": "1,2",
+            "2": "1,2",
+            "5": "5,6",
+            "6": "5,6",
+        }
+
+    def test_the_last_page_of_an_odd_run_is_in_no_spread(self, comic: FakeComic) -> None:
+        # It used to be written as the left of a spread onto a page past the end.
+        pages = [page(PageType.BODY, f"{i:03d}.jpg") for i in range(1, 4)]
+
+        write_metadata_file(as_comic(comic), pages)
+
+        doubles = read_metadata(comic)[DOUBLE_PAGES_SECTION]
+        assert doubles["2"] == "1,2"
+        assert "3" not in doubles
+
     def test_a_blank_page_joins_the_same_alternation(self, comic: FakeComic) -> None:
         assert PageType.BLANK_PAGE in DOUBLE_PAGES
         pages = [page(PageType.BODY, "001.jpg"), page(PageType.BLANK_PAGE, "002.jpg")]

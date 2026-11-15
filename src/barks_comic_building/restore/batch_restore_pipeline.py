@@ -591,8 +591,17 @@ _SMALL_RAM_DETECTED = psutil.virtual_memory().total < SMALL_RAM
 # smooths return only about a quarter more throughput than one at a time. The way to
 # make a long run faster is to keep these phases full, which is what batching pages
 # across titles does, rather than to rearrange the threads inside them.
+#
+# Part 1 is capped too, though it is not one of the memory-hungry phases. At one worker per
+# core it ran sixteen pages in step through the jpeg-artifact and colour-removal steps,
+# and on this 62G machine that was enough to exhaust memory twice: a kernel OOM on
+# 2026-10-27, and on 2026-11-16 systemd's OOM daemon ending the whole run over user-session
+# memory pressure. Eight workers should roughly halve that peak (not yet measured). min()
+# keeps a machine with fewer cores at one worker per core, as before.
+_PART1_MAX_WORKERS = min(8, os.process_cpu_count() or 8)
+
 _PHASES: list[tuple[str, str, int | None, int | None]] = [
-    ("part 1", "do_part1", None, None),
+    ("part 1", "do_part1", _PART1_MAX_WORKERS, None),
     ("part 2", "do_part2_memory_hungry", 1 if _SMALL_RAM_DETECTED else 6, None),
     ("part 3", "do_part3", None, None),
     ("part 4", "do_part4_memory_hungry", 1 if _SMALL_RAM_DETECTED else 4, None),

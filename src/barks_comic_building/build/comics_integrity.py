@@ -3,6 +3,7 @@
 # carries the same suppression for the same reason.
 # ruff: noqa: T201
 import json
+import re
 import stat
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -11,7 +12,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import NamedTuple
 
-from barks_build_comic_images.consts import DEST_NON_IMAGE_FILES
+from barks_build_comic_images.consts import (
+    DEST_NON_IMAGE_FILES,
+    DEST_SRCE_MAP_FILENAME,
+    SUMMARY_FILENAME,
+)
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
 from barks_fantagraphics.censorship_fixes import (
     CENSORSHIP_FIXES_CSV,
@@ -35,6 +40,7 @@ from barks_fantagraphics.comics_consts import (
     BARKS_ROOT_DIR,
     BOUNDED_SUBDIR,
     IMAGES_SUBDIR,
+    JSON_METADATA_FILENAME,
     PNG_FILE_EXT,
     RESTORABLE_PAGE_TYPES,
     THE_CHRONOLOGICAL_DIR,
@@ -130,6 +136,8 @@ from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_
 
 ERROR_MSG_PREFIX = "ERROR: "
 BLANK_ERR_MSG_PREFIX = f"{' ':<{len(ERROR_MSG_PREFIX)}}"
+WARNING_MSG_PREFIX = "WARNING: "
+BLANK_WARN_MSG_PREFIX = f"{' ':<{len(WARNING_MSG_PREFIX)}}"
 
 RESTORE_LEDGER_FILE = BARKS_ROOT_DIR / RESTORE_LEDGER_FILENAME
 UPSCALE_LEDGER_FILE = BARKS_ROOT_DIR / UPSCALE_LEDGER_FILENAME
@@ -1552,6 +1560,88 @@ def check_contiguous_page_numbers(stems: Sequence[str]) -> PageNumberFaults:
     return PageNumberFaults(non_numeric, out_of_order, expected_page_num)
 
 
+# The leading "NNN " of a dest dir name, as `get_dest_comic_dirname` writes it.
+_DEST_DIRNAME_NUM_RE = re.compile(r"^(\d+) ")
+_SUMMARY_CHRONO_NUM_RE = re.compile(r"^chronological number\s*=\s*(\d+)\s*$", re.MULTILINE)
+
+
+def _dirname_number(dirname: str) -> int | None:
+    match = _DEST_DIRNAME_NUM_RE.match(dirname)
+    return int(match.group(1)) if match else None
+
+
+def _json_field(file: Path, key: str) -> str | None:
+    try:
+        value = json.loads(file.read_text()).get(key)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) else None
+
+
+def recorded_chronological_numbers(dest_dir: Path) -> dict[Path, int]:
+    """Read the chronological number each of a built comic's info files recorded.
+
+    Three files carry it: the summary's own "chronological number" line, the metadata's
+    `dest_dir` path and the srce-dest map's `dest_dirname`. A file that is absent, cannot
+    be read, or does not hold the number is left out - a missing info file is already
+    its own finding, and this check has nothing to compare for it.
+
+    Args:
+        dest_dir: The built comic's directory.
+
+    Returns:
+        Each info file that recorded a number, with that number.
+
+    """
+    recorded: dict[Path, int] = {}
+
+    summary_file = dest_dir / SUMMARY_FILENAME
+    try:
+        match = _SUMMARY_CHRONO_NUM_RE.search(summary_file.read_text())
+    except OSError:
+        match = None
+    if match:
+        recorded[summary_file] = int(match.group(1))
+
+    # The metadata holds the whole dest dir path; the srce-dest map holds just its name.
+    metadata_file = dest_dir / JSON_METADATA_FILENAME
+    recorded_dest_dir = _json_field(metadata_file, "dest_dir")
+    srce_map_file = dest_dir / DEST_SRCE_MAP_FILENAME
+    for file, dirname in (
+        (metadata_file, None if recorded_dest_dir is None else Path(recorded_dest_dir).name),
+        (srce_map_file, _json_field(srce_map_file, "dest_dirname")),
+    ):
+        num = None if dirname is None else _dirname_number(dirname)
+        if num is not None:
+            recorded[file] = num
+
+    return recorded
+
+
+def stale_chronological_numbers(dest_dir: Path, expected: int) -> list[tuple[Path, int]]:
+    """Return the info files whose recorded chronological number is not `expected`.
+
+    This is what the artifact rename fix leaves behind, by design: it renames a built
+    comic's dir, zip and symlinks onto a new chronological number but never rewrites
+    file contents, so the info files keep the number the comic was built under. Nothing
+    reads the number back out of them, so the mismatch is cosmetic until the next
+    rebuild - but it is reported, so a renamed-not-rebuilt comic is visible.
+
+    Args:
+        dest_dir: The built comic's directory.
+        expected: The comic's current chronological number.
+
+    Returns:
+        `(info file, recorded number)` for each file that disagrees, in a fixed order.
+
+    """
+    return sorted(
+        (file, num)
+        for file, num in recorded_chronological_numbers(dest_dir).items()
+        if num != expected
+    )
+
+
 @dataclass
 class HashErrors:
     """What is wrong with a comic's record of the ini it was built from.
@@ -1608,6 +1698,12 @@ class OutOfDateErrors:
     # never ran. Reported, because otherwise the one exception that stopped them reads as
     # the whole of what is wrong with the title.
     checks_skipped: bool = False
+    # `(info file, recorded number)` - info files that recorded a chronological number
+    # other than the comic's current one, as `stale_chronological_numbers` finds them.
+    # A warning only, so it is deliberately not part of `is_error`: the comic was
+    # renamed onto its new number without a rebuild, and nothing reads the old one.
+    stale_chronological_numbers: list[tuple[Path, int]] = field(default_factory=list)
+    expected_chronological_number: int = 0
 
     @property
     def file_findings(self) -> bool:
@@ -3514,6 +3610,11 @@ class ComicsIntegrityChecker:
             errors.dest_dir_files_missing.append(dest_dir)
             return
 
+        errors.expected_chronological_number = comic.chronological_number
+        errors.stale_chronological_numbers = stale_chronological_numbers(
+            dest_dir, comic.chronological_number
+        )
+
         # Sorted: `DEST_NON_IMAGE_FILES` is a set, so the findings would otherwise come
         # out in a different order on every run.
         for file in sorted(DEST_NON_IMAGE_FILES):
@@ -3583,6 +3684,30 @@ class ComicsIntegrityChecker:
         if len(errors.unexpected_dest_image_files) > 0:
             print()
             self.print_unexpected_dest_image_files_errors(errors)
+
+        self.print_stale_chronological_number_warnings(errors)
+
+    @staticmethod
+    def print_stale_chronological_number_warnings(errors: OutOfDateErrors) -> None:
+        """Warn about info files that recorded a chronological number other than the current one.
+
+        Args:
+            errors: The title's findings.
+
+        """
+        if not errors.stale_chronological_numbers:
+            return
+
+        print(
+            f'{WARNING_MSG_PREFIX}For "{errors.title}", the chronological number is'
+            f" {errors.expected_chronological_number}, but the build recorded another:"
+        )
+        for file, num in errors.stale_chronological_numbers:
+            print(f'{BLANK_WARN_MSG_PREFIX}"{get_relpath(file)}" records {num}.')
+        print(
+            f"{BLANK_WARN_MSG_PREFIX}Renamed onto its new number but not rebuilt; harmless,"
+            f" and a rebuild clears it."
+        )
 
     @staticmethod
     def print_symlink_findings(

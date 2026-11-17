@@ -172,6 +172,7 @@ class FakeComic:
         title_enum: Titles = Titles.BIRD_WATCHING,
     ) -> None:
         self.dest_dir = tmp_path / "dest"
+        self.chronological_number = 42
         self.extra_pub_info = extra_pub_info
         self.fanta_info = FakeFantaInfo(series_name)
         self._title_enum = title_enum

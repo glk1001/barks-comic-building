@@ -57,6 +57,12 @@ LIST_FINDINGS: dict[str, object] = {
     "unexpected_dest_image_files": Path("/comics/dest/images/stray.jpg"),
 }
 
+# List fields that are reported as warnings and must *not* reach the exit code.
+LIST_WARNINGS: dict[str, object] = {
+    # A comic renamed onto a new chronological number but not rebuilt.
+    "stale_chronological_numbers": (INFO_FILE, 463),
+}
+
 # The verdict dataclasses are frozen, so one instance per flag can be shared.
 ZIP_FINDINGS = {
     "missing": ZipOutOfDateErrors(missing=True),
@@ -126,6 +132,13 @@ class TestEveryPrintableFindingFailsTheRun:
     def test_a_title_with_nothing_wrong_is_not_an_error(self) -> None:
         assert not no_findings().is_error
 
+    @pytest.mark.parametrize("warning", list(LIST_WARNINGS))
+    def test_a_warning_alone_is_not_an_error(self, warning: str) -> None:
+        errors = no_findings()
+        getattr(errors, warning).append(LIST_WARNINGS[warning])
+
+        assert not errors.is_error
+
 
 class TestNoFlagGoesUncovered:
     """A tripwire for the next flag someone adds to a verdict.
@@ -148,7 +161,7 @@ class TestNoFlagGoesUncovered:
             field.name for field in fields(OutOfDateErrors) if get_origin(field.type) is list
         }
 
-        assert list_fields == set(LIST_FINDINGS)
+        assert list_fields == set(LIST_FINDINGS) | set(LIST_WARNINGS)
 
 
 class TestTheReportAndTheExitCodeAgree:

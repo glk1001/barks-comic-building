@@ -5,6 +5,7 @@
 import json
 import re
 import stat
+import time
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -1349,6 +1350,51 @@ def _matching_member(
     return best
 
 
+def _files_to_compare(
+    links_by_title: dict[Titles, list[tuple[Path, Path]]],
+) -> list[tuple[Titles, Path, list[Path]]]:
+    """Return each member with real files to hold to its scan: `(member, scan, files)`."""
+    to_compare: list[tuple[Titles, Path, list[Path]]] = []
+    for title, links in links_by_title.items():
+        scan_slot = original_scan_slot(links)
+        files = _content_checked_files(links)
+        # A missing scan is reported as itself, and there is nothing to compare against.
+        if scan_slot is None or not scan_slot.exists() or not files:
+            continue
+        to_compare.append((title, scan_slot, files))
+
+    return to_compare
+
+
+def _logged_misplaced_files(
+    collection_str: str, links_by_title: dict[Titles, list[tuple[Path, Path]]]
+) -> list[MisplacedFile]:
+    """Run `find_misplaced_files`, saying at SUCCESS level what it is doing and for how long.
+
+    It is the slow part of the whole precondition stage - over a minute for "All
+    One-Pagers" - and was otherwise a silent gap after "Checking preconditions".
+    """
+    num_files = sum(len(files) for _title, _scan, files in _files_to_compare(links_by_title))
+    if not num_files:
+        return []
+
+    logger.success(
+        f'Comparing the {num_files} real files staged in "{collection_str}" with their scans.'
+    )
+    start = time.perf_counter()
+    misplaced = find_misplaced_files(links_by_title)
+    logger.success(
+        f'Compared the real files in "{collection_str}" in {time.perf_counter() - start:.0f}s.'
+    )
+
+    return misplaced
+
+
+# How many real files `find_misplaced_files` compares between progress lines: about
+# ten seconds' worth.
+_CONTENT_PROGRESS_EVERY = 10
+
+
 def find_misplaced_files(
     links_by_title: dict[Titles, list[tuple[Path, Path]]],
 ) -> list[MisplacedFile]:
@@ -1376,13 +1422,13 @@ def find_misplaced_files(
     misplaced: list[MisplacedFile] = []
     all_scans: dict[Titles, tuple[Path, Image.Image]] | None = None
 
-    for title, links in links_by_title.items():
-        scan_slot = original_scan_slot(links)
-        files = _content_checked_files(links)
-        # A missing scan is reported as itself, and there is nothing to compare against.
-        if scan_slot is None or not scan_slot.exists() or not files:
-            continue
+    # Worked out up front so the progress lines can give a total: decoding the upscales
+    # takes over a second a file, and a whole-library run has dozens of them.
+    to_compare = _files_to_compare(links_by_title)
+    total = sum(len(files) for _title, _scan_slot, files in to_compare)
+    num_compared = 0
 
+    for title, scan_slot, files in to_compare:
         try:
             scan_thumbnail = get_check_thumbnail(scan_slot)
         except (OSError, SyntaxError) as e:
@@ -1391,6 +1437,10 @@ def find_misplaced_files(
             continue
 
         for path in files:
+            # Counted before this file is compared, so the line reports files finished.
+            if num_compared and num_compared % _CONTENT_PROGRESS_EVERY == 0:
+                logger.success(f"  Compared {num_compared} of {total} files.")
+            num_compared += 1
             try:
                 thumbnail = get_check_thumbnail(path)
             except (OSError, SyntaxError) as e:
@@ -1506,7 +1556,8 @@ def check_collection_staged_links(
             )
             ret_code = 1
 
-    for found in find_misplaced_files(links_by_title) if check_content else []:
+    misplaced = _logged_misplaced_files(collection_str, links_by_title) if check_content else []
+    for found in misplaced:
         if found.owner is None or found.owner_scan_slot is None:
             belongs = "and matches no member's scan. Rebuild it from the scan staged beside it."
         else:

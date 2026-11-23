@@ -7,7 +7,7 @@ recipe at all, so "no recipe recorded" has to read as stale rather than as done.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from barks_fantagraphics.fanta_comics_info import FANTAGRAPHICS_UPSCAYLED_FIXES_DIRNAME
@@ -27,9 +27,6 @@ from barks_comic_building.restore.upscale_state import (
     UpscalePageState,
     get_upscale_page_status,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 CURRENT_RECIPE_ID = "aaaaaaaaaaaa"
 OLD_RECIPE_ID = "bbbbbbbbbbbb"
@@ -353,3 +350,100 @@ class TestRunningTheBackend:
         kept = str(exc.value).splitlines()[1:]
         assert len(kept) == upscale_image._MAX_KEPT_OUTPUT_LINES  # noqa: SLF001
         assert kept[-1] == "line-500"
+
+
+class TestOnlyACheckedResultReplacesThePage:
+    """The backend writes beside the page, and the page changes only for a good result.
+
+    Run straight onto the page, a backend that exits 0 without writing left the previous
+    run's page where it was - the right size, and looking like the source - to pass every
+    check and be stamped with a recipe it was never made with.
+    """
+
+    SCALE = 4
+
+    @pytest.fixture(autouse=True)
+    def _installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(upscale_image, "check_upscaler_is_usable", lambda *_: None)
+
+    @staticmethod
+    def write_srce(path: Path) -> Path:
+        Image.linear_gradient("L").convert("RGB").resize((32, 32)).save(str(path))
+        return path
+
+    def fake_backend(self, monkeypatch: pytest.MonkeyPatch, behaviour: str) -> list[Path]:
+        """Stand a fake in for the backend, returning the paths it was asked to write."""
+        written: list[Path] = []
+
+        def run(_upscaler: Upscaler, run_args: list[str]) -> None:
+            in_file = run_args[run_args.index("-i") + 1]
+            out_file = run_args[run_args.index("-o") + 1]
+            written.append(Path(out_file))
+            if behaviour == "writes nothing":
+                return
+            with Image.open(in_file) as srce:
+                size = (srce.width * self.SCALE, srce.height * self.SCALE)
+                image = srce.resize(size) if behaviour == "good" else Image.new("RGB", size)
+            image.save(out_file)
+
+        monkeypatch.setattr(upscale_image, "_run_upscaler", run)
+
+        return written
+
+    def old_page(self, tmp_path: Path) -> Path:
+        return write_png(tmp_path / "045.png", {RECIPE_ID_KEY: OLD_RECIPE_ID})
+
+    def test_a_good_result_is_moved_onto_the_page_already_stamped(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        written = self.fake_backend(monkeypatch, "good")
+        out_file = self.old_page(tmp_path)
+
+        upscale_image_file(self.write_srce(tmp_path / "srce.png"), out_file, self.SCALE)
+
+        assert written == [upscale_image.get_upscale_work_file(out_file)]
+        assert not written[0].exists()
+        with Image.open(out_file) as image:
+            assert image.size == (32 * self.SCALE, 32 * self.SCALE)
+            assert image.info[f"BARKS:{RECIPE_ID_KEY}"] != OLD_RECIPE_ID
+
+    def test_a_backend_that_writes_nothing_does_not_restamp_the_old_page(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self.fake_backend(monkeypatch, "writes nothing")
+        out_file = self.old_page(tmp_path)
+
+        with pytest.raises(RuntimeError, match="wrote no image"):
+            upscale_image_file(self.write_srce(tmp_path / "srce.png"), out_file, self.SCALE)
+
+        with Image.open(out_file) as image:
+            assert image.info[f"BARKS:{RECIPE_ID_KEY}"] == OLD_RECIPE_ID
+
+    def test_a_bad_result_is_thrown_away_and_the_old_page_kept(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        written = self.fake_backend(monkeypatch, "black")
+        out_file = self.old_page(tmp_path)
+
+        with pytest.raises(RuntimeError, match="does not match the source"):
+            upscale_image_file(self.write_srce(tmp_path / "srce.png"), out_file, self.SCALE)
+
+        assert not written[0].exists()
+        with Image.open(out_file) as image:
+            assert image.info[f"BARKS:{RECIPE_ID_KEY}"] == OLD_RECIPE_ID
+
+    def test_a_leftover_from_a_killed_run_cannot_pass_as_this_runs_result(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        self.fake_backend(monkeypatch, "writes nothing")
+        out_file = tmp_path / "045.png"
+        srce = self.write_srce(tmp_path / "srce.png")
+        with Image.open(srce) as image:
+            leftover = upscale_image.get_upscale_work_file(out_file)
+            image.resize((32 * self.SCALE, 32 * self.SCALE)).save(leftover)
+
+        with pytest.raises(RuntimeError, match="wrote no image"):
+            upscale_image_file(srce, out_file, self.SCALE)
+
+        assert not out_file.exists()
+        assert not leftover.exists()

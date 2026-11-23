@@ -77,6 +77,10 @@ WAIFU2X_NOISE_LEVEL = 1
 # loop cannot fill memory with its complaints.
 _MAX_KEPT_OUTPUT_LINES = 40
 
+# What marks the file a backend writes to before its result has been checked. Still a
+# png by its last suffix, because both backends pick their encoder from the name.
+_WORK_FILE_TAG = ".upscaling"
+
 # The tree whose contents were made by hand. Every other tree in the library can be
 # rebuilt by re-running something; a page in this one cannot be got back at all. So
 # nothing an upscaler produces may be written into it, whichever tool is asking.
@@ -287,6 +291,22 @@ def get_hand_edited_tree(out_file: Path) -> Path | None:
     return None
 
 
+def get_upscale_work_file(out_file: Path) -> Path:
+    """Return the name a page is upscaled under until it has been checked.
+
+    Beside the page rather than in a temporary directory, so that moving it into place
+    is a rename within one filesystem and cannot leave half a page under the real name.
+
+    Args:
+        out_file: The page being made.
+
+    Returns:
+        A png path in the same directory that is not the page itself.
+
+    """
+    return out_file.with_name(f"{out_file.stem}{_WORK_FILE_TAG}{OUTPUT_EXTENSION}")
+
+
 def upscale_image_file(
     in_file: Path,
     out_file: Path,
@@ -305,9 +325,9 @@ def upscale_image_file(
         FileNotFoundError: If the backend's binary is not installed.
         ValueError: If the backend cannot handle the requested scale, if the output
             path is a symlink, or if it lies in a hand-edited tree.
-        RuntimeError: If the backend fails, carrying what it printed, or returns an
-            image that does not match the source. The unusable output file is
-            deleted first.
+        RuntimeError: If the backend fails, carrying what it printed, writes nothing,
+            or returns an image that does not match the source. Whatever page was at
+            `out_file` before is left as it was.
 
     """
     assert out_file.suffix == OUTPUT_EXTENSION
@@ -337,13 +357,31 @@ def upscale_image_file(
 
     check_upscaler_is_usable(upscaler, scale)
 
-    _run_upscaler(upscaler, _get_run_args(upscaler, in_file, out_file, scale))
+    # The backend writes to a name of its own, and only a result that has passed the
+    # checks is moved onto the page. Run straight onto `out_file`, a backend that exits 0
+    # without writing - waifu2x does, when it cannot decode its input - leaves the page
+    # from the last run in place, and that page is the right size and looks like the
+    # source, so it passed every check and was stamped with a recipe it was not made with.
+    # From then on it read as CURRENT and nothing would ever redo it.
+    work_file = get_upscale_work_file(out_file)
+    work_file.unlink(missing_ok=True)
 
     try:
-        _check_upscaled_output(upscaler, in_file, out_file, scale)
-    except RuntimeError:
-        # Leaving a corrupt file behind would make the batch runs skip it from then on.
-        out_file.unlink(missing_ok=True)
-        raise
+        _run_upscaler(upscaler, _get_run_args(upscaler, in_file, work_file, scale))
 
-    add_png_metadata(out_file, _get_metadata(upscaler, in_file, scale))
+        if not work_file.is_file():
+            msg = f"{upscaler} exited cleanly but wrote no image."
+            raise RuntimeError(msg)  # noqa: TRY301
+
+        _check_upscaled_output(upscaler, in_file, work_file, scale)
+
+        # Stamped before the move rather than after it, so the page never exists under
+        # its own name without the recipe that says what made it.
+        add_png_metadata(work_file, _get_metadata(upscaler, in_file, scale))
+
+        work_file.replace(out_file)
+    except BaseException:
+        # Whatever went wrong, including being interrupted, the half made file is no
+        # use to anyone - and the page that was already there has not been touched.
+        work_file.unlink(missing_ok=True)
+        raise

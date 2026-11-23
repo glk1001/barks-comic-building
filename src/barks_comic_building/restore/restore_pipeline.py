@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cv2 as cv
 from barks_fantagraphics.comics_database import get_fanta_title_for_volume
@@ -15,6 +15,7 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Generator
+    from pathlib import Path
 
 from barks_comic_building.restore.image_checks import (
     MAX_THUMBNAIL_DEVIATION,
@@ -22,6 +23,8 @@ from barks_comic_building.restore.image_checks import (
     find_structural_fault,
 )
 from barks_comic_building.restore.image_io import (
+    is_complete_png,
+    is_complete_svg,
     resize_image_file,
     svg_file_to_optimized_png,
     svg_file_to_png,
@@ -33,6 +36,8 @@ from barks_comic_building.restore.page_state import (
     RECIPE_ID_KEY,
     RECIPE_KEY,
     RESTORE_DATE_KEY,
+    get_ink_mask_file,
+    get_upscayl_input_stamp,
 )
 from barks_comic_building.restore.palette_snap import snap_image_file_to_srce_palette
 from barks_comic_building.restore.remove_alias_artifacts import get_median_filter
@@ -88,6 +93,7 @@ def is_hand_restored_page(dest_file: Path) -> bool:
 # being worked on: these are the keys the ledger records timings under, and a key that
 # carried the page's filename would make every page its own step and leave the totals
 # unable to answer where the time actually goes.
+STEP_PREPARE_WORK_FILES = "prepare work files"
 STEP_REMOVE_ARTIFACTS = "remove jpeg artifacts"
 STEP_REMOVE_COLORS = "remove colors"
 STEP_SMOOTH = "smooth"
@@ -194,6 +200,24 @@ class RestorePipeline:
             msg = f'Upscayl file not found: "{self.srce_upscale_file}".'
             raise FileNotFoundError(msg)
 
+        # Which upscale of the page this is, read once here so that every phase works
+        # from the same answer. It goes into the restored page, where a later run uses it
+        # to tell that the input has been redone since, and into the stamp beside the
+        # work files, where a resumed run uses it to tell whose input they were made from.
+        self.input_stamp = get_upscayl_input_stamp(self.srce_upscale_file)
+        input_stat = self.srce_upscale_file.stat()
+        self.work_stamp: dict[str, Any] = {
+            "recipe_id": self.recipe.recipe_id,
+            "input": self.input_stamp,
+            # A hand-edited input carries no upscale to name, and the work files are
+            # gone within the hour anyway, so the file itself is pinned down as well.
+            # Erring towards a mismatch here only costs redoing some intermediates.
+            "input_mtime_ns": input_stat.st_mtime_ns,
+            "input_size": input_stat.st_size,
+        }
+
+        self.png_of_svg_file = get_ink_mask_file(self.dest_svg_restored_file)
+
         # Collection titles carry pages whose outputs are symlinks to another volume's,
         # and writing to one of those paths follows the link: that volume's page would be
         # replaced from a different source image, and neither end would say so. Refused
@@ -203,6 +227,7 @@ class RestorePipeline:
             self.dest_restored_file,
             self.dest_upscayled_restored_file,
             self.dest_svg_restored_file,
+            self.png_of_svg_file,
         ):
             if dest_file.is_symlink():
                 msg = (
@@ -238,7 +263,9 @@ class RestorePipeline:
         # part 4 overwrite its own input and quietly produce an inkless page whenever it
         # was re-run on its own.
         self.svg_png_4x_file = work_dir / f"{self.srce_upscale_stem}-svg-4x.png"
-        self.png_of_svg_file = Path(str(self.dest_svg_restored_file) + ".png")
+
+        # Says what the work files beside it were made with. See `_prepare_work_files`.
+        self.work_stamp_file = work_dir / f"{self.srce_upscale_stem}-work-stamp.json"
 
     @property
     def expected_output_files(self) -> list[Path]:
@@ -271,7 +298,8 @@ class RestorePipeline:
         only ever remove files this page is known to have put there.
 
         Includes the three written by the step modules rather than by the pipeline
-        itself, which would otherwise be left behind.
+        itself, which would otherwise be left behind, and the stamp that says what the
+        rest were made with.
         """
         stem = self.srce_upscale_stem
 
@@ -285,6 +313,7 @@ class RestorePipeline:
             self.work_dir / f"{stem}-posterized-pre-remove-colors.png",
             self.work_dir / f"{stem}-remove-mask.png",
             self.work_dir / f"{stem}-input-black-removed.png",
+            self.work_stamp_file,
         ]
 
     @property
@@ -321,8 +350,73 @@ class RestorePipeline:
                 )
                 return
 
+    def _read_work_stamp(self) -> dict[str, Any] | None:
+        """Return the stamp left beside this page's work files, or None if it is no use."""
+        try:
+            stamp = json.loads(self.work_stamp_file.read_text())
+        except (OSError, ValueError):
+            return None
+
+        return stamp if isinstance(stamp, dict) else None
+
+    def _prepare_work_files(self) -> None:
+        """Throw away work files that are not this run's to carry on from.
+
+        A page that fails or is stopped keeps its intermediates so the next run can
+        resume from them, and they can sit there a long time. Reused only because they
+        exist, a smoothed mask from before the smoothing was tuned again, or an inpaint of
+        the page as it was before being upscayled again, went straight into a page that
+        was then stamped with today's recipe and read as CURRENT from then on.
+
+        So each page leaves a stamp beside its work files saying what they were made
+        with and from. Unless that matches this run exactly, and reuse was asked for,
+        everything is deleted and the page starts clean. That is done whether or not
+        this run is a resume, because the next one may be: a plain run that is killed
+        half way would otherwise leave its new stamp vouching for older files it had
+        not yet got round to overwriting.
+
+        Runs first, as a step, so that not being able to write the stamp fails the page
+        rather than letting it go on to make work files nothing vouches for.
+        """
+        if self.use_existing_work_files and self._read_work_stamp() == self.work_stamp:
+            return
+
+        try:
+            leftovers = [file for file in self.work_files if file.is_file()]
+            if leftovers and self.use_existing_work_files:
+                logger.warning(
+                    f"Discarding {len(leftovers)} work file(s) made with another recipe"
+                    f' or from another input: "{self.srce_upscale_stem}-*".'
+                )
+            for file in leftovers:
+                file.unlink(missing_ok=True)
+
+            self.work_stamp_file.write_text(json.dumps(self.work_stamp, sort_keys=True))
+        except OSError:
+            self.errors_occurred = True
+            self.failed_step = STEP_PREPARE_WORK_FILES
+            logger.exception(f'Error in {STEP_PREPARE_WORK_FILES} "{self.work_stamp_file.name}": ')
+
+    def _can_reuse(self, *files: Path) -> bool:
+        """Return whether a step may skip its work and use what is already on disk.
+
+        Whose files they are is `_prepare_work_files`' question. This one is whether
+        they are whole: a worker killed part way through a write leaves a file that
+        exists and is no good, and only a stop asked for between steps is guaranteed
+        not to.
+        """
+        if not self.use_existing_work_files:
+            return False
+
+        return all(
+            is_complete_svg(file) if file.suffix == ".svg" else is_complete_png(file)
+            for file in files
+        )
+
     def do_part1(self) -> None:
-        self._run_steps(self._do_remove_jpg_artifacts, self._do_remove_colors)
+        self._run_steps(
+            self._prepare_work_files, self._do_remove_jpg_artifacts, self._do_remove_colors
+        )
 
     def do_part2_memory_hungry(self) -> None:
         self._run_steps(self._do_smooth_removed_colors)
@@ -339,7 +433,7 @@ class RestorePipeline:
         )
 
     def _do_remove_jpg_artifacts(self) -> None:
-        if self.use_existing_work_files and self.removed_artifacts_file.is_file():
+        if self._can_reuse(self.removed_artifacts_file):
             logger.warning(
                 f"Removed artifacts file already exists - skipping:"
                 f' "{self.removed_artifacts_file}".'
@@ -355,7 +449,7 @@ class RestorePipeline:
             write_cv_image_file(self.removed_artifacts_file, out_image)
 
     def _do_remove_colors(self) -> None:
-        if self.use_existing_work_files and self.removed_colors_file.is_file():
+        if self._can_reuse(self.removed_colors_file):
             logger.warning(
                 f'Removed colors file already exists - skipping: "{self.removed_colors_file}".'
             )
@@ -372,7 +466,7 @@ class RestorePipeline:
             )
 
     def _do_smooth_removed_colors(self) -> None:
-        if self.use_existing_work_files and self.smoothed_removed_colors_file.is_file():
+        if self._can_reuse(self.smoothed_removed_colors_file):
             logger.warning(
                 f"Smoothed removed colors file already exists - skipping:"
                 f' "{self.smoothed_removed_colors_file}".'
@@ -384,11 +478,7 @@ class RestorePipeline:
             smooth_image_file(self.removed_colors_file, self.smoothed_removed_colors_file)
 
     def _do_generate_svg(self) -> None:
-        if (
-            self.use_existing_work_files
-            and self.dest_svg_restored_file.is_file()
-            and self.svg_png_4x_file.is_file()
-        ):
+        if self._can_reuse(self.dest_svg_restored_file, self.svg_png_4x_file):
             logger.warning(
                 f'Svg file and its 4x render already exist - skipping: "{self.svg_png_4x_file}".'
             )
@@ -402,7 +492,7 @@ class RestorePipeline:
             svg_file_to_png(self.dest_svg_restored_file, self.svg_png_4x_file)
 
     def _do_inpaint(self) -> None:
-        if self.use_existing_work_files and self.inpainted_file.is_file():
+        if self._can_reuse(self.inpainted_file):
             logger.warning(f'Inpainted file already exists - skipping: "{self.inpainted_file}".')
             return
 
@@ -444,7 +534,7 @@ class RestorePipeline:
     def _do_snap_palette(self) -> None:
         if not self.do_palette_snap:
             return
-        if self.use_existing_work_files and self.palette_snapped_file.is_file():
+        if self._can_reuse(self.palette_snapped_file):
             logger.warning(
                 f'Palette snapped file already exists - skipping: "{self.palette_snapped_file}".'
             )
@@ -526,6 +616,29 @@ class RestorePipeline:
     def _do_resize_restored_file(self) -> None:
         logger.info(f'\nResizing restored file to "{self.dest_restored_file}"...')
         with _timed_step(self, STEP_RESIZE, self.dest_restored_file.name):
+            upscayled_width, upscayled_height = get_image_size(self.dest_upscayled_restored_file)
+            output_size = (upscayled_width // self.scale, upscayled_height // self.scale)
+
+            # The ink mask goes first, because the restored page is the one that carries
+            # the recipe and a page is taken as finished once it does. Written after it,
+            # a mask that failed left a page that said it was done and had no mask.
+            #
+            # Sized from the page it sits beside rather than from the original scan,
+            # which a page added by hand does not have.
+            logger.info(
+                f"\nSaving svg file to {output_size[0]} x {output_size[1]}"
+                f' optimized png file "{self.png_of_svg_file}"...'
+            )
+            svg_file_to_optimized_png(
+                self.dest_svg_restored_file, *output_size, self.png_of_svg_file
+            )
+
+            # Structural checks only, and no mode check: the traced ink is written as a
+            # palette png, and it looks nothing like the colour page it came from, so a
+            # deviation threshold that suited the other two outputs would fire on every
+            # page.
+            self._verify_output(self.png_of_svg_file, expected_size=output_size)
+
             srce_file = "N/A" if not self.srce_file.is_file() else get_clean_path(self.srce_file)
 
             # The recipe travels with the page, expanded as well as hashed, so that what
@@ -535,6 +648,7 @@ class RestorePipeline:
                 "Source file": f'"{srce_file}"',
                 "Upscayl file": f'"{get_clean_path(self.srce_upscale_file)}"',
                 "Upscayl scale": str(self.scale),
+                **self.input_stamp,
                 RECIPE_ID_KEY: self.recipe.recipe_id,
                 RECIPE_KEY: self.recipe.as_json(),
                 RESTORE_DATE_KEY: datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -549,28 +663,12 @@ class RestorePipeline:
 
             # This is the page the build reads, and the only one carrying a recipe, so a
             # bad one here is the one that would go unnoticed longest.
-            upscayled_width, upscayled_height = get_image_size(self.dest_upscayled_restored_file)
             self._verify_output(
                 self.dest_restored_file,
-                expected_size=(upscayled_width // self.scale, upscayled_height // self.scale),
+                expected_size=output_size,
                 expected_mode="RGB",
                 srce_file=self.dest_upscayled_restored_file,
             )
-
-            output_width, output_height = get_image_size(self.srce_file)
-            logger.info(
-                f"\nSaving svg file to {output_width} x {output_height}"
-                f' optimized png file "{self.png_of_svg_file}"...'
-            )
-            svg_file_to_optimized_png(
-                self.dest_svg_restored_file, output_width, output_height, self.png_of_svg_file
-            )
-
-            # Structural checks only, and no mode check: the traced ink is written as a
-            # palette png, and it looks nothing like the colour page it came from, so a
-            # deviation threshold that suited the other two outputs would fire on every
-            # page.
-            self._verify_output(self.png_of_svg_file, expected_size=(output_width, output_height))
 
 
 def check_for_errors(

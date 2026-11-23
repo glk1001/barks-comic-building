@@ -3,12 +3,18 @@
 The old test was whether the restored png existed. That misses two things. It cannot tell
 a page made with the current tuning from one made under settings that have since changed,
 so a re-run after a tuning change meant deleting outputs by hand. And it looks at only one
-of the three files a restore produces, so a page whose 4x or svg output never got written
+of the four files a restore produces, so a page whose 4x or svg output never got written
 was skipped from then on - there are over a hundred such pages in the library today,
 mostly in volumes 1 and 7.
 
 Both are the same question asked properly: are all of this page's outputs present, and
 were they made with the recipe in force now.
+
+There is a third thing the recipe cannot answer, because it describes what the restore
+does and says nothing of what it was handed: whether the page was made from the upscayled
+input that is there now. So the restored page also records which upscale it was made from,
+and a page made from an input that has since been redone is as stale as one made under old
+settings.
 """
 
 from __future__ import annotations
@@ -23,6 +29,8 @@ from barks_comic_building.restore.upscale_image import (
     WAIFU2X_MODEL_KEY,
     Upscaler,
 )
+from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_RECIPE_ID_KEY
+from barks_comic_building.restore.upscale_state import UPSCALE_DATE_KEY
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -31,14 +39,23 @@ __all__ = [
     "UPSCALER_KEY",
     "PageState",
     "PageStatus",
+    "get_ink_mask_file",
     "get_page_status",
     "get_upscaler_used",
+    "get_upscayl_input_stamp",
 ]
 
 # The png metadata keys the restore stamps its provenance into.
 RECIPE_ID_KEY = "Restore recipe id"
 RECIPE_KEY = "Restore recipe"
 RESTORE_DATE_KEY = "Restore date"
+
+# The keys the restore records its input under: the recipe and date the upscayled page it
+# worked from was carrying. Together they name one particular upscale of the page, since
+# the date moves every time the page is upscayled again, whatever it is upscayled with.
+INPUT_RECIPE_ID_KEY = "Upscayl input recipe id"
+INPUT_DATE_KEY = "Upscayl input date"
+_INPUT_KEYS = (INPUT_RECIPE_ID_KEY, INPUT_DATE_KEY)
 
 
 class PageState(StrEnum):
@@ -48,9 +65,10 @@ class PageState(StrEnum):
     """Every output is present and was made with the current recipe. Nothing to do."""
 
     STALE = "stale"
-    """Every output is present, but made with different settings, or with none recorded.
-    Pages restored before provenance was kept land here, which is what makes the first
-    run after this change redo the library without anything being deleted first."""
+    """Every output is present, but made with different settings, or with none recorded,
+    or from an upscayled input that has since been redone. Pages restored before
+    provenance was kept land here, which is what makes the first run after this change
+    redo the library without anything being deleted first."""
 
     INCOMPLETE = "incomplete"
     """Some outputs exist and some do not. Under the old existence check these were
@@ -103,6 +121,69 @@ class PageStatus(NamedTuple):
         return self.state.needs_restoring
 
 
+def get_ink_mask_file(dest_svg_restored_file: Path) -> Path:
+    """Return the path of the ink mask that ships beside a page's traced line art.
+
+    Args:
+        dest_svg_restored_file: The traced line art.
+
+    Returns:
+        The same path with ``.png`` added, which is where the reader looks for it.
+
+    """
+    return dest_svg_restored_file.with_name(dest_svg_restored_file.name + ".png")
+
+
+def get_upscayl_input_stamp(srce_upscayl_file: Path) -> dict[str, str]:
+    """Return what a restore records about the upscayled page it was made from.
+
+    Args:
+        srce_upscayl_file: The upscayled page.
+
+    Returns:
+        The input's upscale recipe id and date, under the keys they are written to the
+        restored page with. Empty if the input carries either one but not both, or
+        neither - a hand-edited page in the upscayled fixes tree carries neither - since
+        half a name identifies nothing.
+
+    """
+    metadata = read_png_metadata(srce_upscayl_file)
+
+    recipe_id = metadata.get(UPSCALE_RECIPE_ID_KEY, "")
+    upscale_date = metadata.get(UPSCALE_DATE_KEY, "")
+    if not recipe_id or not upscale_date:
+        return {}
+
+    return {INPUT_RECIPE_ID_KEY: recipe_id, INPUT_DATE_KEY: upscale_date}
+
+
+def _is_made_from_this_input(
+    srce_upscayl_file: Path, dest_restored_file: Path, restored_metadata: dict[str, str]
+) -> bool:
+    """Return whether a restored page was made from the upscayled input that is there now.
+
+    Answered from what the two files say about themselves when both say it: the restored
+    page names the upscale it was made from, and the input says which upscale it is.
+
+    When either is silent the file times are all there is to go on, and a restored page
+    older than its input cannot have been made from it. The whole library was restored
+    before this was recorded, and a hand-edited input carries no upscale of ours to name,
+    so this is the answer for most pages until they are next restored. It is the weaker
+    of the two - copying the upscayled tree makes every page look newer than its
+    restoration - which is why it is only the fallback.
+    """
+    current = get_upscayl_input_stamp(srce_upscayl_file)
+    recorded = {key: restored_metadata[key] for key in _INPUT_KEYS if key in restored_metadata}
+
+    if current and len(recorded) == len(_INPUT_KEYS):
+        return recorded == current
+
+    try:
+        return dest_restored_file.stat().st_mtime_ns >= srce_upscayl_file.stat().st_mtime_ns
+    except OSError:
+        return False
+
+
 # One parameter per thing the answer depends on, and one return per state, because the
 # body is a chain of guard clauses in the order the questions have to be asked. Collapsing
 # either would hide the ordering, which is the part that matters here.
@@ -121,7 +202,8 @@ def get_page_status(  # noqa: PLR0911, PLR0913
         srce_upscayl_file: The upscayled page the restore works from.
         dest_restored_file: The restored page at source size.
         dest_upscayled_restored_file: The restored page at full scale.
-        dest_svg_restored_file: The traced line art.
+        dest_svg_restored_file: The traced line art. The ink mask beside it is the
+            fourth output, and its path follows from this one.
         current_recipe_id: The id of the recipe the pipeline would use now.
         is_hand_restored: Whether this page's restored file was made by hand -
             `ComicBook.is_hand_restored`. Deliberately required rather than defaulted: a
@@ -133,7 +215,15 @@ def get_page_status(  # noqa: PLR0911, PLR0913
         has them.
 
     """
-    outputs = [dest_restored_file, dest_upscayled_restored_file, dest_svg_restored_file]
+    # The ink mask is the last file a restore writes and the only one of the four not
+    # named by a caller. Left out of this list, a page whose mask never got written read
+    # as CURRENT and was never looked at again.
+    outputs = [
+        dest_restored_file,
+        dest_upscayled_restored_file,
+        dest_svg_restored_file,
+        get_ink_mask_file(dest_svg_restored_file),
+    ]
 
     # These two come first, and neither looks at the recipe, because for both the question
     # "is this page up to date" is not this run's to answer - and answering it here is done
@@ -169,7 +259,13 @@ def get_page_status(  # noqa: PLR0911, PLR0913
     recipe_id = metadata.get(RECIPE_ID_KEY, "")
     restore_date = metadata.get(RESTORE_DATE_KEY, "")
 
-    if recipe_id and recipe_id == current_recipe_id:
+    # The recipe first, because it is read off a file already open; the input is only
+    # worth reading for a page that would otherwise be called finished.
+    if (
+        recipe_id
+        and recipe_id == current_recipe_id
+        and _is_made_from_this_input(srce_upscayl_file, dest_restored_file, metadata)
+    ):
         return PageStatus(PageState.CURRENT, recipe_id, restore_date)
 
     return PageStatus(PageState.STALE, recipe_id, restore_date)

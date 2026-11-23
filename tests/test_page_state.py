@@ -8,6 +8,7 @@ a hundred pages in the library have a restored png and no 4x file.
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,19 +18,40 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from barks_comic_building.restore.page_state import (
+    INPUT_DATE_KEY,
+    INPUT_RECIPE_ID_KEY,
     RECIPE_ID_KEY,
     UPSCALER_KEY,
     PageState,
+    get_ink_mask_file,
     get_page_status,
     get_upscaler_used,
+    get_upscayl_input_stamp,
 )
 from barks_comic_building.restore.restore_pipeline import RestorePipeline
+from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_RECIPE_ID_KEY
+from barks_comic_building.restore.upscale_state import UPSCALE_DATE_KEY
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 CURRENT_RECIPE_ID = "aaaaaaaaaaaa"
 OLD_RECIPE_ID = "bbbbbbbbbbbb"
+
+UPSCALE_RECIPE_ID = "cccccccccccc"
+FIRST_UPSCALE = "2026-07-29T18:00:00+10:00"
+SECOND_UPSCALE = "2026-11-02T09:30:00+11:00"
+
+
+def upscale_metadata(upscale_date: str) -> dict[str, str]:
+    """Return what an upscale stamps into its page."""
+    return {UPSCALE_RECIPE_ID_KEY: UPSCALE_RECIPE_ID, UPSCALE_DATE_KEY: upscale_date}
+
+
+def set_age(path: Path, seconds_old: int) -> None:
+    """Give a file a modification time that many seconds before a fixed instant."""
+    instant = 1_800_000_000 - seconds_old
+    os.utime(path, (instant, instant))
 
 
 def write_png(path: Path, metadata: dict[str, str] | None = None) -> Path:
@@ -45,13 +67,14 @@ def write_png(path: Path, metadata: dict[str, str] | None = None) -> Path:
 
 
 class Page:
-    """The four files a page's state is decided from."""
+    """The five files a page's state is decided from."""
 
     def __init__(self, tmp_path: Path) -> None:
         self.upscayl = tmp_path / "upscayl.png"
         self.restored = tmp_path / "restored.png"
         self.restored_4x = tmp_path / "restored-4x.png"
         self.svg = tmp_path / "restored.svg"
+        self.mask = get_ink_mask_file(self.svg)
 
     def status(self, *, is_hand_restored: bool = False) -> PageState:
         return get_page_status(
@@ -63,11 +86,19 @@ class Page:
             is_hand_restored=is_hand_restored,
         ).state
 
-    def write_all(self, recipe_id: str | None) -> None:
-        write_png(self.upscayl)
-        write_png(self.restored, {RECIPE_ID_KEY: recipe_id} if recipe_id else None)
+    def write_all(
+        self,
+        recipe_id: str | None,
+        *,
+        input_metadata: dict[str, str] | None = None,
+        recorded_input: dict[str, str] | None = None,
+    ) -> None:
+        write_png(self.upscayl, input_metadata)
+        metadata = ({RECIPE_ID_KEY: recipe_id} if recipe_id else {}) | (recorded_input or {})
+        write_png(self.restored, metadata)
         write_png(self.restored_4x)
         self.svg.write_text("<svg/>")
+        write_png(self.mask)
 
 
 @pytest.fixture
@@ -104,12 +135,13 @@ class TestPageState:
 
         assert page.status() is PageState.STALE
 
-    @pytest.mark.parametrize("missing", ["restored", "restored_4x", "svg"])
+    @pytest.mark.parametrize("missing", ["restored", "restored_4x", "svg", "mask"])
     def test_any_missing_output_is_incomplete(self, page: Page, missing: str) -> None:
         """Including when the restored png itself is present and current.
 
         The old check looked only at the restored png, so a page whose 4x or svg output
-        never got written was skipped from then on.
+        never got written was skipped from then on. The ink mask was left out for longer:
+        it is written last, so a page whose mask failed was already stamped as finished.
         """
         page.write_all(CURRENT_RECIPE_ID)
         getattr(page, missing).unlink()
@@ -123,14 +155,14 @@ class TestPageState:
 
         assert page.status() is PageState.STALE
 
-    @pytest.mark.parametrize("linked", ["restored", "restored_4x", "svg"])
+    @pytest.mark.parametrize("linked", ["restored", "restored_4x", "svg", "mask"])
     def test_a_symlinked_output_belongs_to_another_volume(
         self, page: Page, tmp_path: Path, linked: str
     ) -> None:
         """Collection titles borrow pages from other volumes by symlink.
 
         Restoring one would write through the link, replacing that volume's page from a
-        different source image. Any one of the three outputs being a link is enough to
+        different source image. Any one of the four outputs being a link is enough to
         say the page is not this title's.
         """
         page.write_all(CURRENT_RECIPE_ID)
@@ -146,6 +178,101 @@ class TestPageState:
         page.restored.symlink_to(write_png(tmp_path / "other" / "123.png"))
 
         assert page.status() is PageState.LINKED
+
+
+class TestTheInputThePageWasMadeFrom:
+    """A page made from an upscale that has since been redone is not finished.
+
+    The restore recipe says what the restore did and nothing about what it was handed, so
+    upscayling a volume again left every restored page of it reading as CURRENT and the
+    restore reporting nothing to do.
+    """
+
+    def recorded(self, upscale_date: str) -> dict[str, str]:
+        return {INPUT_RECIPE_ID_KEY: UPSCALE_RECIPE_ID, INPUT_DATE_KEY: upscale_date}
+
+    def test_a_page_made_from_the_input_that_is_there_is_current(self, page: Page) -> None:
+        page.write_all(
+            CURRENT_RECIPE_ID,
+            input_metadata=upscale_metadata(FIRST_UPSCALE),
+            recorded_input=self.recorded(FIRST_UPSCALE),
+        )
+
+        assert page.status() is PageState.CURRENT
+
+    def test_a_page_whose_input_was_upscayled_again_is_stale(self, page: Page) -> None:
+        page.write_all(
+            CURRENT_RECIPE_ID,
+            input_metadata=upscale_metadata(SECOND_UPSCALE),
+            recorded_input=self.recorded(FIRST_UPSCALE),
+        )
+        # Even with the file times saying otherwise - they are not asked.
+        set_age(page.upscayl, 100)
+        set_age(page.restored, 0)
+
+        assert page.status() is PageState.STALE
+
+    def test_the_record_is_believed_over_the_file_times(self, page: Page) -> None:
+        """Copying the upscayled tree must not make a recorded page look out of date."""
+        page.write_all(
+            CURRENT_RECIPE_ID,
+            input_metadata=upscale_metadata(FIRST_UPSCALE),
+            recorded_input=self.recorded(FIRST_UPSCALE),
+        )
+        set_age(page.restored, 100)
+        set_age(page.upscayl, 0)
+
+        assert page.status() is PageState.CURRENT
+
+    def test_a_page_with_no_record_is_current_while_it_is_newer_than_its_input(
+        self, page: Page
+    ) -> None:
+        """The whole library as it stands: restored before the input was recorded."""
+        page.write_all(CURRENT_RECIPE_ID, input_metadata=upscale_metadata(FIRST_UPSCALE))
+        set_age(page.upscayl, 100)
+        set_age(page.restored, 0)
+
+        assert page.status() is PageState.CURRENT
+
+    def test_a_page_with_no_record_is_stale_once_its_input_is_newer(self, page: Page) -> None:
+        page.write_all(CURRENT_RECIPE_ID, input_metadata=upscale_metadata(SECOND_UPSCALE))
+        set_age(page.restored, 100)
+        set_age(page.upscayl, 0)
+
+        assert page.status() is PageState.STALE
+
+    def test_a_hand_edited_input_is_judged_by_its_file_time(self, page: Page) -> None:
+        """A fixes page carries no upscale of ours, so the record has nothing to match.
+
+        This is also what happens when a hand edit replaces the upscale a page was made
+        from: the record names an upscale, the input names none, and the newer file wins.
+        """
+        page.write_all(CURRENT_RECIPE_ID, recorded_input=self.recorded(FIRST_UPSCALE))
+        set_age(page.restored, 100)
+        set_age(page.upscayl, 0)
+
+        assert page.status() is PageState.STALE
+
+    def test_half_a_record_is_no_record(self, page: Page) -> None:
+        page.write_all(
+            CURRENT_RECIPE_ID,
+            input_metadata=upscale_metadata(SECOND_UPSCALE),
+            recorded_input={INPUT_RECIPE_ID_KEY: UPSCALE_RECIPE_ID},
+        )
+        set_age(page.upscayl, 100)
+        set_age(page.restored, 0)
+
+        assert page.status() is PageState.CURRENT
+
+    def test_the_stamp_names_the_upscale(self, tmp_path: Path) -> None:
+        upscayl = write_png(tmp_path / "upscayl.png", upscale_metadata(FIRST_UPSCALE))
+
+        assert get_upscayl_input_stamp(upscayl) == self.recorded(FIRST_UPSCALE)
+
+    def test_an_input_carrying_half_a_name_gives_no_stamp(self, tmp_path: Path) -> None:
+        upscayl = write_png(tmp_path / "upscayl.png", {UPSCALE_RECIPE_ID_KEY: UPSCALE_RECIPE_ID})
+
+        assert get_upscayl_input_stamp(upscayl) == {}
 
 
 class TestAHandRestoredPageIsNeverTheRunsToMake:
@@ -230,7 +357,7 @@ class TestThePipelineRefusesToo:
     the damage, and the constructor is the last point before the writing starts.
     """
 
-    @pytest.mark.parametrize("linked", [0, 1, 2])
+    @pytest.mark.parametrize("linked", [0, 1, 2, 3])
     def test_restoring_onto_a_symlink_is_refused(self, tmp_path: Path, linked: int) -> None:
         other_volume_page = write_png(tmp_path / "other" / "123.png")
         before = other_volume_page.read_bytes()
@@ -243,7 +370,7 @@ class TestThePipelineRefusesToo:
         restored = out_dir / "500.png"
         restored_4x = out_dir / "500-4x.png"
         svg = out_dir / "500.svg"
-        (restored, restored_4x, svg)[linked].symlink_to(other_volume_page)
+        (restored, restored_4x, svg, get_ink_mask_file(svg))[linked].symlink_to(other_volume_page)
 
         with pytest.raises(ValueError, match="symlink"):
             RestorePipeline(

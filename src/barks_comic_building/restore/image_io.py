@@ -34,6 +34,10 @@ _FAST_PNG_COMPRESSION = 1
 # The zero-length chunk every finished png ends with: length, type, and its fixed crc.
 _PNG_IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
 
+# What a finished svg ends with, and how much of its tail is read to look for it.
+_SVG_CLOSING_TAG = b"</svg>"
+_SVG_TAIL_BYTES = 64
+
 
 def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
     png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=None)
@@ -90,7 +94,7 @@ def read_png_metadata(png_file: Path) -> dict[str, str]:
     """
     prefix = f"{METADATA_PROPERTY_GROUP}:"
 
-    if not _is_complete_png(png_file):
+    if not is_complete_png(png_file):
         return {}
 
     try:
@@ -107,7 +111,7 @@ def read_png_metadata(png_file: Path) -> dict[str, str]:
     }
 
 
-def _is_complete_png(png_file: Path) -> bool:
+def is_complete_png(png_file: Path) -> bool:
     """Return whether a png ends with the IEND chunk that closes a finished file.
 
     Args:
@@ -122,6 +126,28 @@ def _is_complete_png(png_file: Path) -> bool:
         with png_file.open("rb") as f:
             f.seek(-len(_PNG_IEND_CHUNK), os.SEEK_END)
             return f.read(len(_PNG_IEND_CHUNK)) == _PNG_IEND_CHUNK
+    except OSError:
+        return False
+
+
+def is_complete_svg(svg_file: Path) -> bool:
+    """Return whether an svg ends with the tag that closes a finished file.
+
+    The tracer writes the closing tag last, so a write that was killed part way leaves a
+    file without one.
+
+    Args:
+        svg_file: The svg to check.
+
+    Returns:
+        True if the file ends in ``</svg>``, give or take trailing whitespace. False if
+        it does not, or cannot be read.
+
+    """
+    try:
+        with svg_file.open("rb") as f:
+            f.seek(max(0, svg_file.stat().st_size - _SVG_TAIL_BYTES))
+            return f.read().rstrip().endswith(_SVG_CLOSING_TAG)
     except OSError:
         return False
 

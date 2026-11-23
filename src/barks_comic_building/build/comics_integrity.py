@@ -158,6 +158,7 @@ STORIES_WITH_NON_BARKS_SCRIPTS_THAT_ARE_OK = {
     Titles.LEMONADE_FLING_THE,
     Titles.DUCK_LUCK,
     Titles.BOXED_IN,
+    Titles.MATTER_OF_FACTORY_A,
     Titles.TOYLAND,  # cspell:disable-line
 }
 

@@ -53,6 +53,8 @@ TITLE = "Lost in the Andes!"
 VOLUME = 7
 # Two body pages of volume 7 that are in no special-case list.
 PAGES = ["050", "051"]
+# What the build names the title page and those two pages.
+BUILT_PAGE_NAMES = ["1-01.jpg", "2-01.jpg", "2-02.jpg"]
 
 # When each stage of a page was made, in pipeline order. A stage made from the one before
 # it is newer than it, so a chain in order has these increasing.
@@ -152,6 +154,11 @@ class Title:
         return self.root / "dest" / "comic.cbz"
 
     @property
+    def built_pages(self) -> list[Path]:
+        # The title page, then the two body pages, as the build names them.
+        return [self.root / "dest" / "images" / name for name in BUILT_PAGE_NAMES]
+
+    @property
     def metadata(self) -> Path:
         return self.root / "dest" / "comic-metadata.json"
 
@@ -187,6 +194,8 @@ class Title:
         write(self.inset, INSET_TIME)
 
     def build(self) -> None:
+        for built_page in self.built_pages:
+            write(built_page, BUILD_TIME)
         write(self.metadata, BUILD_TIME)
         write(self.zip_file, BUILD_TIME)
         link(self.series_symlink, self.zip_file, BUILD_TIME)
@@ -219,6 +228,9 @@ def title(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Title:
     )
 
     # Where a built comic lives is fixed by module constants that point into the library.
+    monkeypatch.setattr(
+        ComicBook, "get_dest_image_dir", lambda _self: a_title.built_pages[0].parent
+    )
     monkeypatch.setattr(ComicBook, "get_dest_comic_zip", lambda _self: a_title.zip_file)
     monkeypatch.setattr(ComicBook, "get_metadata_filepath", lambda _self: a_title.metadata)
     monkeypatch.setattr(
@@ -449,6 +461,21 @@ class TestTheReasonATitleIsNotBuilt:
         write(title.zip_file, REDONE_TIME)
 
         assert get_build_blocker(title.comic) == "the series symlink is older than the zip file"
+
+    def test_a_built_page_remade_since_the_zip_is_named(self, title: Title) -> None:
+        # `barks-check-build` called this zip stale; this report called the title built.
+        title.bring_to(BUILT_FLAG)
+        write(title.built_pages[1], REDONE_TIME)
+
+        assert get_build_blocker(title.comic) == "the zip file is older than its built pages"
+        assert get_build_state_flag(title.comic) != BUILT_FLAG
+
+    def test_built_pages_that_are_not_kept_do_not_unbuild_a_title(self, title: Title) -> None:
+        title.bring_to(BUILT_FLAG)
+        for built_page in title.built_pages:
+            built_page.unlink()
+
+        assert get_build_blocker(title.comic) is None
 
     def test_a_missing_symlink_is_named(self, title: Title) -> None:
         title.bring_to(BUILT_FLAG)

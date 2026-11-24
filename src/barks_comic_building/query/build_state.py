@@ -40,6 +40,8 @@ from loguru import logger
 
 from barks_comic_building.build.utils import (
     MaxTimestamp,
+    check_zip_freshness,
+    check_zip_symlink_freshness,
     dating_dependencies,
     fold_max,
     is_stale,
@@ -51,8 +53,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from barks_fantagraphics.comic_book import ComicBook
-    from barks_fantagraphics.page_classes import CleanPage
+    from barks_fantagraphics.page_classes import CleanPage, SrceAndDestPages
     from barks_fantagraphics.pages import SrceDependency
+
+    from barks_comic_building.build.utils import ZipOutOfDateErrors
 
 # Row and cell styles shared by the status reports.
 # A row that has not reached the last rung of its ladder.
@@ -306,6 +310,56 @@ def _page_dependencies(comic: ComicBook, srce_page: CleanPage) -> list[SrceDepen
         return get_unrestored_page_dependencies(comic, srce_page)
 
 
+def _get_pages_to_date(comic: ComicBook) -> SrceAndDestPages | None:
+    """Return a comic's srce and dest pages, or None if its page list will not resolve.
+
+    Only the pages' types and numbers are asked for, not their files: resolving the files
+    raises on the first page that has none.
+    """
+    try:
+        with quiet_panel_bbox_height_warnings():
+            return get_sorted_srce_and_dest_pages(comic, get_full_paths=False)
+    except Exception as e:
+        # A wrong call signature is a bug in this module, not an unreadable comic, and
+        # this handler would bury it: `check_srce_page_timestamps` outlived its removal
+        # from `get_sorted_srce_and_dest_pages` here for days, and every title graded
+        # clean because the TypeError was caught and logged at debug. Only that shape is
+        # re-raised - a TypeError from inside the call is ordinary unreadable-page data,
+        # and raising on it would put back the crash this handler exists to stop.
+        if isinstance(e, TypeError) and _is_wrong_call_signature(e):
+            raise
+        logger.debug(f'Cannot read the pages of "{comic.ini_file}" to date them - {e}.')
+        return None
+
+
+def get_newest_dest_page(comic: ComicBook) -> MaxTimestamp | None:
+    """Return the newest of a comic's built pages that are on disk.
+
+    The zip is made from the built pages, so a page newer than the zip means the zip is
+    out of date - `barks-check-build` grades it so, and this is that check's reference.
+
+    Args:
+        comic: The comic.
+
+    Returns:
+        The newest built page, or None if there is none on disk or the page list will
+        not resolve. A page that is not there is not this function's finding.
+
+    """
+    pages = _get_pages_to_date(comic)
+    if pages is None:
+        return None
+
+    dest_image_dir = comic.get_dest_image_dir()
+    max_dest: MaxTimestamp | None = None
+    for dest_page in pages.dest_pages:
+        dest_file = dest_image_dir / dest_page.page_filename
+        if dest_file.is_file():
+            max_dest = fold_max(max_dest, dest_file, get_timestamp(dest_file))
+
+    return max_dest
+
+
 def get_chain_state(comic: ComicBook) -> ChainState:
     """Grade every page's restore chain, and collect the newest source of the title.
 
@@ -330,19 +384,8 @@ def get_chain_state(comic: ComicBook) -> ChainState:
     if not has_restorable_pages(comic):
         return CLEAN_CHAIN
 
-    try:
-        with quiet_panel_bbox_height_warnings():
-            pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=False)
-    except Exception as e:
-        # A wrong call signature is a bug in this module, not an unreadable comic, and
-        # this handler would bury it: `check_srce_page_timestamps` outlived its removal
-        # from `get_sorted_srce_and_dest_pages` here for days, and every title graded
-        # clean because the TypeError was caught and logged at debug. Only that shape is
-        # re-raised - a TypeError from inside the call is ordinary unreadable-page data,
-        # and raising on it would put back the crash this handler exists to stop.
-        if isinstance(e, TypeError) and _is_wrong_call_signature(e):
-            raise
-        logger.debug(f'Cannot read the pages of "{comic.ini_file}" to date them - {e}.')
+    pages = _get_pages_to_date(comic)
+    if pages is None:
         return CLEAN_CHAIN
 
     rung_by_dir = _rung_by_dir(comic)
@@ -407,6 +450,96 @@ def is_upscayled(comic: ComicBook, chain: ChainState | None = None) -> bool:
     return chain.stale_upscayl_pages == 0
 
 
+def _is_hand_restored(comic: ComicBook) -> bool:
+    return comic.get_title_str() in HAND_RESTORED_TITLES
+
+
+def _missing_files(file_list: list[Path]) -> list[Path]:
+    """Return the files in a list that are not on disk."""
+    return [f for f in file_list if not f.is_file()]
+
+
+# The gates of the restore and panels rungs. Each says why a comic falls at it, or None if
+# it passes, and is written once: `is_restored` and `has_panel_bounds` ask whether any
+# gate of their rung has something to say, and `_restore_blocker` reports the first that
+# does. They used to be two sets of loops over the same files, kept in step by hand.
+
+
+def _unrestored_blocker(comic: ComicBook) -> str | None:
+    """Say how many of a comic's pages have no restored file, or None if all have one."""
+    restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
+    missing = _missing_files(restored_files)
+    if missing:
+        return f"{len(missing)} of its {len(restored_files)} pages are not restored"
+
+    return None
+
+
+def _missing_segments_blocker(comic: ComicBook) -> str | None:
+    """Say how many pages have no panel segments file, or None if all have one."""
+    panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
+    missing = _missing_files(panel_segments_files)
+    if missing:
+        return (
+            f"{len(missing)} of its {len(panel_segments_files)} pages have no panel segments file"
+        )
+
+    return None
+
+
+def _stale_chain_blocker(chain: ChainState) -> str | None:
+    """Say which restore stage a comic's chains have outrun, or None if none has.
+
+    In ladder order, so the step named is the earliest one that has to be re-run: a
+    restore made from a stale upscayl needs the upscayl doing first.
+
+    Args:
+        chain: The comic's graded restore chains.
+
+    Returns:
+        The outstanding stage, or None if every chain is in order.
+
+    """
+    if chain.stale_upscayl_pages:
+        return (
+            f"{chain.stale_upscayl_pages} of its {chain.total_pages} pages have an"
+            f" upscayled file older than its original scan"
+        )
+
+    if chain.stale_restore_pages:
+        return (
+            f"{chain.stale_restore_pages} of its {chain.total_pages} pages have"
+            f" restored art older than its upscayled source"
+        )
+
+    return None
+
+
+def _stale_segments_blocker(comic: ComicBook) -> str | None:
+    """Say how many panel segments files predate their restored page, or None if none does."""
+    restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
+    panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
+
+    stale = [
+        panel_segments_file
+        for restored_file, panel_segments_file in zip(
+            restored_files, panel_segments_files, strict=True
+        )
+        if dest_file_is_older_than_srce(restored_file, panel_segments_file)
+    ]
+    for panel_segments_file in stale:
+        logger.debug(
+            f'Panels segments file "{panel_segments_file}" is out of date WRT its restored file.'
+        )
+    if stale:
+        return (
+            f"{len(stale)} of its {len(panel_segments_files)} panel segments files"
+            f" are older than their restored page"
+        )
+
+    return None
+
+
 def is_restored(comic: ComicBook, chain: ChainState | None = None) -> bool:
     """Return whether a title has earned the restore rung.
 
@@ -419,17 +552,19 @@ def is_restored(comic: ComicBook, chain: ChainState | None = None) -> bool:
         or restore stage is stale. A hand-restored title passes.
 
     """
-    if comic.get_title_str() in HAND_RESTORED_TITLES:
+    if _is_hand_restored(comic):
         return True
 
-    if not all_files_exist(comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)):
+    # A title with no restorable page has not got a restored file, whatever "all of
+    # none" would say.
+    if not has_restorable_pages(comic) or _unrestored_blocker(comic):
         return False
 
     chain = get_chain_state(comic) if chain is None else chain
 
     # A restore made from a stale upscayl is not current either, so the earlier rung's
     # count blocks this one - that is what makes the ladder strict.
-    return chain.stale_upscayl_pages == 0 and chain.stale_restore_pages == 0
+    return _stale_chain_blocker(chain) is None
 
 
 def has_inset_file(comic: ComicBook) -> bool:
@@ -480,25 +615,10 @@ def has_panel_bounds(comic: ComicBook, chain: ChainState | None = None) -> bool:
     """
     if not is_restored(comic, chain):
         return False
-    if not all_files_exist(comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)):
+    if not has_restorable_pages(comic) or _missing_segments_blocker(comic):
         return False
-    if comic.get_title_str() in HAND_RESTORED_TITLES:
-        return True
 
-    restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
-    panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
-
-    for restored_file, panel_segments_file in zip(
-        restored_files, panel_segments_files, strict=True
-    ):
-        if dest_file_is_older_than_srce(restored_file, panel_segments_file):
-            logger.debug(
-                f'Panels segments file "{panel_segments_file}" is'
-                f' out of date WRT restored file "{restored_file}".'
-            )
-            return False
-
-    return True
+    return _is_hand_restored(comic) or _stale_segments_blocker(comic) is None
 
 
 def has_restorable_pages(comic: ComicBook) -> bool:
@@ -519,27 +639,25 @@ def has_restorable_pages(comic: ComicBook) -> bool:
     return bool(comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES))
 
 
-def _missing_files(file_list: list[Path]) -> list[Path]:
-    """Return the files in a list that are not on disk."""
-    return [f for f in file_list if not f.is_file()]
-
-
-def _symlink_blocker(symlink: Path, zip_file_timestamp: float, which: str) -> str | None:
+def _symlink_blocker(symlink: Path, zip_errors: ZipOutOfDateErrors, which: str) -> str | None:
     """Say why one of a comic's zip symlinks is missing or stale, or None if it is fine.
 
     Args:
         symlink: The symlink to check.
-        zip_file_timestamp: Timestamp of the comic's zip file.
+        zip_errors: The verdict on the comic's zip file, which the symlink is dated by.
         which: Which symlink this is ("series" or "year"), for the message.
 
     Returns:
         The reason the symlink is not usable, or None if it is present and current.
 
     """
-    if not symlink.is_symlink():
-        return f'there is no {which} symlink "{symlink}"'
+    # No dest maximum: this is only asked of a zip already found newer than every built
+    # page, so a symlink no older than that zip cannot be older than a page.
+    symlink_errors = check_zip_symlink_freshness(symlink, zip_errors, None)
 
-    if get_timestamp(symlink) < zip_file_timestamp:
+    if symlink_errors.missing:
+        return f'there is no {which} symlink "{symlink}"'
+    if symlink_errors.out_of_date_wrt_zip:
         return f"the {which} symlink is older than the zip file"
 
     return None
@@ -565,9 +683,14 @@ def _dest_blocker(comic: ComicBook, max_srce: MaxTimestamp | None, srce_desc: st
         The reason the built artifacts are not usable, or None if all are current.
 
     """
-    zip_file = comic.get_dest_comic_zip()
-    if not zip_file.is_file():
-        return f'there is no zip file "{zip_file}"'
+    # The zip and its symlinks are graded by `barks-check-build`'s own verdict functions.
+    # This had a copy of them that left out the built pages, so a title whose pages had
+    # been remade since it was zipped was "built" here and stale there.
+    zip_errors = check_zip_freshness(
+        comic.get_dest_comic_zip(), max_srce, get_newest_dest_page(comic)
+    )
+    if zip_errors.missing:
+        return f'there is no zip file "{zip_errors.file}"'
 
     metadata_file = comic.get_metadata_filepath()
     if not metadata_file.is_file():
@@ -575,13 +698,14 @@ def _dest_blocker(comic: ComicBook, max_srce: MaxTimestamp | None, srce_desc: st
     if is_stale(get_timestamp(metadata_file), max_srce):
         return f"the build is older than its {srce_desc}"
 
-    zip_file_timestamp = get_timestamp(zip_file)
-    if is_stale(zip_file_timestamp, max_srce):
+    if zip_errors.out_of_date_wrt_srce:
         return f"the zip file is older than its {srce_desc}"
+    if zip_errors.out_of_date_wrt_dest:
+        return "the zip file is older than its built pages"
 
     return _symlink_blocker(
-        comic.get_dest_series_comic_zip_symlink(), zip_file_timestamp, "series"
-    ) or _symlink_blocker(comic.get_dest_year_comic_zip_symlink(), zip_file_timestamp, "year")
+        comic.get_dest_series_comic_zip_symlink(), zip_errors, "series"
+    ) or _symlink_blocker(comic.get_dest_year_comic_zip_symlink(), zip_errors, "year")
 
 
 def _non_restorable_blocker(comic: ComicBook) -> str | None:
@@ -614,39 +738,11 @@ def _non_restorable_blocker(comic: ComicBook) -> str | None:
     return _dest_blocker(comic, max_srce, "staged source images")
 
 
-def _stale_chain_blocker(chain: ChainState) -> str | None:
-    """Say which restore stage a comic's chains have outrun, or None if none has.
-
-    In ladder order, so the step named is the earliest one that has to be re-run: a
-    restore made from a stale upscayl needs the upscayl doing first.
-
-    Args:
-        chain: The comic's graded restore chains.
-
-    Returns:
-        The outstanding stage, or None if every chain is in order.
-
-    """
-    if chain.stale_upscayl_pages:
-        return (
-            f"{chain.stale_upscayl_pages} of its {chain.total_pages} pages have an"
-            f" upscayled file older than its original scan"
-        )
-
-    if chain.stale_restore_pages:
-        return (
-            f"{chain.stale_restore_pages} of its {chain.total_pages} pages have"
-            f" restored art older than its upscayled source"
-        )
-
-    return None
-
-
 def _restore_blocker(comic: ComicBook, chain: ChainState) -> str | None:
     """Say why a comic's pages are not fully restored and panel-bounded, or None if fine.
 
-    Mirrors the gates `has_panel_bounds` applies, in the same order, but reports how
-    many pages fall at each one. Existence is asked before staleness throughout: a file
+    The gates `has_panel_bounds` asks, reporting how many pages fall at the first one
+    that has any. Existence is asked before staleness throughout: a file
     that is not there is the thing to say about it, and saying it a second way in
     timestamps only pads the answer.
 
@@ -658,42 +754,15 @@ def _restore_blocker(comic: ComicBook, chain: ChainState) -> str | None:
         The reason the restore workflow is incomplete, or None if it is done.
 
     """
-    hand_restored = comic.get_title_str() in HAND_RESTORED_TITLES
-    restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
-    panel_segments_files = comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)
+    if _is_hand_restored(comic):
+        return _missing_segments_blocker(comic)
 
-    if not hand_restored:
-        missing = _missing_files(restored_files)
-        if missing:
-            return f"{len(missing)} of its {len(restored_files)} pages are not restored"
-
-    missing = _missing_files(panel_segments_files)
-    if missing:
-        return (
-            f"{len(missing)} of its {len(panel_segments_files)} pages have no panel segments file"
-        )
-
-    if hand_restored:
-        return None
-
-    blocker = _stale_chain_blocker(chain)
-    if blocker:
-        return blocker
-
-    stale = [
-        panel_segments_file
-        for restored_file, panel_segments_file in zip(
-            restored_files, panel_segments_files, strict=True
-        )
-        if dest_file_is_older_than_srce(restored_file, panel_segments_file)
-    ]
-    if stale:
-        return (
-            f"{len(stale)} of its {len(panel_segments_files)} panel segments files"
-            f" are older than their restored page"
-        )
-
-    return None
+    return (
+        _unrestored_blocker(comic)
+        or _missing_segments_blocker(comic)
+        or _stale_chain_blocker(chain)
+        or _stale_segments_blocker(comic)
+    )
 
 
 def _is_file_policy_fault(error: RuntimeError) -> bool:

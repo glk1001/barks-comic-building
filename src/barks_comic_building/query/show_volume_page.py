@@ -1,3 +1,4 @@
+"""Open the image viewer on the restored file of a Fantagraphics volume's page."""
 # ruff: noqa: T201
 
 import subprocess
@@ -5,12 +6,12 @@ import sys
 from pathlib import Path
 
 import typer
-from barks_fantagraphics.comic_book import get_page_str
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, PagesArg, VolumesArg
 from intspan import intspan
 
 from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.query.page_files import get_volume_page_file
 
 APP_LOGGING_NAME = "svpg"
 
@@ -41,15 +42,19 @@ def main(
     assert len(volumes) == 1
     volume = volumes[0]
     comics_database = ComicsDatabase()
-    page = get_page_str(int(page_num_str))
+    page_num = int(page_num_str)
 
-    restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
-    restored_srce_file = restored_dir / (page + ".png")
+    restored_srce_file = get_volume_page_file(
+        volume,
+        page_num,
+        lambda vol: Path(comics_database.get_fantagraphics_restored_volume_image_dir(vol)),
+        ".png",
+    )
     if not restored_srce_file.is_file():
         print(f'Error: Could not find restored file "{restored_srce_file}".')
         sys.exit(1)
 
-    print(f"{volume}: {page}")
+    print(f"{volume}: {page_num:03d}")
 
     open_viewer(restored_srce_file)
 

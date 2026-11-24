@@ -23,12 +23,13 @@ from barks_fantagraphics.comic_book_info import (
     ONE_PAGER_COLLECTION_PAGE_BASE,
     ONE_PAGER_COLLECTION_VOLUME,
     ONE_PAGERS,
+    get_located_one_pagers,
     get_one_pager_collection_page_num,
     get_one_pager_fanta_vol_and_page,
 )
 
 from barks_comic_building.query import verify_title
-from barks_comic_building.query.page_files import get_title_page_file
+from barks_comic_building.query.page_files import get_title_page_file, get_volume_page_file
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -165,3 +166,59 @@ class TestFindingATitlesPage:
         self, tmp_path: Path, one_pager: Titles
     ) -> None:
         assert self.find(tmp_path, one_pager) == self.home_file(tmp_path, one_pager)
+
+
+class TestFindingAVolumesPage:
+    """`barks-show-volume-page` is given a volume and a page, and no title."""
+
+    @pytest.fixture
+    def one_pager(self) -> Titles:
+        return next(iter(sorted(ONE_PAGERS, key=lambda title: title.value)))
+
+    @staticmethod
+    def find(tmp_path: Path, volume: int, page_num: int) -> Path:
+        return get_volume_page_file(
+            volume, page_num, lambda vol: tmp_path / f"vol-{vol:02d}", ".png"
+        )
+
+    def find_one_pager(self, tmp_path: Path, title: Titles) -> Path:
+        volume, page_num = get_one_pager_fanta_vol_and_page(title)
+        assert volume is not None
+        assert page_num is not None
+        return self.find(tmp_path, volume, page_num)
+
+    def test_a_page_that_is_no_one_pager_is_the_file_in_the_volume(self, tmp_path: Path) -> None:
+        assert self.find(tmp_path, 7, 5) == tmp_path / "vol-07" / "005.png"
+
+    def test_a_one_pagers_page_restored_only_in_the_collection_is_found_there(
+        self, tmp_path: Path, one_pager: Titles
+    ) -> None:
+        collection_file = TestFindingATitlesPage.collection_file(tmp_path, one_pager)
+        collection_file.parent.mkdir(parents=True)
+        collection_file.touch()
+
+        assert self.find_one_pager(tmp_path, one_pager) == collection_file
+
+    def test_a_one_pagers_page_in_the_volume_is_found_there_first(
+        self, tmp_path: Path, one_pager: Titles
+    ) -> None:
+        home_file = TestFindingATitlesPage.home_file(tmp_path, one_pager)
+        for file in (home_file, TestFindingATitlesPage.collection_file(tmp_path, one_pager)):
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.touch()
+
+        assert self.find_one_pager(tmp_path, one_pager) == home_file
+
+    def test_a_one_pagers_page_in_neither_place_is_named_by_the_volume_asked_for(
+        self, tmp_path: Path, one_pager: Titles
+    ) -> None:
+        assert self.find_one_pager(tmp_path, one_pager) == TestFindingATitlesPage.home_file(
+            tmp_path, one_pager
+        )
+
+    def test_no_two_one_pagers_share_a_place_in_the_books(self) -> None:
+        # The lookup returns the first one-pager at a place, so a shared place would
+        # silently open the wrong one.
+        places = [get_one_pager_fanta_vol_and_page(title) for title in get_located_one_pagers()]
+
+        assert len(set(places)) == len(places)

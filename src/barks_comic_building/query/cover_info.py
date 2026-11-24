@@ -27,22 +27,22 @@ from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.comic_consts import MONTH_AS_SHORT_STR
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
 from intspan import intspan
-from rich.console import Console
-from rich.table import Table
 from rich.text import Text
 
 from barks_comic_building.build.collection_staging import original_scan_slot
 from barks_comic_building.build.stage_covers import get_staged_links_by_title
 from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.query.build_state import (
-    BUILT_STYLE,
     CONFIGURED_FLAG,
     NOT_CONFIGURED_FLAG,
-    NOT_DONE_STYLE,
     PROBLEM_STYLE,
-    get_build_blocker,
     get_staged_link_stem,
     get_state_filter,
+)
+from barks_comic_building.query.collection_report import (
+    filter_rows,
+    get_report_table,
+    print_collection_report,
 )
 
 APP_LOGGING_NAME = "icvr"
@@ -258,28 +258,7 @@ def get_cover_rows(
         for cover in BARKS_COVERS
     ]
 
-    if volumes:
-        rows = [row for row in rows if row.volume in volumes]
-
-    return [row for row in rows if row.state_flag in state_filter]
-
-
-def get_collection_state_text(comics_database: ComicsDatabase) -> tuple[str, str]:
-    """Get the bottom-line text saying whether "All Covers" is built.
-
-    Args:
-        comics_database: The comics database.
-
-    Returns:
-        The message and the rich style to print it in.
-
-    """
-    comic = comics_database.get_comic_book(COLLECTION_TITLE)
-    blocker = get_build_blocker(comic)
-    if blocker is None:
-        return f'"{COLLECTION_TITLE}" is built.', BUILT_STYLE
-
-    return f'"{COLLECTION_TITLE}" is NOT built - {blocker}.', NOT_DONE_STYLE
+    return filter_rows(rows, volumes, state_filter)
 
 
 app = typer.Typer()
@@ -299,40 +278,24 @@ def main(
     comics_database = ComicsDatabase()
     rows = get_cover_rows(comics_database, volumes, state_filter)
 
-    table = Table()
-    table.add_column("Title")
-    table.add_column("Issue")
-    table.add_column("Kind")
-    table.add_column("Vol", justify="right")
-    table.add_column("Jpgs", justify="right")
-    table.add_column("Link", justify="right")
-    table.add_column("State")
-    table.add_column("Problem")
+    table = get_report_table(
+        ["Title", "Issue", "Kind"],
+        (
+            (
+                [
+                    row.display_title,
+                    # In the problem colour when the issue data is incomplete.
+                    Text(row.issue_title, style=PROBLEM_STYLE if row.has_issue_problem else ""),
+                    row.kind,
+                ],
+                row,
+            )
+            for row in rows
+        ),
+        DONE_FLAG,
+    )
 
-    for row in rows:
-        style = NOT_DONE_STYLE if row.state_flag != DONE_FLAG else None
-        issue_cell = (
-            Text(row.issue_title, style=PROBLEM_STYLE)
-            if row.has_issue_problem
-            else Text(row.issue_title)
-        )
-        table.add_row(
-            row.display_title,
-            issue_cell,
-            row.kind,
-            "" if row.volume is None else str(row.volume),
-            row.page,
-            row.link,
-            row.state_flag,
-            Text(",".join(row.problems), style=PROBLEM_STYLE),
-            style=style,
-        )
-
-    console = Console()
-    console.print(table)
-
-    collection_text, collection_style = get_collection_state_text(comics_database)
-    console.print(collection_text, style=collection_style)
+    print_collection_report(table, comics_database, COLLECTION_TITLE)
 
 
 if __name__ == "__main__":

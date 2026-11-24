@@ -1,30 +1,37 @@
-# ruff: noqa: T201, ERA001, ANN001
+"""Plot one value a year, for the yearly page count and payments reports."""
+# ruff: noqa: T201, ERA001
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-APP_LOGGING_NAME = "ygra"
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 
-def create_yearly_plot(  # noqa: D417, PLR0913
+def create_yearly_plot(  # noqa: PLR0913
     plot_title: str,
-    years,
-    values,
-    output_filename="barks-yearly-page-count.png",
-    width_px=1800,
-    height_px=1050,
-    dpi=150,
+    years: Sequence[int],
+    values: Sequence[float],
+    output_filename: str | Path = "barks-yearly-page-count.png",
+    width_px: int = 1800,
+    height_px: int = 1050,
+    dpi: int = 150,
 ) -> None:
-    """Create, save, and display a plot of integer values against a range of years.
+    """Create, save, and display a plot of one value a year.
 
     Args:
-        plot_title
-        years (list): A list of years for the x-axis.
-        values (list): A list of integer values for the y-axis.
-        output_filename (str): The name of the file to save the plot to.
-        width_px (int): The desired width of the output image in pixels.
-        height_px (int): The desired height of the output image in pixels.
-        dpi (int): The resolution (dots per inch) for the output image.
+        plot_title: The title to print above the plot.
+        years: The years, for the x-axis.
+        values: Each year's value, for the y-axis.
+        output_filename: The file to save the plot to.
+        width_px: The width of the saved image in pixels.
+        height_px: The height of the saved image in pixels.
+        dpi: The resolution, in dots per inch, of the saved image.
 
     """
     if len(years) != len(values):

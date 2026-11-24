@@ -90,7 +90,10 @@ def leave_work_files(pipeline: RestorePipeline) -> list[Path]:
     pipeline._prepare_work_files()  # noqa: SLF001
     files = [file for file in pipeline.work_files if file != pipeline.work_stamp_file]
     for file in files:
-        write_page(file, PAGE_SIZE)
+        if file.suffix == ".png":
+            write_page(file, PAGE_SIZE)
+        else:
+            file.write_text("colour counts")
 
     return files
 

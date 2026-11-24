@@ -14,12 +14,13 @@ its time running a half empty round.
 
 import concurrent.futures
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NamedTuple
+from typing import Annotated, NamedTuple, Self
 
 import psutil
 import typer
@@ -97,6 +98,36 @@ class _PageJob(NamedTuple):
     page: str
 
 
+@dataclass(frozen=True)
+class _Tally:
+    """How the pages a run, or one batch of it, worked on came out."""
+
+    num_ok: int = 0
+    num_failed: int = 0
+    num_stopped: int = 0
+
+    @property
+    def num_attempted(self) -> int:
+        """How many pages had anything done to them."""
+        return self.num_ok + self.num_failed + self.num_stopped
+
+    def plus(self, other: Self) -> Self:
+        """Return this tally and another added together."""
+        return type(self)(
+            self.num_ok + other.num_ok,
+            self.num_failed + other.num_failed,
+            self.num_stopped + other.num_stopped,
+        )
+
+    @property
+    def describe(self) -> str:
+        """Return the tally as a phrase for a log line."""
+        return (
+            f"{self.num_ok} restored, {self.num_failed} failed,"
+            f" {self.num_stopped} left part way through"
+        )
+
+
 def restore(  # noqa: PLR0913
     comics_database: ComicsDatabase,
     title_list: list[str],
@@ -109,7 +140,7 @@ def restore(  # noqa: PLR0913
     debug_color_counts: bool,
     keep_work_files: bool,
     force: bool,
-) -> None:
+) -> int:
     """Restore every page of every given title that is not already up to date.
 
     Args:
@@ -125,6 +156,10 @@ def restore(  # noqa: PLR0913
         keep_work_files: Leave intermediates behind instead of cleaning up after a page.
         force: Restore pages that are already current.
 
+    Returns:
+        How many pages failed. A page left part way through by a stop is not one of
+        them.
+
     """
     start = time.time()
 
@@ -135,7 +170,7 @@ def restore(  # noqa: PLR0913
 
     stop_file = get_stop_file(work_dir)
     deadline: float | None = None
-    if stop_after_seconds:
+    if stop_after_seconds is not None:
         deadline = start + stop_after_seconds
         logger.info(
             f"Will stop cleanly after {format_duration(stop_after_seconds)}"
@@ -167,7 +202,7 @@ def restore(  # noqa: PLR0913
             f"Nothing to do across {len(title_list)} title(s)"
             f" - every page is already up to date with this recipe.",
         )
-        return
+        return 0
 
     if jobs:
         _log_run_estimate(jobs, ledger_file, recipe)
@@ -181,7 +216,7 @@ def restore(  # noqa: PLR0913
 
         _write_non_comic_records(ledger, non_comic)
 
-        num_done = 0
+        tally = _Tally()
         for batch_start in range(0, len(jobs), batch_size):
             batch = jobs[batch_start : batch_start + batch_size]
             logger.info(
@@ -190,20 +225,23 @@ def restore(  # noqa: PLR0913
                 f" {len(batch)} page(s).",
             )
 
-            num_done += _run_batch(
-                batch,
-                ledger,
-                num_done,
-                len(jobs),
-                start,
-                deadline,
-                keep_work_files=keep_work_files,
+            tally = tally.plus(
+                _run_batch(
+                    batch,
+                    ledger,
+                    tally.num_attempted,
+                    len(jobs),
+                    start,
+                    deadline,
+                    keep_work_files=keep_work_files,
+                )
             )
 
             stop_mode = read_stop_mode(stop_file)
             if stop_mode is not StopMode.NONE:
                 logger.warning(
-                    f"\nStopping after {num_done} of {len(jobs)} page(s): {stop_mode.describe}."
+                    f"\nStopping after {tally.num_attempted} of {len(jobs)} page(s):"
+                    f" {stop_mode.describe}."
                     f"\nRe-run the same command to carry on"
                     f" - finished pages are skipped, and part-finished ones"
                     f" resume with --use-existing-work-files.",
@@ -215,16 +253,21 @@ def restore(  # noqa: PLR0913
 
     # A run that stopped early got through only some of what it queued, and saying it
     # restored all of them - in a fraction of the time that would have taken - would be
-    # the most misleading line in the log.
-    if num_done < len(jobs):
+    # the most misleading line in the log. The same goes for the pages that failed or were
+    # left part way: having been worked on is not having been restored, so the line says
+    # how they came out rather than only how many there were.
+    if tally.num_attempted < len(jobs):
         logger.info(
-            f"\nStopped after {elapsed}, having worked on {num_done} of {len(jobs)}"
-            f" queued page(s) and copied {num_copied}.",
+            f"\nStopped after {elapsed}, having worked on {tally.num_attempted} of {len(jobs)}"
+            f" queued page(s) ({tally.describe}) and copied {num_copied}.",
         )
     else:
         logger.info(
-            f"\nTime taken to restore {len(jobs)} page(s) and copy {num_copied}: {elapsed}.",
+            f"\nTime taken to work on {len(jobs)} page(s) ({tally.describe})"
+            f" and copy {num_copied}: {elapsed}.",
         )
+
+    return tally.num_failed
 
 
 def _write_non_comic_records(ledger: LedgerWriter, non_comic: list[_NonComicPage]) -> None:
@@ -271,12 +314,12 @@ def _run_batch(  # noqa: PLR0913
     deadline: float | None,
     *,
     keep_work_files: bool,
-) -> int:
+) -> _Tally:
     """Run one batch through all phases, then record and clean up after it.
 
     Returns:
-        How many pages of the batch were attempted. Pages the stop reached before they
-        had begun do not count, since nothing was done to them.
+        How the pages of the batch that were attempted came out. Pages the stop reached
+        before they had begun are not in it, since nothing was done to them.
 
     """
     started = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -304,6 +347,7 @@ def _run_batch(  # noqa: PLR0913
     # The per-step breakdown is kept alongside it for anyone asking where the time went.
     seconds_each = (time.time() - batch_start_time) / max(num_attempted, 1)
 
+    num_by_outcome = {OUTCOME_OK: 0, OUTCOME_FAILED: 0, OUTCOME_STOPPED: 0}
     for i, job in enumerate(batch):
         if i in result.untouched:
             # Never begun, so there is nothing to say about it and nothing to tidy. It
@@ -316,6 +360,7 @@ def _run_batch(  # noqa: PLR0913
             outcome = OUTCOME_FAILED
         else:
             outcome = OUTCOME_OK
+        num_by_outcome[outcome] += 1
 
         ledger.write_page(
             title=job.title,
@@ -342,7 +387,11 @@ def _run_batch(  # noqa: PLR0913
     num_done = num_done_before + num_attempted
     _log_progress(num_done, num_jobs, run_start)
 
-    return num_attempted
+    return _Tally(
+        num_ok=num_by_outcome[OUTCOME_OK],
+        num_failed=num_by_outcome[OUTCOME_FAILED],
+        num_stopped=num_by_outcome[OUTCOME_STOPPED],
+    )
 
 
 def _log_progress(num_done: int, num_jobs: int, run_start: float) -> None:
@@ -884,7 +933,7 @@ def main(  # noqa: PLR0913
     ] = None,
     batch_size: Annotated[
         int,
-        typer.Option(help="How many pages go through the pipeline phases together."),
+        typer.Option(min=1, help="How many pages go through the pipeline phases together."),
     ] = DEFAULT_BATCH_SIZE,
     use_existing_work_files: bool = typer.Option(
         default=False,
@@ -921,7 +970,7 @@ def main(  # noqa: PLR0913
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    restore(
+    num_failed = restore(
         comics_database,
         titles,
         work_dir,
@@ -933,6 +982,11 @@ def main(  # noqa: PLR0913
         keep_work_files=keep_work_files,
         force=force,
     )
+
+    # So that a script chaining this to the next stage can tell. A run that was only
+    # stopped is not a failure, and still exits 0.
+    if num_failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

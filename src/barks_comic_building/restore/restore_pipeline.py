@@ -43,6 +43,8 @@ from barks_comic_building.restore.palette_snap import snap_image_file_to_srce_pa
 from barks_comic_building.restore.remove_alias_artifacts import get_median_filter
 from barks_comic_building.restore.remove_colors import (
     DEBUG_WRITE_COLOR_COUNTS,
+    POSTERIZED_COLOR_COUNTS_SUFFIX,
+    REMAINING_COLOR_COUNTS_SUFFIX,
     remove_colors_from_image,
 )
 from barks_comic_building.restore.restore_recipe import get_current_recipe
@@ -193,9 +195,17 @@ class RestorePipeline:
         if not self.work_dir.is_dir():
             msg = f'Work directory not found: "{self.work_dir}".'
             raise FileNotFoundError(msg)
-        if not self.out_dir.is_dir():
-            msg = f'Restored directory not found: "{self.out_dir}".'
-            raise FileNotFoundError(msg)
+        # All three, because they are three different trees. Checking only the first
+        # let a page whose svg directory was missing run part 1 and the smoothing - a
+        # quarter of an hour - before failing at the step that writes there.
+        for dest_file in (
+            self.dest_restored_file,
+            self.dest_upscayled_restored_file,
+            self.dest_svg_restored_file,
+        ):
+            if not dest_file.parent.is_dir():
+                msg = f'Restored directory not found: "{dest_file.parent}".'
+                raise FileNotFoundError(msg)
         if not self.srce_upscale_file.is_file():
             msg = f'Upscayl file not found: "{self.srce_upscale_file}".'
             raise FileNotFoundError(msg)
@@ -298,8 +308,8 @@ class RestorePipeline:
         only ever remove files this page is known to have put there.
 
         Includes the three written by the step modules rather than by the pipeline
-        itself, which would otherwise be left behind, and the stamp that says what the
-        rest were made with.
+        itself, which would otherwise be left behind, the two colour-count files a debug
+        run adds, and the stamp that says what the rest were made with.
         """
         stem = self.srce_upscale_stem
 
@@ -313,6 +323,8 @@ class RestorePipeline:
             self.work_dir / f"{stem}-posterized-pre-remove-colors.png",
             self.work_dir / f"{stem}-remove-mask.png",
             self.work_dir / f"{stem}-input-black-removed.png",
+            self.work_dir / f"{stem}{POSTERIZED_COLOR_COUNTS_SUFFIX}",
+            self.work_dir / f"{stem}{REMAINING_COLOR_COUNTS_SUFFIX}",
             self.work_stamp_file,
         ]
 
@@ -334,8 +346,16 @@ class RestorePipeline:
         The stop is looked for between steps and never during one, so whatever a worker
         is in the middle of always finishes. That is what keeps a stopped run resumable:
         every intermediate left on disk is a whole file, not a truncated one.
+
+        A pipeline that has already failed or stopped runs nothing more. The batch
+        driver never asks one to, but the single-page tool calls every part in turn, and
+        without this a failure in one part let the next start on a missing input - an
+        inpaint of several minutes for nothing, and the wrong step named as the failure.
         """
         for step in steps:
+            if self.errors_occurred or self.stopped_early:
+                return
+
             step()
 
             if self.errors_occurred:

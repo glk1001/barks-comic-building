@@ -213,9 +213,10 @@ def parse_duration(text: str) -> float:
         The duration in seconds.
 
     Raises:
-        ValueError: If nothing in the text parses, or a unit is repeated. A silently
-            misread duration would leave a run stopping at the wrong time, which is
-            worse than being told the spelling is wrong.
+        ValueError: If nothing in the text parses, a unit is repeated, or it comes to
+            no time at all. A silently misread duration would leave a run stopping at
+            the wrong time, which is worse than being told the spelling is wrong - and
+            a run asked to stop after no time used to read that as no limit.
 
     """
     cleaned = text.strip()
@@ -233,7 +234,12 @@ def parse_duration(text: str) -> float:
         msg = f'Duration "{text}" repeats a unit.'
         raise ValueError(msg)
 
-    return float(sum(int(amount) * _DURATION_UNITS[unit.lower()] for amount, unit in parts))
+    seconds = float(sum(int(amount) * _DURATION_UNITS[unit.lower()] for amount, unit in parts))
+    if seconds <= 0:
+        msg = f'Duration "{text}" comes to no time at all.'
+        raise ValueError(msg)
+
+    return seconds
 
 
 app = typer.Typer()

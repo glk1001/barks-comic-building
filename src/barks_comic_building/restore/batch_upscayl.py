@@ -1,3 +1,4 @@
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -145,7 +146,7 @@ def upscayl(
     ledger_file: Path,
     *,
     force: bool,
-) -> None:
+) -> int:
     """Upscayl every page of every given title that is not already up to date.
 
     Args:
@@ -154,6 +155,10 @@ def upscayl(
         upscaler: Which backend to run.
         ledger_file: Where to append the record of what was done.
         force: Upscayl pages that are already current.
+
+    Returns:
+        How many queued pages were not upscayled: the ones that failed, and the ones
+        never reached because the run gave up.
 
     """
     start = time.time()
@@ -177,7 +182,7 @@ def upscayl(
 
     _log_run_estimate(jobs, counts, ledger_file, recipe)
     if not jobs:
-        return
+        return 0
 
     num_upscayled = 0
     consecutive_failures = 0
@@ -205,6 +210,8 @@ def upscayl(
         f"\nTime taken to upscayl {num_upscayled} of {len(jobs)} file(s):"
         f" {format_duration(time.time() - start)}.",
     )
+
+    return len(jobs) - num_upscayled
 
 
 def _log_run_estimate(
@@ -305,13 +312,18 @@ def main(  # noqa: PLR0913
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
 
-    upscayl(
+    num_not_done = upscayl(
         comics_database,
         titles,
         upscaler,
         ledger_file or get_default_upscale_ledger_file(),
         force=force,
     )
+
+    # So that a script chaining this to the restore does not carry on into it after the
+    # upscale failed or gave up.
+    if num_not_done:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

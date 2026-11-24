@@ -155,7 +155,9 @@ class TestParseDuration:
     def test_durations_that_should_parse(self, text: str, seconds: float) -> None:
         assert parse_duration(text) == seconds
 
-    @pytest.mark.parametrize("text", ["", "   ", "8", "8x", "hours", "1h1h", "8h junk", "-8h"])
+    @pytest.mark.parametrize(
+        "text", ["", "   ", "8", "8x", "hours", "1h1h", "8h junk", "-8h", "0m", "0h0m0s"]
+    )
     def test_durations_that_should_not(self, text: str) -> None:
         """Anything not fully understood is refused rather than partly honoured.
 

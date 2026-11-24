@@ -16,6 +16,7 @@ from barks_comic_building.restore.batch_restore_pipeline import (
     _PageJob,
     _run_batch,
     _stop_at_deadline,
+    _Tally,
 )
 from barks_comic_building.restore.restore_ledger import (
     OUTCOME_FAILED,
@@ -35,6 +36,7 @@ from barks_comic_building.restore.run_stop import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     import pytest
@@ -65,18 +67,15 @@ def make_pipeline(tmp_path: Path, page: str) -> RestorePipeline:
     )
 
 
-def run_batch(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def fake_run_restore(
     fates: dict[str, str],
-) -> tuple[dict[str, PageRecord], list[RestorePipeline]]:
-    """Run a batch whose pages meet the given fates, without restoring anything.
+) -> Callable[[list[RestorePipeline], float | None], RunResult]:
+    """Return a stand-in for `run_restore` under which the pages meet the given fates.
 
-    The stand-in for `run_restore` does what the real one does to the parent's pipelines:
-    a failed page is marked on its own pipeline as its result comes back, and a page that
-    ran to the end has every output on disk.
+    It does what the real one does to the parent's pipelines: a failed page is marked on
+    its own pipeline as its result comes back, and a page that ran to the end has every
+    output on disk.
     """
-    pipelines = [make_pipeline(tmp_path, page) for page in fates]
 
     def run_restore(procs: list[RestorePipeline], _deadline: float | None) -> RunResult:
         result = RunResult()
@@ -95,7 +94,23 @@ def run_batch(
                     file.write_bytes(b"output")
         return result
 
-    monkeypatch.setattr(batch_restore_pipeline, "run_restore", run_restore)
+    return run_restore
+
+
+def run_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fates: dict[str, str],
+) -> tuple[dict[str, PageRecord], list[RestorePipeline]]:
+    """Run a batch whose pages meet the given fates, without restoring anything.
+
+    The stand-in for `run_restore` does what the real one does to the parent's pipelines:
+    a failed page is marked on its own pipeline as its result comes back, and a page that
+    ran to the end has every output on disk.
+    """
+    pipelines = [make_pipeline(tmp_path, page) for page in fates]
+
+    monkeypatch.setattr(batch_restore_pipeline, "run_restore", fake_run_restore(fates))
 
     jobs = [
         _PageJob(pipeline, "Camp Counselor", 9, page)
@@ -107,6 +122,40 @@ def run_batch(
         _run_batch(jobs, ledger, 0, len(jobs), 0.0, None, keep_work_files=False)
 
     return {record.page: record for record in read_ledger(ledger_file).pages}, pipelines
+
+
+class TestWhatABatchReturns:
+    """The run's closing line and its exit code are both built from this."""
+
+    def test_the_tally_says_how_each_attempted_page_came_out(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fates = {
+            "110": OUTCOME_STOPPED,
+            "111": OUTCOME_FAILED,
+            "112": OUTCOME_OK,
+            "113": OUTCOME_OK,
+            "114": "untouched",
+        }
+        pipelines = [make_pipeline(tmp_path, page) for page in fates]
+        monkeypatch.setattr(batch_restore_pipeline, "run_restore", fake_run_restore(fates))
+        jobs = [
+            _PageJob(pipeline, "Camp Counselor", 9, page)
+            for pipeline, page in zip(pipelines, fates, strict=True)
+        ]
+
+        recipe = get_current_recipe(4, do_palette_snap=False)
+        with LedgerWriter(tmp_path / "restore-ledger.jsonl", recipe, {"part 2": 6}) as ledger:
+            tally = _run_batch(jobs, ledger, 0, len(jobs), 0.0, None, keep_work_files=False)
+
+        assert tally == _Tally(num_ok=2, num_failed=1, num_stopped=1)
+        assert tally.num_attempted == len(fates) - 1
+
+    def test_tallies_add_up_across_batches(self) -> None:
+        total = _Tally(num_ok=60, num_failed=4).plus(_Tally(num_ok=1, num_stopped=3))
+
+        assert total == _Tally(num_ok=61, num_failed=4, num_stopped=3)
+        assert "61 restored, 4 failed, 3 left part way through" in total.describe
 
 
 class TestWhatABatchRecords:

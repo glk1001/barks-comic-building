@@ -395,6 +395,17 @@ class TestTheRunSummary:
         assert len(messages) == 1
         assert "All 3 pages" in messages[0]
 
+    def test_skipped_pages_are_not_counted_as_bounded(self) -> None:
+        """A re-run that found every page done used to say it had bounded them all."""
+        messages: list[str] = []
+        handler_id = logger.add(lambda msg: messages.append(str(msg)), level="SUCCESS")
+        try:
+            _log_run_summary(0, [], num_skipped=240)
+        finally:
+            logger.remove(handler_id)
+        assert "All 0 pages" in messages[0]
+        assert "240 skipped" in messages[0]
+
     def test_lists_every_error_page(self, tmp_path: Path, error_log: list[str]) -> None:
         _log_run_summary(
             5,

@@ -72,6 +72,9 @@ class TestCleanUpWorkFiles:
             "-posterized-pre-remove-colors.png",
             "-remove-mask.png",
             "-input-black-removed.png",
+            # Only written by a debug run, and left behind by every one until listed.
+            "-posterized-color-counts-pre-remove-colors.txt",
+            "-remaining-color-counts-post-remove-colors.txt",
         ):
             assert f"{pipeline.srce_upscale_stem}{suffix}" in names
 

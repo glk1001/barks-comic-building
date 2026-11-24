@@ -65,6 +65,12 @@ def write_color_counts(filename: Path, image: cv.typing.MatLike) -> None:
         )
 
 
+# The two text files a debug run writes beside a page's work files. Named here so that
+# the pipeline's list of what to clean up cannot drift from what is actually written.
+POSTERIZED_COLOR_COUNTS_SUFFIX = "-posterized-color-counts-pre-remove-colors.txt"
+REMAINING_COLOR_COUNTS_SUFFIX = "-remaining-color-counts-post-remove-colors.txt"
+
+
 def remove_colors_from_image(
     work_dir: Path,
     work_file_stem: str,
@@ -80,18 +86,14 @@ def remove_colors_from_image(
     write_cv_image_file(posterized_image_file, out_image)
 
     if debug_color_counts:
-        posterized_counts_file = work_dir / (
-            work_file_stem + "-posterized-color-counts-pre-remove-colors.txt"
-        )
+        posterized_counts_file = work_dir / (work_file_stem + POSTERIZED_COLOR_COUNTS_SUFFIX)
         write_color_counts(posterized_counts_file, out_image)
 
     out_image = cv.cvtColor(out_image, cv.COLOR_RGB2RGBA)
     remove_colors(out_image)
 
     if debug_color_counts:
-        remaining_color_counts_file = work_dir / (
-            work_file_stem + "-remaining-color-counts-post-remove-colors.txt"
-        )
+        remaining_color_counts_file = work_dir / (work_file_stem + REMAINING_COLOR_COUNTS_SUFFIX)
         write_color_counts(remaining_color_counts_file, out_image)
 
     write_cv_image_file(out_file, out_image)

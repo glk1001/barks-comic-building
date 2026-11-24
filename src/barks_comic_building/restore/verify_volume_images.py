@@ -1,8 +1,10 @@
+import sys
 import time
 from pathlib import Path
 
 import typer
 from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.fanta_comics_info import FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
 from intspan import intspan
 from loguru import logger
@@ -17,7 +19,18 @@ Image.MAX_IMAGE_PIXELS = None  # disables the DOS warning
 
 def verify_image_files(
     comics_database: ComicsDatabase, volumes: list[int], do_restored: bool
-) -> None:
+) -> int:
+    """Check every image file of the given volumes, logging each one that is damaged.
+
+    Args:
+        comics_database: The comics database.
+        volumes: The Fantagraphics volume numbers to check.
+        do_restored: Check the restored trees as well as the source and upscayled ones.
+
+    Returns:
+        How many files had a fault.
+
+    """
     start = time.time()
 
     num_images_checked = 0
@@ -38,10 +51,23 @@ def verify_image_files(
         f"\nTime taken to verify all {num_images_checked} files: {int(time.time() - start)}s."
     )
 
+    return num_errors
+
 
 def verify_volume_dirs(
     comic_database: ComicsDatabase, volume: int, do_restored: bool
 ) -> tuple[int, int]:
+    """Check every image file in each of a volume's trees.
+
+    Args:
+        comic_database: The comics database.
+        volume: The Fantagraphics volume number.
+        do_restored: Check the restored trees as well as the source and upscayled ones.
+
+    Returns:
+        How many files were checked, and how many of them had a fault.
+
+    """
     num_images_checked = 0
     num_errors = 0
 
@@ -65,6 +91,16 @@ def verify_volume_dirs(
 
 
 def verify_volume_dir(volume_dir: Path) -> tuple[int, int]:
+    """Check every image file in one directory, logging each one that is damaged.
+
+    Args:
+        volume_dir: The directory to check. Subdirectories, text files and svgs in it
+            are passed over.
+
+    Returns:
+        How many files were checked, and how many of them had a fault.
+
+    """
     logger.info(f'Verifying volume dir: "{volume_dir}".')
 
     num_image_files = 0
@@ -132,10 +168,17 @@ def main(
 ) -> None:
     init_logging(APP_LOGGING_NAME, "verify-volume-image-files.log", log_level_str)
 
-    volumes = list(intspan(volumes_str))
+    # Every volume when none is named, as `ink_survey` does. An empty selection used to
+    # check nothing and report that there were no errors.
+    volumes = (
+        list(intspan(volumes_str))
+        if volumes_str
+        else list(range(FIRST_VOLUME_NUMBER, LAST_VOLUME_NUMBER + 1))
+    )
     comics_database = ComicsDatabase()
 
-    verify_image_files(comics_database, volumes, do_restored)
+    if verify_image_files(comics_database, volumes, do_restored):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from barks_fantagraphics.comic_book_info import (
     get_located_one_pagers,
     get_one_pager_fanta_vol_and_page,
 )
-from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
+from barks_fantagraphics.comics_consts import BOUNDED_SUBDIR, RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_abbrev_path
 from comic_utils.comic_consts import (
@@ -307,6 +307,7 @@ def panel_bounds(
     bind_run_id(new_run_id(now()))
 
     num_page_files = 0
+    num_skipped = 0
     error_pages: list[tuple[Path, PageBoundsOutcome]] = []
     for title_pages in titles_to_process:
         title = title_pages.title
@@ -330,8 +331,7 @@ def panel_bounds(
         if not fixes_image_dir.is_dir():
             msg = f'Could not find panel bounds directory "{fixes_image_dir}".'
             raise FileNotFoundError(msg)
-        # TODO(glk): Put this in barks_fantagraphics
-        srce_panels_bounds_override_dir = fixes_image_dir / "bounded"
+        srce_panels_bounds_override_dir = fixes_image_dir / BOUNDED_SUBDIR
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = {
@@ -349,28 +349,47 @@ def panel_bounds(
                 outcome = future.result()
                 if outcome.is_error:
                     error_pages.append((dest_file, outcome))
+                if outcome is PageBoundsOutcome.SKIPPED:
+                    num_skipped += 1
+                else:
+                    num_page_files += 1
 
-        num_page_files += len(page_pairs)
+    logger.info(
+        f"\nTime taken to process {num_page_files} file(s), skipping {num_skipped}:"
+        f" {int(time.time() - start)}s."
+    )
 
-    logger.info(f"\nTime taken to process all {num_page_files} files: {int(time.time() - start)}s.")
-
-    _log_run_summary(num_page_files, error_pages)
+    _log_run_summary(num_page_files, error_pages, num_skipped)
 
     return len(error_pages)
 
 
-def _log_run_summary(num_pages: int, error_pages: list[tuple[Path, PageBoundsOutcome]]) -> None:
+def _log_run_summary(
+    num_pages: int, error_pages: list[tuple[Path, PageBoundsOutcome]], num_skipped: int = 0
+) -> None:
     """Say at the end how many pages went wrong, and which - one line per page.
 
     The per-page errors are logged as they happen, from worker processes, so they land in
     the errors file interleaved with other pages'. This summary is the one place the
     run's failures are listed together.
+
+    Pages that were skipped are counted apart from the ones that were bounded. Counted
+    together, a re-run that found every page already done reported having bounded them
+    all without errors, having bounded none.
+
+    Args:
+        num_pages: How many pages the run actually worked on.
+        error_pages: The ones of those that went wrong, with how.
+        num_skipped: How many more were passed over as already bounded or linked.
+
     """
+    skipped = f" ({num_skipped} skipped as already bounded or linked)" if num_skipped else ""
+
     if not error_pages:
-        logger.success(f"All {num_pages} pages bounded without errors.")
+        logger.success(f"All {num_pages} pages bounded without errors{skipped}.")
         return
 
-    logger.error(f"{len(error_pages)} of {num_pages} pages had errors:")
+    logger.error(f"{len(error_pages)} of {num_pages} pages had errors{skipped}:")
     for dest_file, outcome in sorted(error_pages):
         logger.error(f'    {outcome}: "{get_abbrev_path(dest_file)}"')
 

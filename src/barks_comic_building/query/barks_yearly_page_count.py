@@ -1,12 +1,19 @@
+"""Plot how many story pages Barks submitted in each year."""
 # ruff: noqa: T201
 
 from collections import defaultdict
 
 import typer
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
-from barks_fantagraphics.comic_book import get_total_num_pages
-from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, NON_COMIC_TITLES, ONE_PAGERS
-from barks_fantagraphics.comics_database import ComicsDatabase
+from barks_fantagraphics.comic_book_info import (
+    BARKS_TITLE_INFO,
+    COVERS_SET,
+    NON_COMIC_TITLES,
+    ONE_PAGERS,
+    SYNTHETIC_TITLES,
+)
+from barks_fantagraphics.comics_consts import PageType
+from barks_fantagraphics.comics_database import ComicsDatabase, TitleNotFoundError
 from comic_utils.common_typer_options import LogLevelArg
 
 from barks_comic_building.cli_setup import init_logging
@@ -14,137 +21,24 @@ from barks_comic_building.query.yearly_graph import create_yearly_plot
 
 APP_LOGGING_NAME = "ycnt"
 
+# Story page counts for the titles that have no ini file yet, and only for those: a
+# configured title is counted from its own page list, whatever this table says. It used to
+# be read first, and went on answering for 118 titles long after they were configured -
+# "Donald Duck Finds Pirate Gold" at 32 pages instead of 64. Drop an entry once its title
+# is configured; until then a 0 means the count is not known.
 # cspell:disable  # noqa: ERA001
-TEMP_PAGE_COUNTS = {
-    Titles.DONALD_DUCK_FINDS_PIRATE_GOLD: 32,
-    Titles.VICTORY_GARDEN_THE: 10,
-    Titles.RABBITS_FOOT_THE: 10,
-    Titles.LIFEGUARD_DAZE: 10,
-    Titles.GOOD_DEEDS: 10,
-    Titles.LIMBER_W_GUEST_RANCH_THE: 10,
-    Titles.MIGHTY_TRAPPER_THE: 10,
-    Titles.DONALD_DUCK_AND_THE_MUMMYS_RING: 28,
-    Titles.DONALDS_GRANDMA_DUCK: 0,
-    Titles.CAMP_COUNSELOR: 8,
+UNCONFIGURED_PAGE_COUNTS = {
     Titles.ATTIC_ANTICS: 10,
-    Titles.GOOD_DEEDS_THE: 10,
-    Titles.BLACK_WEDNESDAY: 10,
-    Titles.WATCHFUL_PARENTS_THE: 10,
-    Titles.WAX_MUSEUM_THE: 10,
-    Titles.PAUL_BUNYAN_MACHINE_THE: 21,
-    Titles.KNIGHTS_OF_THE_FLYING_SLEDS: 10,
-    Titles.FUN_WHATS_THAT: 0,
-    Titles.WITCHING_STICK_THE: 5,
-    Titles.INVENTORS_CONTEST_THE: 4,
-    Titles.GAB_MUFFER_THE: 0,
-    Titles.STUBBORN_STORK_THE: 0,
-    Titles.MILKTIME_MELODIES: 0,
-    Titles.LOST_RABBIT_FOOT_THE: 0,
-    Titles.OODLES_OF_OOMPH: 0,
-    Titles.MASTER_GLASSER_THE: 10,
-    Titles.ISLAND_IN_THE_SKY: 18,
-    Titles.UNDER_THE_POLAR_ICE: 10,
-    Titles.HOUND_OF_THE_WHISKERVILLES: 8,
-    Titles.RIDING_THE_PONY_EXPRESS: 10,
-    Titles.CAVE_OF_THE_WINDS: 0,
-    Titles.MADBALL_PITCHER_THE: 0,
-    Titles.MIXED_UP_MIXER: 0,
-    Titles.WANT_TO_BUY_AN_ISLAND: 10,
-    Titles.FROGGY_FARMER: 0,
-    Titles.BEAR_TAMER_THE: 0,
-    Titles.PIPELINE_TO_DANGER: 17,
-    Titles.YOICKS_THE_FOX: 9,
-    Titles.WAR_PAINT: 4,
-    Titles.DOG_SITTER_THE: 10,
-    Titles.MYSTERY_OF_THE_LOCH: 10,
-    Titles.VILLAGE_BLACKSMITH_THE: 10,
-    Titles.FRAIDY_FALCON_THE: 10,
-    Titles.ALL_AT_SEA: 17,
-    Titles.FISHY_WARDEN: 4,
-    Titles.TWO_WAY_LUCK: 9,
-    Titles.BALLOONATICS: 10,
-    Titles.TURKEY_TROUBLE: 10,
-    Titles.MISSILE_FIZZLE: 10,
-    Titles.ROCKS_TO_RICHES: 10,
-    Titles.SITTING_HIGH: 10,
-    Titles.THATS_NO_FABLE: 18,
-    Titles.CLOTHES_MAKE_THE_DUCK: 8,
-    Titles.THAT_SMALL_FEELING: 4,
-    Titles.MADCAP_MARINER_THE: 10,
-    Titles.TERRIBLE_TOURIST: 10,
-    Titles.LOST_FRONTIER: 10,
-    Titles.YOU_CANT_WIN: 4,
-    Titles.BILLIONS_IN_THE_HOLE: 16,
-    Titles.BONGO_ON_THE_CONGO: 10,
-    Titles.STRANGER_THAN_FICTION: 10,
-    Titles.BOXED_IN: 10,
-    Titles.CHUGWAGON_DERBY: 10,
-    Titles.MYTHTIC_MYSTERY: 14,
-    Titles.WILY_RIVAL: 4,
-    Titles.DUCK_LUCK: 10,
-    Titles.MR_PRIVATE_EYE: 10,
-    Titles.HOUND_HOUNDER: 10,
-    Titles.GOLDEN_NUGGET_BOAT_THE: 19,
-    Titles.FAST_AWAY_CASTAWAY: 4,
-    Titles.GIFT_LION: 4,
-    Titles.JET_WITCH: 10,
-    Titles.BOAT_BUSTER: 10,
-    Titles.MIDAS_TOUCH_THE: 17,
-    Titles.MONEY_BAG_GOAT: 6,
-    Titles.DUCKBURGS_DAY_OF_PERIL: 4,
-    Titles.NORTHEASTER_ON_CAPE_QUACK: 10,
-    Titles.MOVIE_MAD: 10,
-    Titles.TEN_CENT_VALENTINE: 10,
-    Titles.CAVE_OF_ALI_BABA: 16,
-    Titles.DEEP_DOWN_DOINGS: 9,
-    Titles.GREAT_POP_UP_THE: 0,
-    Titles.JUNGLE_BUNGLE: 10,
-    Titles.MERRY_FERRY: 10,
-    Titles.UNSAFE_SAFE_THE: 19,
-    Titles.MUCH_LUCK_MCDUCK: 7,
-    Titles.MADCAP_INVENTORS: 4,
-    Titles.MEDALING_AROUND: 10,
-    Titles.WAY_OUT_YONDER: 10,
-    Titles.CANDY_KID_THE: 10,
-    Titles.SPICY_TALE_A: 18,
-    Titles.FINNY_FUN: 4,
-    Titles.TRICKY_EXPERIMENT: 8,
-    Titles.MASTER_WRECKER: 10,
-    Titles.RAVEN_MAD: 10,
-    Titles.STALWART_RANGER: 10,
-    Titles.LOG_JOCKEY: 10,
-    Titles.SNOW_DUSTER: 4,
-    Titles.ODDBALL_ODYSSEY: 19,
-    Titles.POSTHASTY_POSTMAN: 4,
-    Titles.STATUS_SEEKER_THE: 20,
-    Titles.MATTER_OF_FACTORY_A: 10,
-    Titles.CHRISTMAS_CHEERS: 10,
-    Titles.JINXED_JALOPY_RACE_THE: 10,
-    Titles.FOR_OLD_DIMES_SAKE: 18,
-    Titles.STONES_THROW_FROM_GHOST_TOWN_A: 10,
-    Titles.SPARE_THAT_HAIR: 10,
     Titles.DUCKS_EYE_VIEW_OF_EUROPE_A: 10,
-    Titles.CASE_OF_THE_STICKY_MONEY_THE: 20,
     Titles.GALL_OF_THE_WILD: 10,
     Titles.ZERO_HERO: 10,
     Titles.BEACH_BOY: 10,
-    Titles.CROWN_OF_THE_MAYAS: 21,
-    Titles.INVISIBLE_INTRUDER_THE: 6,
-    Titles.ISLE_OF_GOLDEN_GEESE: 23,
-    Titles.TRAVEL_TIGHTWAD_THE: 4,
     Titles.DUCKBURG_PET_PARADE_THE: 10,
-    Titles.HELPERS_HELPING_HAND_A: 4,
     Titles.HAVE_GUN_WILL_DANCE: 10,
-    Titles.LOST_BENEATH_THE_SEA: 22,
-    Titles.LEMONADE_FLING_THE: 5,
     Titles.ONCE_UPON_A_CARNIVAL: 10,
     Titles.DOUBLE_MASQUERADE: 10,
-    Titles.MAN_VERSUS_MACHINE: 4,
-    Titles.THRIFTY_SPENDTHRIFT_THE: 20,
     Titles.FEUD_AND_FAR_BETWEEN: 10,
     Titles.BUBBLEWEIGHT_CHAMP: 10,
-    Titles.JONAH_GYRO: 4,
-    Titles.MANY_FACES_OF_MAGICA_DE_SPELL_THE: 22,
     Titles.CAPN_BLIGHTS_MYSTERY_SHIP: 10,
     Titles.LOONY_LUNAR_GOLD_RUSH_THE: 17,
     Titles.OLYMPIAN_TORCH_BEARER_THE: 10,
@@ -183,35 +77,68 @@ TEMP_PAGE_COUNTS = {
 app = typer.Typer()
 
 
+def get_story_page_count(comics_database: ComicsDatabase, title: Titles) -> int | None:
+    """Return how many pages of story a title is.
+
+    Story pages only, so every title is counted in the same unit: the title page, the
+    front and back matter and the blanks of a built comic are not pages Barks drew.
+
+    Args:
+        comics_database: The database to look a configured title's pages up in.
+        title: The title to count.
+
+    Returns:
+        The number of story pages, or None for a title with no count to give: one that
+        is not a comic, a cover, a synthetic collection (its pages are other titles'
+        pages, counted already), or an unconfigured title missing from
+        `UNCONFIGURED_PAGE_COUNTS`.
+
+    """
+    if title in NON_COMIC_TITLES or title in SYNTHETIC_TITLES or title in COVERS_SET:
+        return None
+    if title in ONE_PAGERS:
+        return 1
+
+    try:
+        comic_book = comics_database.get_comic_book(ENUM_TO_STR_TITLE[title])
+    except TitleNotFoundError:
+        return UNCONFIGURED_PAGE_COUNTS.get(title)
+
+    return sum(1 for page in comic_book.page_images_in_order if page.page_type == PageType.BODY)
+
+
+def sum_pages_by_year(comics_database: ComicsDatabase) -> tuple[dict[int, int], list[Titles]]:
+    """Total the story pages Barks submitted in each year.
+
+    Args:
+        comics_database: The database to look configured titles up in.
+
+    Returns:
+        The page count for each submission year, and the stories that could not be
+        counted because they are neither configured nor in `UNCONFIGURED_PAGE_COUNTS`.
+
+    """
+    page_counts: defaultdict[int, int] = defaultdict(int)
+    uncounted: list[Titles] = []
+    for title_info in BARKS_TITLE_INFO:
+        title = title_info.title
+        num_pages = get_story_page_count(comics_database, title)
+        if num_pages is not None:
+            page_counts[title_info.submitted_year] += num_pages
+        elif not (title in NON_COMIC_TITLES or title in SYNTHETIC_TITLES or title in COVERS_SET):
+            uncounted.append(title)
+
+    return dict(page_counts), uncounted
+
+
 @app.command(help="Barks yearly page counts")
 def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    comics_database = ComicsDatabase()
+    page_counts, uncounted = sum_pages_by_year(ComicsDatabase())
 
-    page_counts = defaultdict(int)
-    for title_info in BARKS_TITLE_INFO:
-        if title_info.title in NON_COMIC_TITLES:
-            continue
-        if title_info.title in ONE_PAGERS:
-            num_pages = 1
-        elif title_info.title in TEMP_PAGE_COUNTS:
-            num_pages = TEMP_PAGE_COUNTS[title_info.title]
-        else:
-            title_str = ENUM_TO_STR_TITLE[title_info.title]
-            # noinspection PyBroadException
-            try:
-                comic_book = comics_database.get_comic_book(title_str)
-            except Exception:  # noqa: BLE001
-                print(f"Titles.{title_info.title.name}: X,")
-                continue
-
-            num_pages = get_total_num_pages(comic_book)
-            if num_pages <= 1:
-                msg = f'For title "{title_str}", the page count is too small.'
-                raise ValueError(msg)
-
-        page_counts[title_info.submitted_year] += num_pages
+    for title in uncounted:
+        print(f"Not counted - no ini file and no page count: Titles.{title.name}")
 
     for year in page_counts:
         print(f"{year}: {page_counts[year]}")

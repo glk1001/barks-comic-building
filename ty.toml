@@ -1,6 +1,8 @@
 [environment]
 python = "./.venv"
-root = ["./src", "./scripts"]
+# The project root is here for the tests alone: it is what lets one test module import a
+# helper from another as `tests.<module>`, which is also how pytest loads them.
+root = ["./src", "./scripts", "."]
 
 [src]
 exclude = [

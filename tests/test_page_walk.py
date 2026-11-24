@@ -5,19 +5,13 @@ themselves, with the same loop written out twice per stage. Nothing made the cop
 and the report exists to be believed. These tests hold the walk itself to account, and
 then check the thing the walk is for: that what a run queues is exactly what the report
 counts as waiting.
-
-The comic here is a stand-in that hands back lists of files, which is all the walk asks
-of the real one.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
-from barks_fantagraphics.comic_book import ModifiedType
-from PIL import Image
-from PIL.PngImagePlugin import PngInfo
 
 from barks_comic_building.restore import (
     batch_restore_pipeline,
@@ -25,141 +19,23 @@ from barks_comic_building.restore import (
     restore_status,
     upscale_status,
 )
-from barks_comic_building.restore.page_state import (
-    RECIPE_ID_KEY,
-    PageState,
-    get_ink_mask_file,
-    walk_restore_pages,
-)
-from barks_comic_building.restore.restore_recipe import get_current_recipe
-from barks_comic_building.restore.upscale_image import DEFAULT_UPSCALER, LIBRARY_SCALE
-from barks_comic_building.restore.upscale_recipe import (
-    get_current_recipe as get_current_upscale_recipe,
-)
-from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_RECIPE_ID_KEY
-from barks_comic_building.restore.upscale_state import (
-    UPSCALE_DATE_KEY,
-    UpscalePageState,
-    walk_upscale_pages,
+from barks_comic_building.restore.page_state import PageState, walk_restore_pages
+from barks_comic_building.restore.upscale_state import UpscalePageState, walk_upscale_pages
+from tests.fake_comic import (
+    OLD_RECIPE_ID,
+    RESTORE_RECIPE,
+    RESTORE_RECIPE_ID,
+    TITLE,
+    UPSCALE_RECIPE,
+    UPSCALE_RECIPE_ID,
+    VOLUME,
+    FakeComic,
+    as_database,
+    write_png,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    from barks_fantagraphics.comics_consts import PageType
-    from barks_fantagraphics.comics_database import ComicsDatabase
-
-TITLE = "Lost in the Andes!"
-VOLUME = 7
-
-RESTORE_RECIPE_ID = get_current_recipe(4, do_palette_snap=True).recipe_id
-UPSCALE_RECIPE = get_current_upscale_recipe(DEFAULT_UPSCALER, LIBRARY_SCALE)
-UPSCALE_RECIPE_ID = UPSCALE_RECIPE.recipe_id
-OLD_RECIPE_ID = "bbbbbbbbbbbb"
-
-
-def write_png(path: Path, metadata: dict[str, str] | None = None) -> Path:
-    """Write a tiny png, optionally carrying BARKS metadata."""
-    info = PngInfo()
-    for key, value in (metadata or {}).items():
-        info.add_text(f"BARKS:{key}", value)
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (2, 2)).save(str(path), pnginfo=info)
-
-    return path
-
-
-class FakeComic:
-    """A title made of files in a temporary directory."""
-
-    def __init__(self, tmp_path: Path, pages: list[str]) -> None:
-        self.root = tmp_path
-        self.pages = pages
-        self.fixes_pages: set[str] = set()
-        self.hand_restored_pages: set[str] = set()
-
-    def srce(self, page: str) -> Path:
-        return self.root / "original" / f"{page}.jpg"
-
-    def upscayl(self, page: str) -> Path:
-        return self.root / "upscayled" / f"{page}.png"
-
-    def restored(self, page: str) -> Path:
-        return self.root / "restored" / f"{page}.png"
-
-    def restored_4x(self, page: str) -> Path:
-        return self.root / "restored-upscayled" / f"{page}.png"
-
-    def svg(self, page: str) -> Path:
-        return self.root / "restored-svg" / f"{page}.svg"
-
-    # ---- what the walks ask for
-
-    def get_final_srce_original_story_files(
-        self, _page_types: list[PageType]
-    ) -> list[tuple[Path, ModifiedType]]:
-        return [(self.srce(page), ModifiedType.ORIGINAL) for page in self.pages]
-
-    def get_final_srce_upscayled_story_files(
-        self, _page_types: list[PageType]
-    ) -> list[tuple[Path, ModifiedType]]:
-        return [
-            (
-                self.upscayl(page),
-                ModifiedType.MODIFIED if page in self.fixes_pages else ModifiedType.ORIGINAL,
-            )
-            for page in self.pages
-        ]
-
-    def get_srce_restored_story_files(self, _page_types: list[PageType]) -> list[Path]:
-        return [self.restored(page) for page in self.pages]
-
-    def get_srce_restored_upscayled_story_files(self, _page_types: list[PageType]) -> list[Path]:
-        return [self.restored_4x(page) for page in self.pages]
-
-    def get_srce_restored_svg_story_files(self, _page_types: list[PageType]) -> list[Path]:
-        return [self.svg(page) for page in self.pages]
-
-    def is_hand_restored(self, page_num: str) -> bool:
-        return page_num in self.hand_restored_pages
-
-    # ---- putting pages in the states the tests want
-
-    def write_srce(self, page: str) -> None:
-        write_png(self.srce(page))
-
-    def write_upscayled(self, page: str, recipe_id: str = UPSCALE_RECIPE_ID) -> None:
-        self.write_srce(page)
-        write_png(
-            self.upscayl(page),
-            {UPSCALE_RECIPE_ID_KEY: recipe_id, UPSCALE_DATE_KEY: "2026-11-02T09:30:00+11:00"},
-        )
-
-    def write_restored(self, page: str, recipe_id: str = RESTORE_RECIPE_ID) -> None:
-        self.write_upscayled(page)
-        write_png(self.restored(page), {RECIPE_ID_KEY: recipe_id})
-        write_png(self.restored_4x(page))
-        self.svg(page).parent.mkdir(parents=True, exist_ok=True)
-        self.svg(page).write_text("<svg/>")
-        write_png(get_ink_mask_file(self.svg(page)))
-
-
-class FakeDatabase:
-    """As much of the comics database as a run asks for: one title."""
-
-    def __init__(self, comic: FakeComic) -> None:
-        self.comic = comic
-
-    def get_comic_book(self, _title: str) -> FakeComic:
-        return self.comic
-
-    def get_fanta_volume_int(self, _title: str) -> int:
-        return VOLUME
-
-
-def as_database(comic: FakeComic) -> ComicsDatabase:
-    return cast("ComicsDatabase", FakeDatabase(comic))
 
 
 @pytest.fixture
@@ -221,7 +97,7 @@ class TestTheRestoreWalk:
             database,
             TITLE,
             tmp_path / "work",
-            get_current_recipe(4, do_palette_snap=True),
+            RESTORE_RECIPE,
             use_existing_work_files=False,
             debug_color_counts=False,
             force=False,
@@ -242,7 +118,7 @@ class TestTheRestoreWalk:
             as_database(comic),
             TITLE,
             tmp_path / "work",
-            get_current_recipe(4, do_palette_snap=True),
+            RESTORE_RECIPE,
             use_existing_work_files=False,
             debug_color_counts=False,
             force=False,
@@ -261,7 +137,7 @@ class TestTheRestoreWalk:
             as_database(comic),
             TITLE,
             tmp_path / "work",
-            get_current_recipe(4, do_palette_snap=True),
+            RESTORE_RECIPE,
             use_existing_work_files=False,
             debug_color_counts=False,
             force=True,

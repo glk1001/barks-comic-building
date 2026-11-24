@@ -17,9 +17,12 @@ project-includes = [
     "tests",
 ]
 
+# The project root is last, and is there for the tests alone: it is what lets one test
+# module import a helper from another as `tests.<module>`, as it is in ty.toml.
 search-path = [
     "src",
     "scripts",
+    ".",
 ]
 
 project-excludes = [

@@ -1,7 +1,10 @@
+"""Write images showing where each fixed page of a title differs from its scan."""
+
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import cv2 as cv
 import numpy as np
@@ -21,9 +24,7 @@ if TYPE_CHECKING:
 
 APP_LOGGING_NAME = "sdif"
 
-# TODO(glk): Put these somewhere else
-SRCE_STANDARD_WIDTH = 2175
-SRCE_STANDARD_HEIGHT = 3000
+DEFAULT_OUTPUT_DIR = Path("/tmp/fixes-diffs")  # noqa: S108
 
 
 def get_image_diffs(
@@ -86,9 +87,7 @@ def show_diffs_for_title(
 
     srce_files = comic.get_srce_original_story_files(RESTORABLE_PAGE_TYPES)
     fixes_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
-    show_diffs_for_files(ttl + "-orig", out_dir / "orig", srce_files, fixes_files)
-
-    num_diffs = 0
+    num_diffs = show_diffs_for_files(ttl + "-orig", out_dir / "orig", srce_files, fixes_files)
 
     srce_upscayl_files = comic.get_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
     fixes_upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
@@ -100,14 +99,10 @@ def show_diffs_for_title(
         fixes_upscayl_files,
     )
 
-    srce_restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
-    fixes_restored_files = comic.get_final_srce_story_files(RESTORABLE_PAGE_TYPES)
-    num_diffs += show_diffs_for_files(
-        ttl + "-restored",
-        out_dir / "restored",
-        srce_restored_files,
-        fixes_restored_files,
-    )
+    # There is no "restored" stage. A restored page has no fix to compare it with - the
+    # file the build uses for it *is* the restored page - so that stage could never show
+    # a diff, and asking for the build's files raised on the first page not restored yet
+    # and took the rest of the volume down with it.
 
     return out_dir, num_diffs
 
@@ -139,14 +134,17 @@ def show_diffs_for_upscayled_files(
         assert not upscayled_srce_file.is_file()
 
         srce_image = load_pil_image_for_reading(srce_file).convert("RGB")
-        smaller_fixes_file = Path("/tmp/smaller-fixes-image.jpg")  # noqa: S108
-        downscale_jpg(
-            srce_image.width, srce_image.height, upscayled_fixes_file[0], smaller_fixes_file
-        )
+        # A scratch file of this run's own. It had one fixed name in /tmp, so two runs at
+        # once compared one's scan with the other's fix and drew boxes round the result.
+        with tempfile.TemporaryDirectory(prefix="fixes-diffs-") as scratch_dir:
+            smaller_fixes_file = Path(scratch_dir) / "smaller-fixes-image.jpg"
+            downscale_jpg(
+                srce_image.width, srce_image.height, upscayled_fixes_file[0], smaller_fixes_file
+            )
 
-        num_diffs += show_diffs_for_file(
-            diff_threshold, ttl, out_dir, srce_file, smaller_fixes_file
-        )
+            num_diffs += show_diffs_for_file(
+                diff_threshold, ttl, out_dir, srce_file, smaller_fixes_file
+            )
 
     return num_diffs
 
@@ -209,12 +207,13 @@ def main(
     volumes_str: VolumesArg = "",
     title_str: TitleArg = "",
     log_level_str: LogLevelArg = "DEBUG",
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Where to write each title's diff images.")
+    ] = DEFAULT_OUTPUT_DIR,
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
-
-    output_dir = Path("/tmp/fixes-diffs")  # noqa: S108
 
     for title in titles:
         title_out_dir, n_diffs = show_diffs_for_title(comics_database, title, output_dir)

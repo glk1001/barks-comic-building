@@ -1,3 +1,5 @@
+"""Crop a panel out of a restored page into the Barks panels tree and open it in Gimp."""
+
 # ruff: noqa: T201
 import json
 import subprocess
@@ -58,6 +60,19 @@ def get_source_file(
 
 
 def get_target_file(ttl: str, panel_typ: str, pge: str, panl: str) -> Path:
+    """Return where a cropped panel is saved, making its directory if need be.
+
+    Args:
+        ttl: The title the panel is from.
+        panel_typ: The kind of panel, a key of `PANEL_TYPES`.
+        pge: The page, as it appears in a filename ("227").
+        panl: The panel's number on the page, counted from 1.
+
+    Returns:
+        The title's one inset file for an inset; otherwise "<page>-<panel>.png" in the
+        title's directory for that kind of panel.
+
+    """
     if panel_typ == "i":
         return TARGET_ROOT_DIR / PANEL_TYPES[panel_typ] / (ttl + ".png")
 
@@ -70,6 +85,21 @@ def get_target_file(ttl: str, panel_typ: str, pge: str, panl: str) -> Path:
 def write_cropped_image_file(
     srce_image_file: Path, segments_file: Path, target_image_file: Path, panel_typ: str, panel: str
 ) -> None:
+    """Crop a panel out of a page and save it.
+
+    Args:
+        srce_image_file: The page to crop from.
+        segments_file: The page's panel-segments file. Without one the whole page is
+            saved.
+        target_image_file: Where to save the panel.
+        panel_typ: The kind of panel. A closeup is cropped from the 4x page, so its
+            box is scaled to match.
+        panel: The panel's number on the page, counted from 1.
+
+    Raises:
+        IndexError: If the page has fewer panels than `panel`.
+
+    """
     print(f'Source: "{srce_image_file}".')
     print(f'Segments: "{segments_file}".')
 
@@ -102,6 +132,7 @@ def write_cropped_image_file(
 
 
 def open_gimp(image_file: Path) -> None:
+    """Start Gimp on an image, and leave it running."""
     command = [*GIMP_EXE, str(image_file)]
 
     _proc = subprocess.Popen(command)  # noqa: S603

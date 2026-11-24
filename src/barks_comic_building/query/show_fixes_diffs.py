@@ -30,6 +30,22 @@ DEFAULT_OUTPUT_DIR = Path("/tmp/fixes-diffs")  # noqa: S108
 def get_image_diffs(
     diff_thresh: float, image1_file: Path, image2_file: Path
 ) -> tuple[float, int, cv.typing.MatLike, cv.typing.MatLike]:
+    """Compare two images of the same size and box the areas where they differ.
+
+    Args:
+        diff_thresh: How alike the area around a pixel must be, from 0 to 1, for it not
+            to count as a difference.
+        image1_file: The image before the fix.
+        image2_file: The image after it.
+
+    Returns:
+        The images' structural similarity, the number of areas that differ, and each
+        image with those areas boxed.
+
+    Raises:
+        FileNotFoundError: If either image is missing.
+
+    """
     if not image1_file.is_file():
         msg = f'Could not find image1 file "{image1_file}".'
         raise FileNotFoundError(msg)
@@ -79,6 +95,17 @@ def get_image_diffs(
 def show_diffs_for_title(
     comics_database: ComicsDatabase, ttl: str, out_dir: Path
 ) -> tuple[Path, int]:
+    """Write the diff images for every fixed page of a title.
+
+    Args:
+        comics_database: The database to open the title in.
+        ttl: The title.
+        out_dir: The directory to write the title's diff images under.
+
+    Returns:
+        The number of differing areas found, over the original and the upscayled fixes.
+
+    """
     out_dir /= ttl
 
     logger.info(f'Checking fixes for for "{ttl}"...')
@@ -114,6 +141,22 @@ def show_diffs_for_upscayled_files(
     upscayled_srce_files: list[Path],
     upscayled_fixes_files: list[tuple[Path, ModifiedType]],
 ) -> int:
+    """Write the diff images for a title's upscayled fixes.
+
+    An upscayled fix has no upscayled file to compare with - a page may not have both -
+    so it is scaled down and compared with the scan.
+
+    Args:
+        ttl: The title, for the log.
+        out_dir: The directory to write the diff images in.
+        srce_files: Each page's scan.
+        upscayled_srce_files: Each page's upscayled file, which a fixed page must not have.
+        upscayled_fixes_files: Each page's upscayled file or fix, and which of them it is.
+
+    Returns:
+        The number of differing areas found.
+
+    """
     logger.info(f'Showing diffs for "{ttl}".')
 
     num_diffs = 0
@@ -152,6 +195,18 @@ def show_diffs_for_upscayled_files(
 def show_diffs_for_files(
     ttl: str, out_dir: Path, srce_files: list[Path], fixes_files: list[tuple[Path, ModifiedType]]
 ) -> int:
+    """Write the diff images for a title's fixes of the original scans.
+
+    Args:
+        ttl: The title, for the log.
+        out_dir: The directory to write the diff images in.
+        srce_files: Each page's scan.
+        fixes_files: Each page's scan or fix, and which of them it is.
+
+    Returns:
+        The number of differing areas found.
+
+    """
     logger.info(f'Showing diffs for "{ttl}".')
 
     num_diffs = 0
@@ -175,6 +230,19 @@ def show_diffs_for_files(
 def show_diffs_for_file(
     diff_threshold: float, ttl: str, out_dir: Path, srce_file: Path, fixes_file: Path
 ) -> int:
+    """Write the diff images for one fixed page, if the fix differs from the scan.
+
+    Args:
+        diff_threshold: How alike the area around a pixel must be not to count.
+        ttl: The title, for the log.
+        out_dir: The directory to write the two diff images in.
+        srce_file: The page before the fix.
+        fixes_file: The page after it, the same size.
+
+    Returns:
+        The number of differing areas found.
+
+    """
     logger.info(
         f'Getting diffs for file "{get_abbrev_path(srce_file)}"'
         f' and "{get_abbrev_path(fixes_file)}".'

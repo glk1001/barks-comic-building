@@ -1,3 +1,4 @@
+"""List the panel bounding box sizes each built story of a volume was made from."""
 # ruff: noqa: T201
 
 import json
@@ -18,12 +19,34 @@ APP_LOGGING_NAME = "sdim"
 
 @dataclass
 class Dimensions:
+    """The sizes a story was built from.
+
+    Attributes:
+        srce_dims: The smallest, largest and average panels bounding box of the pages.
+        front_width: The front page's width, or -1 for a story with no front page.
+        front_height: The front page's height, or -1.
+
+    """
+
     srce_dims: ComicDimensions
     front_width: int
     front_height: int
 
 
 def get_story_dimensions(comic: ComicBook) -> Dimensions:
+    """Return the sizes a built story was made from.
+
+    Args:
+        comic: The comic, which must have been built: the panel sizes are read from
+            its metadata file.
+
+    Returns:
+        The panel bounding box sizes and the front page's size.
+
+    Raises:
+        FileNotFoundError: If the comic has no metadata file, or a page has no file.
+
+    """
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
 
     front_width = -1

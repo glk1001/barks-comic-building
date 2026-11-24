@@ -1,5 +1,5 @@
+"""Count the story pages in each Fantagraphics volume."""
 # ruff: noqa: T201
-
 
 import typer
 from barks_fantagraphics.comic_book import get_total_num_pages

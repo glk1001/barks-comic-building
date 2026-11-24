@@ -41,6 +41,13 @@ NOT_ON_DISK = -1.0
 
 
 def print_sources(indent: int, source_list: list[str]) -> None:
+    """Print a page's files one to a line, the lines after the first indented.
+
+    Args:
+        indent: How far to indent the second and later lines, to sit under the first.
+        source_list: The lines to print, as `get_filepath_with_date` makes them.
+
+    """
     if not source_list:
         print()
         return
@@ -53,6 +60,19 @@ def print_sources(indent: int, source_list: list[str]) -> None:
 def get_filepath_with_date(
     is_a_comic: bool, file: Path | zipfile.Path, timestamp: float, out_of_date_marker: str
 ) -> str:
+    """Return one line of a page's listing: a file with its date.
+
+    Args:
+        is_a_comic: False for an article, whose upscayled and svg files are not listed.
+        file: The file.
+        timestamp: The file's timestamp.
+        out_of_date_marker: `OUT_OF_DATE_MARKER`, or a space for a file that is in order.
+
+    Returns:
+        The date, the marker and the file's path; "FILE MISSING" for the date of a
+        file not on disk. Empty for a file that is not listed.
+
+    """
     if not is_a_comic and (("upscayled" in str(file)) or ("svg" in str(file))):
         return ""
 

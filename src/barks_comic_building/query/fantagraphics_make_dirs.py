@@ -1,3 +1,5 @@
+"""Make every directory the Fantagraphics build pipeline expects to find."""
+
 import typer
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg

@@ -1,3 +1,4 @@
+"""Open the image viewer on the restored file of a title's page."""
 # ruff: noqa: T201
 
 import subprocess
@@ -18,6 +19,7 @@ VIEWER_EXE = ["/usr/bin/loupe"]
 
 
 def open_viewer(image_file: Path) -> None:
+    """Start the image viewer on an image, and leave it running."""
     command = [*VIEWER_EXE, str(image_file)]
 
     _proc = subprocess.Popen(command)  # noqa: S603

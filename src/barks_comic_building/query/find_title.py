@@ -1,3 +1,4 @@
+"""Find titles as the reader's title search does: by words, by issue, or the covers."""
 # ruff: noqa: T201
 
 from typing import Annotated

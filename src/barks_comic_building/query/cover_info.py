@@ -68,6 +68,21 @@ DATE_PROBLEM = "date"  # incomplete submitted date, which submitted-order sorts 
 
 @dataclass
 class CoverRow:
+    """What the cover report shows for one cover.
+
+    Attributes:
+        display_title: The cover's title as shown.
+        issue_title: The issue the cover is from.
+        kind: The kind of cover.
+        volume: The Fantagraphics volume the cover is in, or None when it is not located.
+        page: The cover's page in that volume.
+        link: The staged page the cover is built from, or empty.
+        state_flag: How far along the cover ladder it is.
+        has_issue_problem: Whether the cover's issue data is incomplete.
+        problems: Everything found wrong with the cover's files.
+
+    """
+
     display_title: str
     issue_title: str
     kind: str

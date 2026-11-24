@@ -1,3 +1,4 @@
+"""List the pages of each story that are made from a fixes file."""
 # ruff: noqa: T201
 
 from __future__ import annotations
@@ -22,6 +23,19 @@ APP_LOGGING_NAME = "smod"
 
 
 def get_srce_dest_mods_map(comic: ComicBook) -> tuple[str, str] | None:
+    """Return a story's pages that are made from a fixes file, as two lines to print.
+
+    Args:
+        comic: The comic.
+
+    Returns:
+        The built pages and, lined up under them, the volume pages with the kind of
+        fix each has; None for a story with no such page.
+
+    Raises:
+        FileNotFoundError: If a page has no file to build from.
+
+    """
     srce_and_dest_pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
 
     modified_srce_pages = [
@@ -48,6 +62,16 @@ def get_srce_dest_mods_map(comic: ComicBook) -> tuple[str, str] | None:
 
 
 def get_page_num_str(page: CleanPage) -> str:
+    """Return a built page's number as this report prints it.
+
+    Args:
+        page: The built page.
+
+    Returns:
+        " Fr" for the front page, a roman numeral for other front matter, and the
+        page number for the rest.
+
+    """
     page_number = page.page_num
 
     if page.page_type not in FRONT_MATTER_PAGES:
@@ -62,6 +86,19 @@ def get_page_num_str(page: CleanPage) -> str:
 
 
 def get_mod_type(comic: ComicBook, srce: CleanPage) -> str:
+    """Return which kind of fixes file a modified page has.
+
+    Args:
+        comic: The comic the page is in.
+        srce: The page.
+
+    Returns:
+        "O" for a fix of the original scan, "U" for a fix of the upscayled file.
+
+    Raises:
+        FileNotFoundError: If the page has neither.
+
+    """
     page_num = get_page_str(srce.page_num)
 
     if comic.get_srce_original_fixes_story_file(page_num).is_file():

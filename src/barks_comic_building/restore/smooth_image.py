@@ -28,6 +28,16 @@ SMOOTH_THRESHOLD = 30
 
 
 def smooth_image_file(in_file: Path, out_file: Path) -> None:
+    """Smooth the isolated ink and cut it back to a clean black and white mask.
+
+    Args:
+        in_file: The ink on a transparent background.
+        out_file: Where to write the smoothed mask.
+
+    Raises:
+        RuntimeError: If gmic fails.
+
+    """
     smooth_cmd = [
         str(in_file),
         "fx_smooth_anisotropic",

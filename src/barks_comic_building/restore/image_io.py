@@ -45,6 +45,15 @@ _SVG_TAIL_BYTES = 64
 
 
 def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
+    """Render an svg to a png at the svg's own size, quickly rather than compactly.
+
+    For the 4x ink layer, which is a work file read once by the overlay and then deleted.
+
+    Args:
+        svg_file: The svg to render.
+        png_file: Where to write the rgba png.
+
+    """
     png_image = cairosvg.svg2png(url=str(svg_file), scale=1, background_color=None)
 
     # svg2png returns the bytes unless it was handed a 'write_to' target, which it wasn't.
@@ -57,6 +66,19 @@ def svg_file_to_png(svg_file: Path, png_file: Path) -> None:
 def svg_file_to_optimized_png(
     svg_file: Path, output_width: int, output_height: int, png_file: Path
 ) -> None:
+    """Render an svg as the ink mask that ships beside it, at a given size.
+
+    The mask is the inverse of the render's alpha channel - ink dark, everything else
+    light - and is squeezed as small as it will go, since it is kept and read by the
+    reader rather than thrown away.
+
+    Args:
+        svg_file: The traced line art.
+        output_width: The width to render at.
+        output_height: The height to render at.
+        png_file: Where to write the mask.
+
+    """
     png_image = cairosvg.svg2png(
         url=str(svg_file),
         scale=1,
@@ -160,6 +182,15 @@ def is_complete_svg(svg_file: Path) -> bool:
 def write_cv_image_file(
     file: Path, image: cv.typing.MatLike, metadata: dict[str, str] | None = None
 ) -> None:
+    """Write an opencv image, in the format its file name asks for.
+
+    Args:
+        file: Where to write. A jpg or png gets this library's own settings and
+            metadata; anything else is left to opencv.
+        image: The image, in opencv's blue-green-red order.
+        metadata: Properties to record in the file, or None for none.
+
+    """
     if file.suffix == JPG_FILE_EXT:
         _write_cv_jpeg_file(file, image, metadata)
         return
@@ -174,6 +205,15 @@ def write_cv_image_file(
 def resize_image_file(
     in_file: Path, srce_scale: int, resized_file: Path, metadata: dict[str, str]
 ) -> None:
+    """Shrink an image by a whole-number scale and record its provenance in the result.
+
+    Args:
+        in_file: The image to shrink.
+        srce_scale: How many times bigger the input is than the output should be.
+        resized_file: Where to write. Must be a jpg or a png.
+        metadata: Properties to record in the result.
+
+    """
     if resized_file.suffix == JPG_FILE_EXT:
         _resize_jpeg_file(in_file, srce_scale, resized_file, metadata)
         return

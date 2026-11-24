@@ -146,6 +146,17 @@ def _timed_step(pipeline: RestorePipeline, step_name: str, target: str) -> Gener
 
 # noinspection PyBroadException
 class RestorePipeline:
+    """Everything that turns one upscayled page into its restored outputs.
+
+    The work is split into four parts so that a batch can put every page through one part
+    before any starts the next: parts 2 and 4 need far more memory than the others, and
+    are run fewer at a time. A part is a handful of steps, each writing a file the next
+    one reads, which is what lets a run be stopped between steps and picked up again.
+
+    A failed step is recorded on the pipeline rather than raised - `errors_occurred` and
+    `failed_step` - so that one bad page does not take the batch with it.
+    """
+
     def __init__(  # noqa: PLR0913
         self,
         work_dir: Path,
@@ -434,17 +445,21 @@ class RestorePipeline:
         )
 
     def do_part1(self) -> None:
+        """Prepare the work files, remove the jpeg artifacts and isolate the ink."""
         self._run_steps(
             self._prepare_work_files, self._do_remove_jpg_artifacts, self._do_remove_colors
         )
 
     def do_part2_memory_hungry(self) -> None:
+        """Smooth the isolated ink. The slowest step but one, and heavy on memory."""
         self._run_steps(self._do_smooth_removed_colors)
 
     def do_part3(self) -> None:
+        """Trace the ink into an svg and render it back at full scale."""
         self._run_steps(self._do_generate_svg)
 
     def do_part4_memory_hungry(self) -> None:
+        """Fill the ink out of the colour layer, put it back on top, and write the outputs."""
         self._run_steps(
             self._do_inpaint,
             self._do_snap_palette,

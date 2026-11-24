@@ -8,6 +8,15 @@ _ERROR_OUTPUT_TAIL_LINES = 20
 
 
 def run_gmic(params: list[str]) -> None:
+    """Run gmic, logging everything it says and keeping the tail in case it fails.
+
+    Args:
+        params: The gmic command, without the program name.
+
+    Raises:
+        RuntimeError: If gmic exits non-zero, carrying the last lines it printed.
+
+    """
     run_args = ["gmic", "-v", "+1", *params]
 
     logger.debug(f"Running gmic: {' '.join(run_args)}.")

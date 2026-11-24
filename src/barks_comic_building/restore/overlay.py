@@ -8,6 +8,18 @@ def overlay_inpainted_file_with_black_ink(
     black_ink_file: Path,
     out_file: Path,
 ) -> None:
+    """Put the traced ink back on top of the colour layer it was lifted out of.
+
+    Args:
+        inpaint_file: The colour layer, with the ink filled in.
+        black_ink_file: The ink, as an rgba render of the traced line art.
+        out_file: Where to write the page.
+
+    Raises:
+        FileNotFoundError: If either input is missing.
+        RuntimeError: If gmic fails.
+
+    """
     if not inpaint_file.is_file():
         msg = f'File not found: "{inpaint_file}".'
         raise FileNotFoundError(msg)

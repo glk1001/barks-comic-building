@@ -48,6 +48,7 @@ class PageBoundsOutcome(StrEnum):
 
     @property
     def is_error(self) -> bool:
+        """Whether this outcome should count against the run."""
         return self in (PageBoundsOutcome.SAVED_WITH_FAULTS, PageBoundsOutcome.FAILED)
 
 

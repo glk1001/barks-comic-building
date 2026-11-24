@@ -18,6 +18,16 @@ VTRACER_PARAMS: dict[str, Any] = {
 
 
 def image_file_to_svg(in_file: Path, out_file: Path) -> None:
+    """Trace a black and white ink mask into an svg of its outlines.
+
+    Args:
+        in_file: The mask to trace.
+        out_file: Where to write the svg.
+
+    Raises:
+        FileNotFoundError: If the mask is missing.
+
+    """
     # colormode (str, optional): True color image `color` (default) or Binary image `binary`.
     # color_precision (int, optional): Number of significant bits to use in an RGB channel.
     #                                  Defaults to 8.

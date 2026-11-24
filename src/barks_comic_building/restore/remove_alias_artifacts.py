@@ -1,4 +1,4 @@
-# ruff: noqa: ERA001, PTH118, S108, ANN001, ANN202
+# ruff: noqa: ERA001, PTH118, S108
 
 import os
 
@@ -83,7 +83,9 @@ def _median_filter_core(
 
 
 @jit(nopython=True, parallel=False)
-def _get_median(num_nbrs: int, nbrs0, nbrs1, nbrs2):
+def _get_median(
+    num_nbrs: int, nbrs0: np.ndarray, nbrs1: np.ndarray, nbrs2: np.ndarray
+) -> tuple[float, float, float]:
     if num_nbrs == 0:
         return 0, 100, 0
 
@@ -98,6 +100,20 @@ def _get_median(num_nbrs: int, nbrs0, nbrs1, nbrs2):
 
 
 def get_median_filter(input_image: cv.typing.MatLike) -> cv.typing.MatLike:
+    """Return a page with the jpeg artifacts around its ink smoothed away.
+
+    A median filter, applied everywhere except on the ink itself: each pixel off the ink
+    becomes the median of the neighbours that are also off it, so the fringe the
+    compression leaves around a line is replaced by the flat colour beside it without the
+    line being blurred into that colour.
+
+    Args:
+        input_image: The page, in opencv's blue-green-red order.
+
+    Returns:
+        The filtered page.
+
+    """
     black_ink_mask = _get_black_ink_mask(input_image)
     if DEBUG:
         cv.imwrite(

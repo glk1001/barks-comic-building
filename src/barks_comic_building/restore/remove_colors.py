@@ -14,6 +14,12 @@ FIRST_LEVEL = int(255 / (NUM_POSTERIZE_LEVELS - 1))
 
 
 def posterize_image(image: cv.typing.MatLike) -> None:
+    """Reduce every channel of an image to `NUM_POSTERIZE_LEVELS` values, in place.
+
+    Args:
+        image: The image to posterize.
+
+    """
     for i in range(NUM_POSTERIZE_LEVELS):
         image[
             (image >= i * 255 / NUM_POSTERIZE_LEVELS)
@@ -22,6 +28,15 @@ def posterize_image(image: cv.typing.MatLike) -> None:
 
 
 def remove_colors(image: cv.typing.MatLike) -> None:
+    """Make every pixel that is not near black white and transparent, in place.
+
+    What is left is the ink: a pixel is kept only if all three of its channels are at or
+    below the first posterize level.
+
+    Args:
+        image: A posterized image with an alpha channel.
+
+    """
     colors_to_remove = np.any(
         [
             image[:, :, 0] > FIRST_LEVEL,
@@ -55,6 +70,13 @@ def get_color_counts(image: cv.typing.MatLike) -> dict[tuple[int, int, int], int
 
 
 def write_color_counts(filename: Path, image: cv.typing.MatLike) -> None:
+    """Write how many pixels there are of each colour, most common first.
+
+    Args:
+        filename: The text file to write.
+        image: The image to count.
+
+    """
     color_counts = get_color_counts(image)
     color_counts_descending = OrderedDict(
         sorted(color_counts.items(), key=lambda kv: kv[1], reverse=True)
@@ -78,6 +100,16 @@ def remove_colors_from_image(
     out_file: Path,
     debug_color_counts: bool = DEBUG_WRITE_COLOR_COUNTS,
 ) -> None:
+    """Isolate a page's ink by cutting it to a few levels and discarding all that is not dark.
+
+    Args:
+        work_dir: Where the posterized intermediate, and any debug files, are written.
+        work_file_stem: What those files' names start with.
+        in_file: The page, with its jpeg artifacts already removed.
+        out_file: Where to write the ink on a transparent background.
+        debug_color_counts: Also write the colour counts before and after, which is slow.
+
+    """
     out_image = cv.imread(str(in_file))
     assert out_image is not None
 

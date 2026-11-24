@@ -235,7 +235,9 @@ def _is_wrong_call_signature(error: TypeError) -> bool:
     return error.__traceback__ is not None and error.__traceback__.tb_next is None
 
 
-def _unrestored_page_dependencies(comic: ComicBook, srce_page: CleanPage) -> list[SrceDependency]:
+def get_unrestored_page_dependencies(
+    comic: ComicBook, srce_page: CleanPage
+) -> list[SrceDependency]:
     """Return the stages behind a page that has no restored file yet.
 
     `get_restored_srce_dependencies` describes the chain from the file the build would
@@ -284,7 +286,7 @@ def _page_dependencies(comic: ComicBook, srce_page: CleanPage) -> list[SrceDepen
     except FileNotFoundError:
         # No file to build the page from. That is the existence rungs' finding, not a
         # reason to stop dating the stages that are there.
-        return _unrestored_page_dependencies(comic, srce_page)
+        return get_unrestored_page_dependencies(comic, srce_page)
 
 
 def get_chain_state(comic: ComicBook) -> ChainState:

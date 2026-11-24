@@ -1,9 +1,7 @@
 """Open the image viewer on the restored file of a title's page."""
 # ruff: noqa: T201
 
-import subprocess
 import sys
-from pathlib import Path
 
 import typer
 from barks_fantagraphics.comics_database import ComicsDatabase
@@ -11,21 +9,10 @@ from barks_fantagraphics.comics_helpers import get_volume_and_page
 from comic_utils.common_typer_options import LogLevelArg, PagesArg, TitleArg
 
 from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.query.image_viewer import open_viewer
 from barks_comic_building.query.page_files import get_title_page_file
 
 APP_LOGGING_NAME = "sttl"
-
-VIEWER_EXE = ["/usr/bin/loupe"]
-
-
-def open_viewer(image_file: Path) -> None:
-    """Start the image viewer on an image, and leave it running."""
-    command = [*VIEWER_EXE, str(image_file)]
-
-    _proc = subprocess.Popen(command)  # noqa: S603
-
-    print(f'Image Viewer should now be showing image "{image_file}".')
-
 
 app = typer.Typer()
 

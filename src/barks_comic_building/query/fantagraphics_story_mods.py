@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import typer
-from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comic_book import ComicBook, ModifiedType, get_page_str
 from barks_fantagraphics.comics_consts import FRONT_MATTER_PAGES, PageType
 from barks_fantagraphics.fanta_comics_info import get_fanta_volume_str
@@ -122,7 +121,6 @@ def main(
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
-    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
 
     mod_dict = {}
     max_title_len = 0

@@ -1,7 +1,6 @@
 """Open the image viewer on the restored file of a Fantagraphics volume's page."""
 # ruff: noqa: T201
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -10,21 +9,10 @@ from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, PagesArg, VolumesArg
 
 from barks_comic_building.cli_setup import get_page_num, get_single_volume, init_logging
+from barks_comic_building.query.image_viewer import open_viewer
 from barks_comic_building.query.page_files import get_volume_page_file
 
 APP_LOGGING_NAME = "svpg"
-
-VIEWER_EXE = ["/usr/bin/loupe"]
-
-
-def open_viewer(image_file: Path) -> None:
-    """Start the image viewer on an image, and leave it running."""
-    command = [*VIEWER_EXE, str(image_file)]
-
-    _proc = subprocess.Popen(command)  # noqa: S603
-
-    print(f'Image Viewer should now be showing image "{image_file}".')
-
 
 app = typer.Typer()
 

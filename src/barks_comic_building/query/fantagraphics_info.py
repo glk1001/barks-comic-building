@@ -39,6 +39,7 @@ from barks_comic_building.query.build_state import (
     FAULT_FLAG,
     FIXES_FLAG,
     NOT_CONFIGURED_FLAG,
+    NOT_DONE_STYLE,
     PROBLEM_STYLE,
     STORY_STATE_FLAGS,
     get_state_filter,
@@ -286,7 +287,7 @@ def get_report_table(
             ]
         )
 
-        style = "orange1" if flags.build_state_flag != BUILT_FLAG else None
+        style = NOT_DONE_STYLE if flags.build_state_flag != BUILT_FLAG else None
         table.add_row(*row, style=style)
 
     return table

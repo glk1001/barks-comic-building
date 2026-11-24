@@ -13,6 +13,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+# The size the yearly reports are plotted at. The dpi is a common one for screens.
+REPORT_WIDTH_PX = 1000
+REPORT_HEIGHT_PX = 732
+REPORT_DPI = 100
+
+
 def create_yearly_plot(  # noqa: PLR0913
     plot_title: str,
     years: Sequence[int],
@@ -98,48 +104,26 @@ def create_yearly_plot(  # noqa: PLR0913
     plt.show()
 
 
-if __name__ == "__main__":
-    start_year = 1942
-    end_year = 1966
-    title = f"Yearly Page Count from {start_year} to {end_year}"
-    years_data = list(range(start_year, end_year + 1))
+def show_yearly_report_plot(
+    plot_title: str, years: Sequence[int], values: Sequence[float], output_filename: str | Path
+) -> None:
+    """Plot a yearly report at the size the reports are made at, save it and show it.
 
-    values_data = [
-        52,
-        184,
-        174,
-        177,
-        266,
-        302,
-        289,
-        332,
-        327,
-        265,
-        318,
-        308,
-        334,
-        369,
-        351,
-        385,
-        384,
-        172,
-        269,
-        236,
-        280,
-        225,
-        229,
-        180,
-        127,
-    ]
+    Args:
+        plot_title: The title to print above the plot.
+        years: The years, for the x-axis.
+        values: Each year's value, for the y-axis.
+        output_filename: The file to save the plot to.
 
-    print(f"Plotting {len(years_data)} data points...")
+    """
+    print(f"Plotting {len(years)} data points...")
 
     create_yearly_plot(
-        title,
-        years=years_data,
-        values=values_data,
-        output_filename="/tmp/barks-yearly-page-counts.png",  # noqa: S108
-        width_px=1000,
-        height_px=732,
-        dpi=100,  # A common DPI for screen resolutions
+        plot_title,
+        years=years,
+        values=values,
+        output_filename=output_filename,
+        width_px=REPORT_WIDTH_PX,
+        height_px=REPORT_HEIGHT_PX,
+        dpi=REPORT_DPI,
     )

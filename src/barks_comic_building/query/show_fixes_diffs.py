@@ -20,9 +20,17 @@ from skimage.metrics import structural_similarity
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
     from barks_fantagraphics.comics_database import ComicsDatabase
 
 APP_LOGGING_NAME = "sdif"
+
+# How alike the area around a pixel must be, from 0 to 1, not to count as a difference.
+# A fix of the scan is compared with the scan itself. An upscayled fix is compared after
+# being scaled back down, which blurs it, so it is held to a looser standard.
+ORIGINAL_DIFF_THRESHOLD = 0.9
+UPSCAYLED_DIFF_THRESHOLD = 0.5
 
 DEFAULT_OUTPUT_DIR = Path("/tmp/fixes-diffs")  # noqa: S108
 
@@ -157,22 +165,28 @@ def show_diffs_for_upscayled_files(
         The number of differing areas found.
 
     """
-    logger.info(f'Showing diffs for "{ttl}".')
+    return _show_diffs_for_pages(
+        UPSCAYLED_DIFF_THRESHOLD,
+        ttl,
+        out_dir,
+        _downscaled_fixed_pages(srce_files, upscayled_srce_files, upscayled_fixes_files),
+    )
 
-    num_diffs = 0
-    made_out_dir = False
-    diff_threshold = 0.5
 
-    for srce_file, upscayled_srce_file, upscayled_fixes_file in zip(
+def _downscaled_fixed_pages(
+    srce_files: list[Path],
+    upscayled_srce_files: list[Path],
+    upscayled_fixes_files: list[tuple[Path, ModifiedType]],
+) -> Iterator[tuple[Path, Path]]:
+    """Yield each page with an upscayled fix: its scan, and the fix scaled down to match.
+
+    The scaled-down fix is a scratch file that is gone once the next page is asked for.
+    """
+    for srce_file, upscayled_srce_file, (fixes_file, page_mod_type) in zip(
         srce_files, upscayled_srce_files, upscayled_fixes_files, strict=True
     ):
-        page_mod_type = upscayled_fixes_file[1]
         if page_mod_type != ModifiedType.MODIFIED:
             continue
-
-        if not made_out_dir:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            made_out_dir = True
 
         assert not upscayled_srce_file.is_file()
 
@@ -181,13 +195,25 @@ def show_diffs_for_upscayled_files(
         # once compared one's scan with the other's fix and drew boxes round the result.
         with tempfile.TemporaryDirectory(prefix="fixes-diffs-") as scratch_dir:
             smaller_fixes_file = Path(scratch_dir) / "smaller-fixes-image.jpg"
-            downscale_jpg(
-                srce_image.width, srce_image.height, upscayled_fixes_file[0], smaller_fixes_file
-            )
+            downscale_jpg(srce_image.width, srce_image.height, fixes_file, smaller_fixes_file)
 
-            num_diffs += show_diffs_for_file(
-                diff_threshold, ttl, out_dir, srce_file, smaller_fixes_file
-            )
+            yield srce_file, smaller_fixes_file
+
+
+def _show_diffs_for_pages(
+    diff_threshold: float, ttl: str, out_dir: Path, pages: Iterable[tuple[Path, Path]]
+) -> int:
+    """Write the diff images for each (scan, fix) pair, and return the areas that differ.
+
+    The one loop both kinds of fix go through. `out_dir` is made only if there is a page
+    to write for, so a title with no fixes leaves no empty directory behind.
+    """
+    logger.info(f'Showing diffs for "{ttl}".')
+
+    num_diffs = 0
+    for srce_file, fixes_file in pages:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        num_diffs += show_diffs_for_file(diff_threshold, ttl, out_dir, srce_file, fixes_file)
 
     return num_diffs
 
@@ -207,24 +233,16 @@ def show_diffs_for_files(
         The number of differing areas found.
 
     """
-    logger.info(f'Showing diffs for "{ttl}".')
-
-    num_diffs = 0
-    made_out_dir = False
-    diff_threshold = 0.9
-
-    for srce_file, fixes_file in zip(srce_files, fixes_files, strict=True):
-        page_mod_type = fixes_file[1]
-        if page_mod_type != ModifiedType.MODIFIED:
-            continue
-
-        if not made_out_dir:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            made_out_dir = True
-
-        num_diffs += show_diffs_for_file(diff_threshold, ttl, out_dir, srce_file, fixes_file[0])
-
-    return num_diffs
+    return _show_diffs_for_pages(
+        ORIGINAL_DIFF_THRESHOLD,
+        ttl,
+        out_dir,
+        (
+            (srce_file, fixes_file)
+            for srce_file, (fixes_file, page_mod_type) in zip(srce_files, fixes_files, strict=True)
+            if page_mod_type == ModifiedType.MODIFIED
+        ),
+    )
 
 
 def show_diffs_for_file(

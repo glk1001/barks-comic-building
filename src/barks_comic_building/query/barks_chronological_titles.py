@@ -7,6 +7,7 @@ import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS, PaymentInfo
 from barks_fantagraphics.barks_titles import Titles
 from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, ONE_PAGERS, ComicBookInfo
+from comic_utils.comic_consts import MONTH_AS_SHORT_STR
 from comic_utils.common_typer_options import LogLevelArg
 from dateutil.relativedelta import relativedelta
 from rich.console import Console
@@ -18,26 +19,10 @@ APP_LOGGING_NAME = "chrn"
 
 _MAX_ACCEPTANCE_GAP = relativedelta(months=6)
 
-_MONTH_ABBREV = (
-    "",
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-)
-
 
 def _format_date(day: int, month: int, year: int) -> str:
     """Format a (day, month, year) triple, tolerating an unknown (-1) in any part."""
-    month_str = _MONTH_ABBREV[month] if 1 <= month <= 12 else "???"  # noqa: PLR2004
+    month_str = MONTH_AS_SHORT_STR.get(month, "???")
     day_str = "??" if day <= 0 else f"{day:02d}"
     year_str = "????" if year <= 0 else str(year)
     return f"{day_str} {month_str} {year_str}"
@@ -49,7 +34,7 @@ def _submitted_date(info: ComicBookInfo) -> str:
 
 def _issue_with_pub_date(info: ComicBookInfo) -> str:
     """Return the short issue title plus the publication (cover) month and year."""
-    month_str = _MONTH_ABBREV[info.issue_month] if 1 <= info.issue_month <= 12 else "???"  # noqa: PLR2004
+    month_str = MONTH_AS_SHORT_STR.get(info.issue_month, "???")
     return f"{info.get_short_issue_title()} ({month_str} {info.issue_year})"
 
 

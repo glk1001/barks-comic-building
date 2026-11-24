@@ -5,7 +5,6 @@ import json
 from dataclasses import dataclass
 
 import typer
-from barks_fantagraphics import panel_bounding
 from barks_fantagraphics.comic_book import ComicBook
 from barks_fantagraphics.page_classes import ComicDimensions
 from barks_fantagraphics.pages import PageType, get_sorted_srce_and_dest_pages
@@ -57,7 +56,7 @@ def get_story_dimensions(comic: ComicBook) -> Dimensions:
         front_width = image.width
         front_height = image.height
 
-    metadata_file = comic.get_dest_dir() / "comic-metadata.json"
+    metadata_file = comic.get_metadata_filepath()
     with metadata_file.open() as f:
         comic_metadata = json.load(f)
         srce_dims = ComicDimensions(
@@ -84,7 +83,6 @@ def main(
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)
-    panel_bounding.warn_on_panels_bbox_height_less_than_av = False
 
     dimensions_dict = {}
     max_title_len = 0

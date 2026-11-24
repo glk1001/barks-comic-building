@@ -10,7 +10,7 @@ from comic_utils.common_typer_options import LogLevelArg
 from cpi import LATEST_YEAR, inflate
 
 from barks_comic_building.cli_setup import init_logging
-from barks_comic_building.query.yearly_graph import create_yearly_plot
+from barks_comic_building.query.yearly_graph import show_yearly_report_plot
 
 APP_LOGGING_NAME = "ypay"
 
@@ -63,16 +63,11 @@ def main(log_level_str: LogLevelArg = "DEBUG") -> None:
 
     title = f"Yearly Payments from {years[0]} to {years[-1]} (Adjusted to {LATEST_YEAR})"
 
-    print(f"Plotting {len(years)} data points...")
-
-    create_yearly_plot(
+    show_yearly_report_plot(
         title,
-        years=years,
-        values=values_data,
-        output_filename="/tmp/barks-yearly-payments.png",  # noqa: S108
-        width_px=1000,
-        height_px=732,
-        dpi=100,  # A common DPI for screen resolutions
+        years,
+        values_data,
+        "/tmp/barks-yearly-payments.png",  # noqa: S108
     )
 
 

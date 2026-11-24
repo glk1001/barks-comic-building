@@ -100,6 +100,17 @@ def get_host() -> str:
     return socket.gethostname()
 
 
+def _ends_mid_line(path: Path) -> bool:
+    """Return whether a file has content that does not finish with a newline."""
+    try:
+        with path.open("rb") as f:
+            f.seek(-1, os.SEEK_END)
+            return f.read(1) != b"\n"
+    except OSError:
+        # Missing, or empty: either way there is no unfinished line to close off.
+        return False
+
+
 class JsonlWriter:
     """Appends json records, one per line, flushing as it goes.
 
@@ -119,9 +130,19 @@ class JsonlWriter:
         self._file = None
 
     def __enter__(self) -> Self:
-        """Open the ledger file for appending."""
+        """Open the ledger file for appending, on a line of its own.
+
+        A run killed part way through a write leaves a last line with no newline. The
+        next run's first record - the one that says which recipe its pages were made
+        with - would be glued onto that fragment, and the two would be skipped together
+        as one unreadable line. So a file that does not end in a newline is given one
+        first, which leaves the fragment the only thing lost.
+        """
         self.ledger_file.parent.mkdir(parents=True, exist_ok=True)
+        ends_mid_line = _ends_mid_line(self.ledger_file)
         self._file = self.ledger_file.open("a", encoding="utf-8")
+        if ends_mid_line:
+            self._file.write("\n")
         return self
 
     def __exit__(self, *_exc: object) -> None:
@@ -154,8 +175,10 @@ def read_records(path: Path, schema: int) -> Iterator[dict[str, Any]]:
 
     Malformed lines are skipped rather than raising - a ledger that survived a hard kill
     mid-write has to stay readable, and one bad line should not cost the other thousands.
-    Records written by a newer schema are skipped too, since this code cannot know what
-    their fields mean.
+    That includes a line that is sound json and not a record: a flipped bit or a hand
+    edit can leave a bare list or string, and every reader downstream asks a record for
+    its fields. Records written by a newer schema are skipped too, since this code
+    cannot know what their fields mean.
 
     Args:
         path: The ledger to read. A file that does not exist yields nothing.
@@ -175,10 +198,17 @@ def read_records(path: Path, schema: int) -> Iterator[dict[str, Any]]:
                 continue
             try:
                 record = json.loads(line)
-                if record.get("schema", 0) > schema:
-                    msg = f"schema {record.get('schema')} is newer than {schema}"
+                if not isinstance(record, dict):
+                    msg = f"a json {type(record).__name__}, not a record"
+                    raise TypeError(msg)  # noqa: TRY301
+                record_schema = record.get("schema", 0)
+                if not isinstance(record_schema, int):
+                    msg = f"schema {record_schema!r} is not a number"
+                    raise TypeError(msg)  # noqa: TRY301
+                if record_schema > schema:
+                    msg = f"schema {record_schema} is newer than {schema}"
                     raise ValueError(msg)  # noqa: TRY301
-            except (json.JSONDecodeError, ValueError) as exc:
+            except (TypeError, ValueError) as exc:
                 num_skipped += 1
                 logger.debug(f'Skipping ledger line {line_num} of "{path}": {exc}.')
                 continue

@@ -327,7 +327,9 @@ def read_upscale_ledger(ledger_file: Path | None = None) -> UpscaleLedger:
                 ledger.runs[run.run_id] = run
             elif record.get("type") == RECORD_TYPE_PAGE:
                 ledger.pages.append(_parse_page(record))
-        except (KeyError, TypeError, ValueError) as exc:
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            # AttributeError as well: a field that should hold a mapping and holds null
+            # is only found out when the parser asks it for its items.
             logger.debug(f'Skipping unreadable record in "{path}": {exc}.')
 
     return ledger

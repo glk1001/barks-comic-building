@@ -105,6 +105,56 @@ class TestSurvivesBeingKilled:
 
         assert [p.page for p in ledger.pages] == ["110", "111"]
 
+    def test_the_run_after_a_truncated_line_keeps_its_run_record(self, ledger_file: Path) -> None:
+        """The next run's first record must not be glued onto the fragment.
+
+        It is the record that says which recipe that run's pages were made with, and it
+        used to be lost along with the half line it was appended to.
+        """
+        write_pages(ledger_file, [("110", OUTCOME_OK, 270.0)])
+        with ledger_file.open("a") as f:
+            f.write('{"type":"page","schema":1,"title":"Camp Cou')
+
+        write_pages(ledger_file, [("111", OUTCOME_OK, 280.0)])
+
+        ledger = read_ledger(ledger_file)
+
+        assert [p.page for p in ledger.pages] == ["110", "111"]
+        assert len(ledger.runs) == TWO
+        assert all(page.run_id in ledger.runs for page in ledger.pages)
+
+    def test_a_whole_ledger_is_not_given_a_blank_line(self, ledger_file: Path) -> None:
+        write_pages(ledger_file, [("110", OUTCOME_OK, 270.0)])
+        write_pages(ledger_file, [("111", OUTCOME_OK, 280.0)])
+
+        assert "" not in ledger_file.read_text().splitlines()
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "[]",
+            '"a string"',
+            "42",
+            "null",
+            '{"type":"page","schema":"1","title":"T","page":"1"}',
+            '{"type":"page","schema":1,"title":"T","page":"1","step_seconds":null}',
+            '{"type":"page","schema":1,"title":"T","page":"1","total_seconds":"slow"}',
+            '{"type":"run","schema":1}',
+        ],
+    )
+    def test_a_line_that_is_json_but_not_a_record_costs_only_itself(
+        self, ledger_file: Path, line: str
+    ) -> None:
+        """A flipped bit or a hand edit, which used to take every reader down with it."""
+        write_pages(ledger_file, [("110", OUTCOME_OK, 270.0)])
+        with ledger_file.open("a") as f:
+            f.write(line + "\n")
+        write_pages(ledger_file, [("111", OUTCOME_OK, 280.0)])
+
+        ledger = read_ledger(ledger_file)
+
+        assert [p.page for p in ledger.pages] == ["110", "111"]
+
     def test_a_corrupt_line_in_the_middle_costs_only_itself(self, ledger_file: Path) -> None:
         write_pages(ledger_file, [("110", OUTCOME_OK, 270.0)])
         lines = ledger_file.read_text().splitlines()

@@ -14,23 +14,40 @@ from barks_comic_building.query.yearly_graph import create_yearly_plot
 
 APP_LOGGING_NAME = "ypay"
 
+UNKNOWN_YEAR = -1
+
 app = typer.Typer()
+
+
+def sum_payments_by_year() -> dict[int, float]:
+    """Total what Barks was paid for the work he submitted in each year.
+
+    A title whose submission year is unknown is left out: it has no year to be counted
+    under, and no year to inflate its payment from.
+
+    Returns:
+        The total payment for each submission year, in the dollars of that year.
+
+    """
+    # Annotated float, defaulted int: a few payments are fractional, but the default
+    # stays 0 rather than 0.0 so the printed totals read as they always have.
+    payments_by_year: defaultdict[int, float] = defaultdict(int)
+    for title, title_payment_info in BARKS_PAYMENTS.items():
+        submitted_year = BARKS_TITLE_INFO[title].submitted_year
+        if submitted_year == UNKNOWN_YEAR:
+            continue
+
+        payment = 0 if title in ONE_PAGERS else title_payment_info.payment
+        payments_by_year[submitted_year] += payment
+
+    return dict(payments_by_year)
 
 
 @app.command(help="Barks yearly payments")
 def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    # Annotated float, defaulted int: a few payments are fractional, but the default
-    # stays 0 rather than 0.0 so the printed totals below read as they always have.
-    payments_by_year: defaultdict[int, float] = defaultdict(int)
-    for title in BARKS_PAYMENTS:
-        title_payment_info = BARKS_PAYMENTS[title]
-
-        payment = 0 if title in ONE_PAGERS else title_payment_info.payment
-
-        submitted_year = BARKS_TITLE_INFO[title].submitted_year
-        payments_by_year[submitted_year] += payment
+    payments_by_year = sum_payments_by_year()
 
     for year in payments_by_year:
         print(f"{year}: {payments_by_year[year]}")

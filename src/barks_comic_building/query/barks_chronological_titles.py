@@ -36,10 +36,11 @@ _MONTH_ABBREV = (
 
 
 def _format_date(day: int, month: int, year: int) -> str:
-    """Format a (day, month, year) triple, tolerating an unknown (-1) day."""
+    """Format a (day, month, year) triple, tolerating an unknown (-1) in any part."""
     month_str = _MONTH_ABBREV[month] if 1 <= month <= 12 else "???"  # noqa: PLR2004
     day_str = "??" if day <= 0 else f"{day:02d}"
-    return f"{day_str} {month_str} {year}"
+    year_str = "????" if year <= 0 else str(year)
+    return f"{day_str} {month_str} {year_str}"
 
 
 def _submitted_date(info: ComicBookInfo) -> str:
@@ -58,8 +59,22 @@ def _submitted_sort_key(info: ComicBookInfo) -> tuple[int, int, int]:
 
 
 def _is_dubious_accepted(info: ComicBookInfo, payment: PaymentInfo) -> bool:
-    """Flag an accepted date that is before submission or more than 6 months after it."""
-    submitted_day = 1 if info.submitted_day == -1 else info.submitted_day
+    """Flag an accepted date that is before submission or more than 6 months after it.
+
+    A date with an unknown year or month cannot be compared, so it is never flagged:
+    some covers have a payment entry whose accepted date is not known at all.
+    """
+    known_parts = (
+        info.submitted_year,
+        info.submitted_month,
+        payment.accepted_year,
+        payment.accepted_month,
+        payment.accepted_day,
+    )
+    if any(part <= 0 for part in known_parts):
+        return False
+
+    submitted_day = 1 if info.submitted_day <= 0 else info.submitted_day
     submitted_date = date(info.submitted_year, info.submitted_month, submitted_day)
     accepted_date = date(payment.accepted_year, payment.accepted_month, payment.accepted_day)
 

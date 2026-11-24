@@ -1,13 +1,13 @@
+"""Plot what Barks was paid for the work he submitted in each year, in today's money."""
 # ruff: noqa: T201
 
 from collections import defaultdict
-from datetime import datetime
 
 import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
-from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO, ONE_PAGERS
+from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO
 from comic_utils.common_typer_options import LogLevelArg
-from cpi import inflate
+from cpi import LATEST_YEAR, inflate
 
 from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.query.yearly_graph import create_yearly_plot
@@ -22,8 +22,10 @@ app = typer.Typer()
 def sum_payments_by_year() -> dict[int, float]:
     """Total what Barks was paid for the work he submitted in each year.
 
-    A title whose submission year is unknown is left out: it has no year to be counted
-    under, and no year to inflate its payment from.
+    Every kind of title is counted, one-pagers included. A title whose submission year
+    is unknown is left out: it has no year to be counted under, and no year to inflate
+    its payment from. So is one whose payment is unknown, which is recorded as a negative
+    amount and would otherwise be taken off the year's total as if it were money.
 
     Returns:
         The total payment for each submission year, in the dollars of that year.
@@ -37,8 +39,10 @@ def sum_payments_by_year() -> dict[int, float]:
         if submitted_year == UNKNOWN_YEAR:
             continue
 
-        payment = 0 if title in ONE_PAGERS else title_payment_info.payment
-        payments_by_year[submitted_year] += payment
+        if title_payment_info.payment < 0:
+            continue
+
+        payments_by_year[submitted_year] += title_payment_info.payment
 
     return dict(payments_by_year)
 
@@ -53,10 +57,11 @@ def main(log_level_str: LogLevelArg = "DEBUG") -> None:
         print(f"{year}: {payments_by_year[year]}")
 
     years = sorted(payments_by_year)
-    values_data = [inflate(payments_by_year[y], y) for y in years]
+    # To the latest year the CPI data covers, which is the year the title has to name:
+    # it lags the calendar, and the chart once read "Adjusted to 2026" over 2025 dollars.
+    values_data = [inflate(payments_by_year[y], y, to=LATEST_YEAR) for y in years]
 
-    current_year = datetime.now().astimezone().year
-    title = f"Yearly Payments from {years[0]} to {years[-1]} (Adjusted to {current_year})"
+    title = f"Yearly Payments from {years[0]} to {years[-1]} (Adjusted to {LATEST_YEAR})"
 
     print(f"Plotting {len(years)} data points...")
 

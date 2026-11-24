@@ -16,7 +16,6 @@ from typing import Annotated, NamedTuple
 
 import typer
 from barks_fantagraphics.comic_book_info import is_non_comic_title
-from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
 from loguru import logger
@@ -24,7 +23,7 @@ from rich.console import Console
 from rich.table import Table
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
-from barks_comic_building.restore.page_state import PageState, get_page_status
+from barks_comic_building.restore.page_state import PageState, walk_restore_pages
 from barks_comic_building.restore.report_format import format_duration, shorten_volume_title
 from barks_comic_building.restore.restore_ledger import (
     OUTCOME_FAILED,
@@ -83,32 +82,7 @@ def get_title_status(
     """
     comic = comics_database.get_comic_book(title)
 
-    srce_upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
-    dest_restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
-    dest_restored_upscayled_files = comic.get_srce_restored_upscayled_story_files(
-        RESTORABLE_PAGE_TYPES,
-    )
-    dest_restored_svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
-
-    counts: Counter[PageState] = Counter()
-    for upscayl_file, restored_file, upscayled_restored_file, svg_file in zip(
-        srce_upscayl_files,
-        dest_restored_files,
-        dest_restored_upscayled_files,
-        dest_restored_svg_files,
-        strict=True,
-    ):
-        status = get_page_status(
-            Path(upscayl_file[0]),
-            Path(restored_file),
-            Path(upscayled_restored_file),
-            Path(svg_file),
-            current_recipe_id,
-            is_hand_restored=comic.is_hand_restored(Path(restored_file).stem),
-        )
-        counts[status.state] += 1
-
-    return counts
+    return Counter(page.status.state for page in walk_restore_pages(comic, current_recipe_id))
 
 
 def get_status_by_volume(

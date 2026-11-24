@@ -12,12 +12,18 @@ force now.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, NamedTuple
+from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple, Protocol
+
+from barks_fantagraphics.comic_book import ModifiedType
+from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 
 from barks_comic_building.restore.image_io import read_png_metadata
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Iterator
+
+    from barks_fantagraphics.comics_consts import PageType
 
 # The png metadata keys the upscale stamps its provenance into.
 RECIPE_ID_KEY = "Upscale recipe id"
@@ -159,3 +165,69 @@ def get_upscale_page_status(  # noqa: PLR0911
         return UpscalePageStatus(UpscalePageState.CURRENT, recipe_id, upscale_date)
 
     return UpscalePageStatus(UpscalePageState.STALE, recipe_id, upscale_date)
+
+
+class UpscalePage(NamedTuple):
+    """One restorable page of a title, as the upscale sees it."""
+
+    page: str
+    """The page's file stem, as it is named in the volume."""
+
+    srce_file: Path
+    dest_upscayl_file: Path
+    status: UpscalePageStatus
+
+
+class _ComicToUpscale(Protocol):
+    """What the walk asks of a comic. `ComicBook` is the one that answers."""
+
+    def get_final_srce_original_story_files(
+        self, page_types: list[PageType], /
+    ) -> list[tuple[Path, ModifiedType]]: ...
+
+    def get_final_srce_upscayled_story_files(
+        self, page_types: list[PageType], /
+    ) -> list[tuple[Path, ModifiedType]]: ...
+
+    def is_hand_restored(self, page_num: str, /) -> bool: ...
+
+
+def walk_upscale_pages(comic: _ComicToUpscale, current_recipe_id: str) -> Iterator[UpscalePage]:
+    """Yield every restorable page of a title with its files and its upscale state.
+
+    The one place that pairs a title's scans with their upscayled pages and asks where
+    each stands, so that the run and the report of what a run would do cannot disagree.
+    Both used to carry their own copy of this loop - and of the rule in it that matters
+    most, that a destination which is not the plain upscayled page is a hand edit.
+
+    Args:
+        comic: The title to walk.
+        current_recipe_id: The id of the recipe the upscale would use now.
+
+    Yields:
+        Each restorable page, in page order.
+
+    """
+    for (srce_file, _srce_mod), (dest_file, dest_mod) in zip(
+        comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES),
+        comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES),
+        strict=True,
+    ):
+        srce_file = Path(srce_file)  # noqa: PLW2901
+        page = srce_file.stem
+
+        yield UpscalePage(
+            page=page,
+            srce_file=srce_file,
+            dest_upscayl_file=Path(dest_file),
+            status=get_upscale_page_status(
+                srce_file,
+                Path(dest_file),
+                current_recipe_id,
+                # A non-ORIGINAL dest is not the upscayled page at all - it is the
+                # hand-edited file standing in for it, and a run's output would be
+                # written over the top.
+                is_fixes_file=dest_mod is not ModifiedType.ORIGINAL,
+                is_hand_restored=comic.is_hand_restored(page),
+            ),
+        )

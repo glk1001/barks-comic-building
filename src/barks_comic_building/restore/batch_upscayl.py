@@ -4,9 +4,7 @@ from pathlib import Path
 from typing import Annotated, NamedTuple
 
 import typer
-from barks_fantagraphics.comic_book import ModifiedType
 from barks_fantagraphics.comic_book_info import is_non_comic_title
-from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 from barks_fantagraphics.comics_database import ComicsDatabase
 from barks_fantagraphics.comics_utils import get_abbrev_path
 from comic_utils.common_typer_options import LogLevelArg, TitleArg, VolumesArg
@@ -34,7 +32,7 @@ from barks_comic_building.restore.upscale_ledger import (
 from barks_comic_building.restore.upscale_recipe import UpscaleRecipe, get_current_recipe
 from barks_comic_building.restore.upscale_state import (
     UpscalePageState,
-    get_upscale_page_status,
+    walk_upscale_pages,
 )
 
 APP_LOGGING_NAME = "bups"
@@ -79,23 +77,10 @@ def get_title_jobs(
     comic = comics_database.get_comic_book(title)
     volume = comics_database.get_fanta_volume_int(title)
 
-    srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
-    upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
-
     jobs: list[_PageJob] = []
-    for (srce_file, _srce_mod), (dest_file, dest_mod) in zip(
-        srce_files, upscayl_files, strict=True
-    ):
-        page_num = Path(srce_file).stem
-        status = get_upscale_page_status(
-            srce_file,
-            dest_file,
-            recipe.recipe_id,
-            # A non-ORIGINAL dest is not the upscayled page at all - it is the hand-edited
-            # file standing in for it, and this run's output would be written over the top.
-            is_fixes_file=dest_mod is not ModifiedType.ORIGINAL,
-            is_hand_restored=comic.is_hand_restored(page_num),
-        )
+    for page in walk_upscale_pages(comic, recipe.recipe_id):
+        status = page.status
+        srce_file, dest_file = page.srce_file, page.dest_upscayl_file
         counts[status.state] = counts.get(status.state, 0) + 1
 
         # None of these three is queued even under --force.
@@ -129,8 +114,8 @@ def get_title_jobs(
             _PageJob(
                 title=title,
                 volume=volume,
-                page=page_num,
-                srce_file=Path(srce_file),
+                page=page.page,
+                srce_file=srce_file,
                 dest_file=dest_file,
             )
         )

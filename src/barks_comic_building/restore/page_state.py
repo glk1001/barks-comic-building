@@ -20,7 +20,10 @@ settings.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, NamedTuple
+from pathlib import Path
+from typing import TYPE_CHECKING, NamedTuple, Protocol
+
+from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES
 
 from barks_comic_building.restore.image_io import read_png_metadata
 from barks_comic_building.restore.upscale_image import (
@@ -33,16 +36,21 @@ from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_
 from barks_comic_building.restore.upscale_state import UPSCALE_DATE_KEY
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Iterator
+
+    from barks_fantagraphics.comic_book import ModifiedType
+    from barks_fantagraphics.comics_consts import PageType
 
 __all__ = [
     "UPSCALER_KEY",
     "PageState",
     "PageStatus",
+    "RestorePage",
     "get_ink_mask_file",
     "get_page_status",
     "get_upscaler_used",
     "get_upscayl_input_stamp",
+    "walk_restore_pages",
 ]
 
 # The png metadata keys the restore stamps its provenance into.
@@ -269,6 +277,90 @@ def get_page_status(  # noqa: PLR0911, PLR0913
         return PageStatus(PageState.CURRENT, recipe_id, restore_date)
 
     return PageStatus(PageState.STALE, recipe_id, restore_date)
+
+
+class RestorePage(NamedTuple):
+    """One restorable page of a title: its files, and where it stands."""
+
+    page: str
+    """The page's file stem, as it is named in the volume."""
+
+    srce_file: Path
+    """The original scan, which the palette snap reads. May not exist."""
+
+    srce_upscayl_file: Path
+    dest_restored_file: Path
+    dest_upscayled_restored_file: Path
+    dest_svg_restored_file: Path
+    status: PageStatus
+
+
+class _RestorableComic(Protocol):
+    """What the walk asks of a comic. `ComicBook` is the one that answers."""
+
+    def get_final_srce_original_story_files(
+        self, page_types: list[PageType], /
+    ) -> list[tuple[Path, ModifiedType]]: ...
+
+    def get_final_srce_upscayled_story_files(
+        self, page_types: list[PageType], /
+    ) -> list[tuple[Path, ModifiedType]]: ...
+
+    def get_srce_restored_story_files(self, page_types: list[PageType], /) -> list[Path]: ...
+
+    def get_srce_restored_upscayled_story_files(
+        self, page_types: list[PageType], /
+    ) -> list[Path]: ...
+
+    def get_srce_restored_svg_story_files(self, page_types: list[PageType], /) -> list[Path]: ...
+
+    def is_hand_restored(self, page_num: str, /) -> bool: ...
+
+
+def walk_restore_pages(comic: _RestorableComic, current_recipe_id: str) -> Iterator[RestorePage]:
+    """Yield every restorable page of a title with its files and its state.
+
+    The one place that lines a title's five file lists up against each other and asks
+    where each page stands. The run that restores pages and the report that says what a
+    run would do both read it from here, so the report cannot say a page is waiting that
+    the run is going to pass over. They used to each have their own copy of this loop,
+    and a change to how a page is judged had to be made in both to be true of both.
+
+    Args:
+        comic: The title to walk.
+        current_recipe_id: The id of the recipe the pipeline would use now.
+
+    Yields:
+        Each restorable page, in page order.
+
+    """
+    for (srce_file, _), (srce_upscayl_file, _), restored, upscayled_restored, svg in zip(
+        comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES),
+        comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES),
+        comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES),
+        comic.get_srce_restored_upscayled_story_files(RESTORABLE_PAGE_TYPES),
+        comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES),
+        strict=True,
+    ):
+        dest_restored_file = Path(restored)
+        page = dest_restored_file.stem
+
+        yield RestorePage(
+            page=page,
+            srce_file=Path(srce_file),
+            srce_upscayl_file=Path(srce_upscayl_file),
+            dest_restored_file=dest_restored_file,
+            dest_upscayled_restored_file=Path(upscayled_restored),
+            dest_svg_restored_file=Path(svg),
+            status=get_page_status(
+                Path(srce_upscayl_file),
+                dest_restored_file,
+                Path(upscayled_restored),
+                Path(svg),
+                current_recipe_id,
+                is_hand_restored=comic.is_hand_restored(page),
+            ),
+        )
 
 
 def get_upscaler_used(srce_upscayl_file: Path) -> str:

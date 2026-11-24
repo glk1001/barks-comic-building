@@ -36,8 +36,8 @@ from barks_comic_building.log_setup import bind_run_id
 from barks_comic_building.restore.ledger_common import now
 from barks_comic_building.restore.page_state import (
     PageState,
-    get_page_status,
     get_upscaler_used,
+    walk_restore_pages,
 )
 from barks_comic_building.restore.report_format import format_duration
 from barks_comic_building.restore.restore_ledger import (
@@ -521,40 +521,12 @@ def get_title_jobs(  # noqa: PLR0913
     title_work_dir = work_dir / title
     title_work_dir.mkdir(parents=True, exist_ok=True)
 
-    srce_files = comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
-    srce_upscayl_files = comic.get_final_srce_upscayled_story_files(RESTORABLE_PAGE_TYPES)
-    dest_restored_files = comic.get_srce_restored_story_files(RESTORABLE_PAGE_TYPES)
-    dest_restored_upscayled_files = comic.get_srce_restored_upscayled_story_files(
-        RESTORABLE_PAGE_TYPES,
-    )
-    dest_restored_svg_files = comic.get_srce_restored_svg_story_files(RESTORABLE_PAGE_TYPES)
-
     jobs: list[_PageJob] = []
     num_by_state: dict[PageState, int] = {}
 
-    for (
-        srce_file,
-        srce_upscayl_file,
-        dest_restored_file,
-        dest_upscayled_restored_file,
-        dest_svg_restored_file,
-    ) in zip(
-        srce_files,
-        srce_upscayl_files,
-        dest_restored_files,
-        dest_restored_upscayled_files,
-        dest_restored_svg_files,
-        strict=True,
-    ):
-        page_num = Path(dest_restored_file).stem
-        status = get_page_status(
-            Path(srce_upscayl_file[0]),
-            Path(dest_restored_file),
-            Path(dest_upscayled_restored_file),
-            Path(dest_svg_restored_file),
-            recipe.recipe_id,
-            is_hand_restored=comic.is_hand_restored(page_num),
-        )
+    for page in walk_restore_pages(comic, recipe.recipe_id):
+        status = page.status
+        dest_restored_file = page.dest_restored_file
         num_by_state[status.state] = num_by_state.get(status.state, 0) + 1
 
         # Not even under --force: this page was restored by hand. It carries no recipe of
@@ -569,7 +541,7 @@ def get_title_jobs(  # noqa: PLR0913
 
         if status.state is PageState.NO_SRCE:
             logger.error(
-                f'Could not find srce upscayl file - skipping: "{srce_upscayl_file[0]}".',
+                f'Could not find srce upscayl file - skipping: "{page.srce_upscayl_file}".',
             )
             continue
 
@@ -590,8 +562,8 @@ def get_title_jobs(  # noqa: PLR0913
             continue
 
         logger.info(
-            f'Restoring ({status.state}) srce files "{get_abbrev_path(srce_file[0])}",'
-            f' "{get_abbrev_path(srce_upscayl_file[0])}"'
+            f'Restoring ({status.state}) srce files "{get_abbrev_path(page.srce_file)}",'
+            f' "{get_abbrev_path(page.srce_upscayl_file)}"'
             f' to dest "{get_abbrev_path(dest_restored_file)}".',
         )
 
@@ -599,12 +571,12 @@ def get_title_jobs(  # noqa: PLR0913
             _PageJob(
                 RestorePipeline(
                     title_work_dir,
-                    Path(srce_file[0]),
-                    Path(srce_upscayl_file[0]),
+                    page.srce_file,
+                    page.srce_upscayl_file,
                     LIBRARY_SCALE,
-                    Path(dest_restored_file),
-                    Path(dest_upscayled_restored_file),
-                    Path(dest_svg_restored_file),
+                    dest_restored_file,
+                    page.dest_upscayled_restored_file,
+                    page.dest_svg_restored_file,
                     use_existing_work_files=use_existing_work_files,
                     debug_color_counts=debug_color_counts,
                     # The run's work directory, not this title's, so every page of the
@@ -613,7 +585,7 @@ def get_title_jobs(  # noqa: PLR0913
                 ),
                 title,
                 volume,
-                page_num,
+                page.page,
             ),
         )
 

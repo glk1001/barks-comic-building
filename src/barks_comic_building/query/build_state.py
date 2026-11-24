@@ -23,14 +23,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from barks_fantagraphics.comic_book import ModifiedType
+from barks_fantagraphics.comic_book import ModifiedType, get_page_str
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES, STORY_PAGE_TYPES
 from barks_fantagraphics.comics_utils import (
     dest_file_is_older_than_srce,
     get_timestamp,
 )
 from barks_fantagraphics.fanta_comics_info import HAND_RESTORED_TITLES
-from barks_fantagraphics.pages import get_restored_srce_dependencies, get_sorted_srce_and_dest_pages
+from barks_fantagraphics.pages import (
+    get_restore_stage_dependencies,
+    get_restored_srce_dependencies,
+    get_sorted_srce_and_dest_pages,
+)
 from loguru import logger
 
 from barks_comic_building.build.utils import (
@@ -46,6 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from barks_fantagraphics.comic_book import ComicBook
+    from barks_fantagraphics.page_classes import CleanPage
     from barks_fantagraphics.pages import SrceDependency
 
 # Row and cell styles shared by the status reports.
@@ -226,6 +231,58 @@ def _is_wrong_call_signature(error: TypeError) -> bool:
     return error.__traceback__ is not None and error.__traceback__.tb_next is None
 
 
+def _unrestored_page_dependencies(comic: ComicBook, srce_page: CleanPage) -> list[SrceDependency]:
+    """Return the stages behind a page that has no restored file yet.
+
+    `get_restored_srce_dependencies` describes the chain from the file the build would
+    use, and raises when there is none. The stages below that file are still there to be
+    graded, and they are the ones the upscayl rung is decided on: an upscayled file older
+    than its scan is stale whether or not anything has been restored from it yet.
+
+    Args:
+        comic: The comic the page is in.
+        srce_page: A page whose restored file is not on disk.
+
+    Returns:
+        The page's restore stages, latest first; none for a page that has no such chain.
+
+    """
+    page_num_str = get_page_str(srce_page.page_num)
+
+    # The same two conditions under which `get_restored_srce_dependencies` gives a page
+    # these stages at all, so a page it would not grade is not graded here either.
+    if srce_page.page_type not in RESTORABLE_PAGE_TYPES or comic._is_added_fixes_special_case(  # noqa: SLF001
+        page_num_str, srce_page.page_type
+    ):
+        return []
+
+    upscayled_file, upscayled_mod_type = comic.get_final_srce_upscayled_story_file(
+        page_num_str, srce_page.page_type
+    )
+    original_file, original_mod_type = comic.get_final_srce_original_story_file(
+        page_num_str, srce_page.page_type
+    )
+
+    return get_restore_stage_dependencies(
+        Path(comic.get_srce_restored_upscayled_story_file(page_num_str)),
+        Path(comic.get_srce_restored_svg_story_file(page_num_str)),
+        Path(upscayled_file),
+        Path(original_file),
+        upscayled_mod_type=upscayled_mod_type,
+        original_mod_type=original_mod_type,
+    )
+
+
+def _page_dependencies(comic: ComicBook, srce_page: CleanPage) -> list[SrceDependency]:
+    """Return a page's dependencies, whether or not it has been restored yet."""
+    try:
+        return get_restored_srce_dependencies(comic, srce_page)
+    except FileNotFoundError:
+        # No file to build the page from. That is the existence rungs' finding, not a
+        # reason to stop dating the stages that are there.
+        return _unrestored_page_dependencies(comic, srce_page)
+
+
 def get_chain_state(comic: ComicBook) -> ChainState:
     """Grade every page's restore chain, and collect the newest source of the title.
 
@@ -235,6 +292,10 @@ def get_chain_state(comic: ComicBook) -> ChainState:
     raising: resolving it must not raise on the very fault this report exists to
     display. `get_sorted_srce_and_dest_pages` no longer dates the source pages itself,
     so there is nothing left to turn off for that.
+
+    Only the pages' types and numbers are asked for, not their files. Resolving the files
+    raises on the first page with no restored file, which graded a whole title clean in
+    exactly the state the upscayl rung is decided in: upscayled, and not yet restored.
 
     Args:
         comic: The comic to grade.
@@ -248,7 +309,7 @@ def get_chain_state(comic: ComicBook) -> ChainState:
 
     try:
         with quiet_panel_bbox_height_warnings():
-            pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=True)
+            pages = get_sorted_srce_and_dest_pages(comic, get_full_paths=False)
     except Exception as e:
         # A wrong call signature is a bug in this module, not an unreadable comic, and
         # this handler would bury it: `check_srce_page_timestamps` outlived its removal
@@ -269,9 +330,7 @@ def get_chain_state(comic: ComicBook) -> ChainState:
 
     for srce_page in pages.srce_pages:
         # The ini file is git-tracked, so its mtime dates a checkout rather than an edit.
-        dependencies = dating_dependencies(
-            get_restored_srce_dependencies(comic, srce_page), comic.ini_file
-        )
+        dependencies = dating_dependencies(_page_dependencies(comic, srce_page), comic.ini_file)
 
         # The independent ones are out of the chain but still raise the maximum: an
         # edited inset or bounds override really does mean the page needs rebuilding.

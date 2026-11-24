@@ -52,6 +52,7 @@ from barks_comic_building.restore.restore_ledger import (
 )
 from barks_comic_building.restore.restore_pipeline import RestorePipeline, check_for_errors
 from barks_comic_building.restore.restore_recipe import RestoreRecipe, get_current_recipe
+from barks_comic_building.restore.run_lock import RunAlreadyActiveError, hold_run_lock
 from barks_comic_building.restore.run_stop import (
     StopMode,
     clear_stop,
@@ -970,18 +971,26 @@ def main(  # noqa: PLR0913
 
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    num_failed = restore(
-        comics_database,
-        titles,
-        work_dir,
-        ledger_file or get_default_ledger_file(),
-        batch_size,
-        stop_after_seconds,
-        use_existing_work_files=use_existing_work_files,
-        debug_color_counts=debug_color_counts,
-        keep_work_files=keep_work_files,
-        force=force,
-    )
+    # Held for the whole run. Without it a second run started in the same work directory
+    # clears the stop request the first is still honouring, and the two compete for
+    # memory that one restore already runs at the edge of.
+    try:
+        with hold_run_lock(work_dir):
+            num_failed = restore(
+                comics_database,
+                titles,
+                work_dir,
+                ledger_file or get_default_ledger_file(),
+                batch_size,
+                stop_after_seconds,
+                use_existing_work_files=use_existing_work_files,
+                debug_color_counts=debug_color_counts,
+                keep_work_files=keep_work_files,
+                force=force,
+            )
+    except RunAlreadyActiveError as exc:
+        logger.error(f'{exc} Wait for it to finish, or stop it with "just restore-stop".')
+        sys.exit(1)
 
     # So that a script chaining this to the next stage can tell. A run that was only
     # stopped is not a failure, and still exits 0.

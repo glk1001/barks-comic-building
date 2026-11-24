@@ -24,7 +24,6 @@ from rich.console import Console
 from rich.table import Table
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
-from barks_comic_building.restore.batch_restore_pipeline import SCALE
 from barks_comic_building.restore.page_state import PageState, get_page_status
 from barks_comic_building.restore.report_format import format_duration, shorten_volume_title
 from barks_comic_building.restore.restore_ledger import (
@@ -34,6 +33,7 @@ from barks_comic_building.restore.restore_ledger import (
     read_ledger,
 )
 from barks_comic_building.restore.restore_recipe import get_current_recipe
+from barks_comic_building.restore.upscale_image import LIBRARY_SCALE
 
 APP_LOGGING_NAME = "rsta"
 
@@ -364,7 +364,7 @@ def main(  # noqa: PLR0913
         print_failures(ledger)
         return
 
-    recipe = get_current_recipe(SCALE, do_palette_snap=True)
+    recipe = get_current_recipe(LIBRARY_SCALE, do_palette_snap=True)
     logger.info(f"Current recipe {recipe.recipe_id}: {recipe.as_json()}")
 
     if steps:

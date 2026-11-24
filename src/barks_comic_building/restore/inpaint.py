@@ -10,6 +10,10 @@ from barks_comic_building.restore.image_io import write_cv_image_file
 # record what the colour layer was filled with.
 GMIC_INPAINT_MATCHPATCH_PARAMS = '"1","5","26","5","1","255","0","0","255","1","0"'
 
+# How dark a pixel of the ink layer has to be to count as ink that the colour layer is
+# filled in underneath. Not in the restore recipe - see the note at the top of `restore_recipe`.
+INK_MASK_THRESHOLD = 100
+
 # Clamped to the 8-bit range before it is written, because matchpatch blends its way a
 # little past white - 258 and 259 were measured on volume 4's page 098 - and gmic answers a
 # value over 255 by writing a 16 bit png. Nothing else here reads one: PIL and OpenCV both
@@ -58,7 +62,7 @@ def inpaint_image_file(
     assert black_ink_mask is not None
     assert black_ink_mask.shape[2] == 3  # noqa: PLR2004
 
-    _, remove_mask = cv.threshold(black_ink_mask, 100, 255, cv.THRESH_BINARY_INV)
+    _, remove_mask = cv.threshold(black_ink_mask, INK_MASK_THRESHOLD, 255, cv.THRESH_BINARY_INV)
     assert remove_mask.shape[2] == 3  # noqa: PLR2004
 
     _, _, r_remove_mask = cv.split(remove_mask)

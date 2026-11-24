@@ -45,7 +45,8 @@ INK_MAX_LUMINANCE = 60
 # pipeline runs several pages at a time, so the work is done a band of rows at a time.
 BLOCK_ROWS = 256
 
-_BGR_LUMINANCE_WEIGHTS = np.array([0.114, 0.587, 0.299])
+# Rec. 601 luminance weights, in the blue-green-red order opencv keeps its channels in.
+BGR_LUMINANCE_WEIGHTS = np.array([0.114, 0.587, 0.299])
 
 
 def _get_flat_mask(image: cv.typing.MatLike, kernel_size: int, max_gradient: int) -> np.ndarray:
@@ -103,7 +104,7 @@ def get_snap_palette(srce_image: cv.typing.MatLike) -> np.ndarray:
     if len(palette) == 0:
         return palette
 
-    luminance = palette @ _BGR_LUMINANCE_WEIGHTS
+    luminance = palette @ BGR_LUMINANCE_WEIGHTS
     darkest = int(np.argmin(luminance))
     if luminance[darkest] < INK_MAX_LUMINANCE:
         palette = np.delete(palette, darkest, axis=0)

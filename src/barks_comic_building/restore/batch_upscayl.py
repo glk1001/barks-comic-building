@@ -1,6 +1,5 @@
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated, NamedTuple
 
@@ -15,9 +14,11 @@ from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
 from barks_comic_building.log_setup import bind_run_id
+from barks_comic_building.restore.ledger_common import now
 from barks_comic_building.restore.report_format import format_duration
 from barks_comic_building.restore.upscale_image import (
     DEFAULT_UPSCALER,
+    LIBRARY_SCALE,
     Upscaler,
     UpscalerArg,
     check_upscaler_is_usable,
@@ -37,8 +38,6 @@ from barks_comic_building.restore.upscale_state import (
 )
 
 APP_LOGGING_NAME = "bups"
-
-SCALE = 4
 
 # Give up after this many pages fail in a row. A GPU that has stopped producing usable
 # images fails every page the same way, and grinding through the rest of a volume to
@@ -166,9 +165,9 @@ def upscayl(
     # Up front, and allowed to raise. A missing binary or an impossible scale is true for
     # every page or none, so finding out per page would write one identical failure record
     # per queued page - thousands of them - and call that a completed run.
-    check_upscaler_is_usable(upscaler, SCALE)
+    check_upscaler_is_usable(upscaler, LIBRARY_SCALE)
 
-    recipe = get_current_recipe(upscaler, SCALE)
+    recipe = get_current_recipe(upscaler, LIBRARY_SCALE)
     logger.info(f"Upscale recipe {recipe.recipe_id}: {recipe.as_json()}")
 
     jobs: list[_PageJob] = []
@@ -258,13 +257,13 @@ def _upscayl_page(job: _PageJob, upscaler: Upscaler, ledger: UpscaleLedgerWriter
         f' to dest upscayl file "{get_abbrev_path(job.dest_file)}" using {upscaler}.',
     )
 
-    started = datetime.now().astimezone().isoformat(timespec="seconds")
+    started = now()
     page_start = time.time()
     srce_bytes = job.srce_file.stat().st_size if job.srce_file.is_file() else 0
 
     error = None
     try:
-        upscale_image_file(job.srce_file, job.dest_file, SCALE, upscaler)
+        upscale_image_file(job.srce_file, job.dest_file, LIBRARY_SCALE, upscaler)
     except (OSError, RuntimeError, ValueError) as exc:
         error = str(exc)
         logger.error(f'Could not upscayl "{get_abbrev_path(job.srce_file)}": {exc}')

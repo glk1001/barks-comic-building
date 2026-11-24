@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import json
 import time
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import cv2 as cv
@@ -31,6 +30,7 @@ from barks_comic_building.restore.image_io import (
     write_cv_image_file,
 )
 from barks_comic_building.restore.inpaint import inpaint_image_file
+from barks_comic_building.restore.ledger_common import now
 from barks_comic_building.restore.overlay import overlay_inpainted_file_with_black_ink
 from barks_comic_building.restore.page_state import (
     RECIPE_ID_KEY,
@@ -671,7 +671,7 @@ class RestorePipeline:
                 **self.input_stamp,
                 RECIPE_ID_KEY: self.recipe.recipe_id,
                 RECIPE_KEY: self.recipe.as_json(),
-                RESTORE_DATE_KEY: datetime.now().astimezone().isoformat(timespec="seconds"),
+                RESTORE_DATE_KEY: now(),
             }
 
             resize_image_file(

@@ -29,9 +29,13 @@ from rich.console import Console
 from rich.table import Table
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
-from barks_comic_building.restore.batch_upscayl import SCALE
 from barks_comic_building.restore.report_format import format_duration, shorten_volume_title
-from barks_comic_building.restore.upscale_image import DEFAULT_UPSCALER, Upscaler, UpscalerArg
+from barks_comic_building.restore.upscale_image import (
+    DEFAULT_UPSCALER,
+    LIBRARY_SCALE,
+    Upscaler,
+    UpscalerArg,
+)
 from barks_comic_building.restore.upscale_ledger import (
     UpscaleLedger,
     get_default_upscale_ledger_file,
@@ -326,7 +330,7 @@ def main(  # noqa: PLR0913
         print_failures(ledger)
         return
 
-    recipe = get_current_recipe(upscaler, SCALE)
+    recipe = get_current_recipe(upscaler, LIBRARY_SCALE)
     logger.info(f"Current recipe {recipe.recipe_id}: {recipe.as_json()}")
 
     comics_database, titles = get_comic_titles(volumes_str, title_str)

@@ -21,12 +21,15 @@ from intspan import intspan
 from loguru import logger
 
 from barks_comic_building.cli_setup import init_logging
-from barks_comic_building.restore.palette_snap import get_flat_palette
+from barks_comic_building.restore.palette_snap import BGR_LUMINANCE_WEIGHTS, get_flat_palette
 
 APP_LOGGING_NAME = "inks"
 
 DEFAULT_PAGES_PER_VOLUME = 5
 
+# Looser than `palette_snap.INK_MAX_LUMINANCE`, and on purpose a different number: that
+# one picks the single ink entry out of a page's palette, while this one has to catch the
+# dark greys a survey is run to find.
 INK_MAX_LUMINANCE = 110
 PAPER_MIN_LUMINANCE = 200
 
@@ -34,8 +37,6 @@ PAPER_MIN_LUMINANCE = 200
 # palettes say nothing about how the comic art was produced.
 MIN_INK_COVERAGE = 0.05
 MAX_INK_COVERAGE = 0.35
-
-_BGR_LUMINANCE_WEIGHTS = np.array([0.114, 0.587, 0.299])
 
 
 def get_page_ink_and_paper(image_file: Path) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
@@ -64,7 +65,7 @@ def get_page_ink_and_paper(image_file: Path) -> tuple[tuple[int, ...], tuple[int
     if len(palette) == 0:
         return None
 
-    luminance = palette @ _BGR_LUMINANCE_WEIGHTS
+    luminance = palette @ BGR_LUMINANCE_WEIGHTS
     inks = palette[luminance < INK_MAX_LUMINANCE]
     papers = palette[luminance > PAPER_MIN_LUMINANCE]
     if len(inks) == 0 or len(papers) == 0:

@@ -14,6 +14,17 @@ deleted by hand, and nothing has to be remembered.
 
 The recipe is written out in full rather than only as a digest, so that a later reader can
 see what a page was actually made with instead of only whether it differs from today.
+
+Not every number that shapes a page is in it. Four are deliberately left out:
+
+* `inpaint.INK_MASK_THRESHOLD`
+* `remove_alias_artifacts.ENLARGE_INK_BLUR_KERNEL` and `ENLARGE_INK_THRESHOLD`
+* `image_io.GMIC_RESIZE_PARAMS`
+
+They have never been tuned, and adding a field changes the id of every recipe, which
+would make the whole library stale in order to record values it was all made with anyway.
+The cost of leaving them out is that changing one schedules nothing: do that together
+with bumping `RECIPE_VERSION`, or adding the value as a field, either of which does.
 """
 
 from __future__ import annotations

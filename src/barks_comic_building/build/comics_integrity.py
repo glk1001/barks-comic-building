@@ -121,7 +121,6 @@ from barks_comic_building.build.utils import (
     quiet_panel_bbox_height_warnings,
     walk_srce_dependency_chain,
 )
-from barks_comic_building.restore.batch_upscayl import SCALE as UPSCALE_SCALE
 from barks_comic_building.restore.image_checks import (
     MIN_SCAN_CORRELATION,
     get_check_thumbnail,
@@ -131,6 +130,7 @@ from barks_comic_building.restore.image_io import read_png_metadata
 from barks_comic_building.restore.page_state import get_upscaler_used
 from barks_comic_building.restore.restore_ledger import LEDGER_FILENAME as RESTORE_LEDGER_FILENAME
 from barks_comic_building.restore.upscale_image import DEFAULT_UPSCALER
+from barks_comic_building.restore.upscale_image import LIBRARY_SCALE as UPSCALE_SCALE
 from barks_comic_building.restore.upscale_ledger import LEDGER_FILENAME as UPSCALE_LEDGER_FILENAME
 from barks_comic_building.restore.upscale_recipe import get_current_recipe
 from barks_comic_building.restore.upscale_state import RECIPE_ID_KEY as UPSCALE_RECIPE_ID_KEY

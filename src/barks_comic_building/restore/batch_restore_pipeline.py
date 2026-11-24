@@ -17,7 +17,6 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, NamedTuple, Self
@@ -34,6 +33,7 @@ from loguru import logger
 
 from barks_comic_building.cli_setup import get_comic_titles, init_logging
 from barks_comic_building.log_setup import bind_run_id
+from barks_comic_building.restore.ledger_common import now
 from barks_comic_building.restore.page_state import (
     PageState,
     get_page_status,
@@ -61,11 +61,10 @@ from barks_comic_building.restore.run_stop import (
     read_stop_mode,
     request_stop,
 )
+from barks_comic_building.restore.upscale_image import LIBRARY_SCALE
 
 APP_LOGGING_NAME = "bres"
 
-
-SCALE = 4
 SMALL_RAM = 16 * 1024 * 1024 * 1024
 
 # How many pages go through the phases together. Large enough that the throttled phases
@@ -179,7 +178,7 @@ def restore(  # noqa: PLR0913
         )
     logger.info(f'To stop sooner: "just restore-stop", or touch "{stop_file}".')
 
-    recipe = get_current_recipe(SCALE, do_palette_snap=True)
+    recipe = get_current_recipe(LIBRARY_SCALE, do_palette_snap=True)
     logger.info(f"Restore recipe {recipe.recipe_id}: {recipe.as_json()}")
 
     jobs: list[_PageJob] = []
@@ -323,7 +322,7 @@ def _run_batch(  # noqa: PLR0913
         before they had begun are not in it, since nothing was done to them.
 
     """
-    started = datetime.now().astimezone().isoformat(timespec="seconds")
+    started = now()
     batch_start_time = time.time()
 
     pipelines = [job.pipeline for job in batch]
@@ -461,7 +460,7 @@ def copy_title(comics_database: ComicsDatabase, title_str: str) -> list[_NonComi
 
     pages: list[_NonComicPage] = []
     for srce_file, dest_file in zip(srce_files, dest_restored_files, strict=True):
-        started = datetime.now().astimezone().isoformat(timespec="seconds")
+        started = now()
         page_start = time.time()
 
         if Path(dest_file).is_file():
@@ -602,7 +601,7 @@ def get_title_jobs(  # noqa: PLR0913
                     title_work_dir,
                     Path(srce_file[0]),
                     Path(srce_upscayl_file[0]),
-                    SCALE,
+                    LIBRARY_SCALE,
                     Path(dest_restored_file),
                     Path(dest_upscayled_restored_file),
                     Path(dest_svg_restored_file),

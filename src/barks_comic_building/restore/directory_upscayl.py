@@ -7,6 +7,7 @@ import typer
 
 from barks_comic_building.restore.upscale_image import (
     DEFAULT_UPSCALER,
+    LIBRARY_SCALE,
     OUTPUT_EXTENSION,
     Upscaler,
     UpscalerArg,
@@ -15,8 +16,6 @@ from barks_comic_building.restore.upscale_image import (
 )
 
 APP_LOGGING_NAME = "dups"
-
-SCALE = 4
 
 app = typer.Typer()
 
@@ -73,7 +72,7 @@ def main(input_dir: Path, output_dir: Path, upscaler: UpscalerArg = DEFAULT_UPSC
 
     # True of every file or none, so found out once here rather than once per file.
     try:
-        check_upscaler_is_usable(upscaler, SCALE)
+        check_upscaler_is_usable(upscaler, LIBRARY_SCALE)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}")
         sys.exit(1)
@@ -82,7 +81,7 @@ def main(input_dir: Path, output_dir: Path, upscaler: UpscalerArg = DEFAULT_UPSC
         print(f'WARN: Created new output directory: "{output_dir}".')
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    num_failed = upscale_directory(input_dir, output_dir, SCALE, upscaler)
+    num_failed = upscale_directory(input_dir, output_dir, LIBRARY_SCALE, upscaler)
     if num_failed:
         print(f"ERROR: {num_failed} file(s) could not be upscaled.")
         sys.exit(1)

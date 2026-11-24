@@ -13,6 +13,12 @@ MEDIAN_BLUR_APERTURE_SIZE = 7
 ADAPTIVE_THRESHOLD_BLOCK_SIZE = 21
 ADAPTIVE_THRESHOLD_CONST_SUBTRACT = 12  # Careful here with including alias artifacts
 
+# The ink mask is blurred and cut off again to grow it by a pixel or so, so that the
+# median filter reaches the fringe around the lines as well as the lines themselves.
+# Not in the restore recipe - see the note at the top of `restore_recipe`.
+ENLARGE_INK_BLUR_KERNEL = (3, 3)
+ENLARGE_INK_THRESHOLD = 200.0
+
 
 def _median_filter(
     original_image: cv.typing.MatLike, mask: cv.typing.MatLike, kernel_size: int
@@ -99,10 +105,10 @@ def get_median_filter(input_image: cv.typing.MatLike) -> cv.typing.MatLike:
             black_ink_mask,
         )
 
-    black_ink_mask_blurred_image = cv.GaussianBlur(255 - black_ink_mask, (3, 3), 0)
+    black_ink_mask_blurred_image = cv.GaussianBlur(255 - black_ink_mask, ENLARGE_INK_BLUR_KERNEL, 0)
 
     _ret, enlarged_black_ink_mask = cv.threshold(
-        black_ink_mask_blurred_image, 200.0, 255, cv.THRESH_BINARY_INV
+        black_ink_mask_blurred_image, ENLARGE_INK_THRESHOLD, 255, cv.THRESH_BINARY_INV
     )
     if DEBUG:
         cv.imwrite(

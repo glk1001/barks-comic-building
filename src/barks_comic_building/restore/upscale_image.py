@@ -1,6 +1,5 @@
 import subprocess
 from collections import deque
-from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -14,8 +13,10 @@ from PIL import Image
 
 from barks_comic_building.restore.image_checks import (
     MAX_THUMBNAIL_DEVIATION,
-    get_thumbnail_deviation,
+    find_content_fault,
+    find_structural_fault,
 )
+from barks_comic_building.restore.ledger_common import now
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -30,6 +31,12 @@ class Upscaler(StrEnum):
 DEFAULT_UPSCALER = Upscaler.WAIFU2X
 
 UpscalerArg = Annotated[Upscaler, typer.Option("--upscaler", help="Upscaling backend")]
+
+# How much bigger an upscayled page is than its scan, and so the scale the restore works
+# at and brings its result back down by. One number for the whole library: every stage
+# that reads or writes a 4x page has to agree on it, and it used to be spelled out
+# separately in each of the tools.
+LIBRARY_SCALE = 4
 
 OUTPUT_FORMAT = "png"
 OUTPUT_EXTENSION = ".png"
@@ -170,7 +177,7 @@ def _get_metadata(upscaler: Upscaler, in_file: Path, scale: int) -> dict[str, st
     recipe = get_current_recipe(upscaler, scale)
     metadata[RECIPE_ID_KEY] = recipe.recipe_id
     metadata[RECIPE_KEY] = recipe.as_json()
-    metadata[UPSCALE_DATE_KEY] = datetime.now().astimezone().isoformat(timespec="seconds")
+    metadata[UPSCALE_DATE_KEY] = now()
 
     return metadata
 
@@ -245,28 +252,38 @@ def _run_upscaler(upscaler: Upscaler, run_args: list[str]) -> None:
 
 
 def _check_upscaled_output(upscaler: Upscaler, in_file: Path, out_file: Path, scale: int) -> None:
+    """Refuse an upscale that is damaged, the wrong size, blank, or of the wrong picture.
+
+    The same checks the restore makes of its own outputs, rather than a second version of
+    them kept here. The one of its own this had was missing the bit-depth test, which is
+    the one that tells a good page written sixteen bits deep from a black one.
+
+    Args:
+        upscaler: The backend that wrote the image, for the error message.
+        in_file: The image that was enlarged.
+        out_file: What the backend wrote.
+        scale: How much bigger it should be.
+
+    Raises:
+        RuntimeError: If the image is no good, saying how.
+
+    """
     with Image.open(in_file) as in_image:
-        expected_width, expected_height = in_image.width * scale, in_image.height * scale
-    with Image.open(out_file) as out_image:
-        out_width, out_height = out_image.size
+        expected_size = (in_image.width * scale, in_image.height * scale)
 
-    if abs(out_width - expected_width) > 1 or abs(out_height - expected_height) > 1:
-        msg = (
-            f"{upscaler} wrote a {out_width}x{out_height} image"
-            f" but {expected_width}x{expected_height} was expected."
-        )
-        raise RuntimeError(msg)
+    fault = find_structural_fault(out_file, expected_size=expected_size)
+    if fault is None:
+        fault = find_content_fault(out_file, in_file, MAX_THUMBNAIL_DEVIATION)
+    if fault is None:
+        return
 
-    deviation = get_thumbnail_deviation(in_file, out_file)
-    if deviation > MAX_THUMBNAIL_DEVIATION:
-        msg = (
-            f"{upscaler} exited cleanly but its image does not match the source"
-            f" (mean deviation {deviation:.1f} > {MAX_THUMBNAIL_DEVIATION}) - it is"
-            f" probably black or truncated. Check that nothing else was using the GPU."
-        )
-        if upscaler == Upscaler.UPSCAYL:
-            msg += f" Then try a smaller UPSCAYL_TILE_SIZE than {UPSCAYL_TILE_SIZE}."
-        raise RuntimeError(msg)
+    msg = (
+        f"{upscaler} exited cleanly but its image is no good: {fault}."
+        f" Check that nothing else was using the GPU."
+    )
+    if upscaler == Upscaler.UPSCAYL:
+        msg += f" Then try a smaller UPSCAYL_TILE_SIZE than {UPSCAYL_TILE_SIZE}."
+    raise RuntimeError(msg)
 
 
 def get_hand_edited_tree(out_file: Path) -> Path | None:

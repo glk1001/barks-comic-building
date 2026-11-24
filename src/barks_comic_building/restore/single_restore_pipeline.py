@@ -13,10 +13,9 @@ from loguru import logger
 
 from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.restore.restore_pipeline import RestorePipeline, check_for_errors
+from barks_comic_building.restore.upscale_image import LIBRARY_SCALE
 
 APP_LOGGING_NAME = "srst"
-
-SCALE = 4
 
 app = typer.Typer()
 
@@ -60,7 +59,7 @@ def main(  # noqa: PLR0913
         work_dir,
         srce_file,
         srce_upscale_file,
-        SCALE,
+        LIBRARY_SCALE,
         dest_restored_file,
         dest_upscayled_restored_file,
         dest_svg_restored_file,

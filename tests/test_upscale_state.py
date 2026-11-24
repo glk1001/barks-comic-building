@@ -425,7 +425,7 @@ class TestOnlyACheckedResultReplacesThePage:
         written = self.fake_backend(monkeypatch, "black")
         out_file = self.old_page(tmp_path)
 
-        with pytest.raises(RuntimeError, match="does not match the source"):
+        with pytest.raises(RuntimeError, match="its image is no good"):
             upscale_image_file(self.write_srce(tmp_path / "srce.png"), out_file, self.SCALE)
 
         assert not written[0].exists()

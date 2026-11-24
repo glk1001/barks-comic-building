@@ -31,6 +31,11 @@ Image.MAX_IMAGE_PIXELS = None
 # 2.0s. Storing it raw was costing fifty times the disk for a third of a second.
 _FAST_PNG_COMPRESSION = 1
 
+# What follows the width and height in the gmic resize that brings a restored 4x page back
+# down to size: one slice deep, three channels, and interpolation 2, which is gmic's
+# moving average. Not in the restore recipe - see the note at the top of `restore_recipe`.
+GMIC_RESIZE_PARAMS = "1,3,2"
+
 # The zero-length chunk every finished png ends with: length, type, and its fixed crc.
 _PNG_IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
 
@@ -199,7 +204,7 @@ def _resize_png_file(
     resize_cmd = [
         str(in_file),
         "+resize[-1]",
-        f"{scale_percent}%,{scale_percent}%,1,3,2",
+        f"{scale_percent}%,{scale_percent}%,{GMIC_RESIZE_PARAMS}",
         "output[-1]",
         str(resized_file),
     ]

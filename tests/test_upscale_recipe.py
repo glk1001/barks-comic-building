@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+from barks_comic_building.restore import upscale_recipe
 from barks_comic_building.restore.upscale_image import Upscaler
 from barks_comic_building.restore.upscale_recipe import (
     NOT_APPLICABLE,
@@ -41,10 +42,7 @@ class TestRecipeIdentity:
     def test_id_follows_the_scale(self, recipe: UpscaleRecipe) -> None:
         assert recipe.recipe_id != get_current_recipe(Upscaler.WAIFU2X, 2).recipe_id
 
-    @pytest.mark.parametrize(
-        "field",
-        ["upscaler", "scale", "model", "noise_level", "tile_size", "recipe_version"],
-    )
+    @pytest.mark.parametrize("field", [f.name for f in dataclasses.fields(UpscaleRecipe)])
     def test_id_follows_every_setting(self, recipe: UpscaleRecipe, field: str) -> None:
         """No setting may be carried without being hashed.
 
@@ -62,6 +60,30 @@ class TestRecipeIdentity:
     def test_id_is_short_and_hex(self, recipe: UpscaleRecipe) -> None:
         assert len(recipe.recipe_id) == RECIPE_ID_LENGTH
         int(recipe.recipe_id, 16)
+
+
+class TestTheRecipeReadsTheLiveSettings:
+    """Tuning a constant in `upscale_image` is all it should take to schedule a re-run."""
+
+    @pytest.mark.parametrize(
+        ("upscaler", "name"),
+        [
+            (Upscaler.WAIFU2X, "RECIPE_VERSION"),
+            (Upscaler.WAIFU2X, "WAIFU2X_MODEL"),
+            (Upscaler.WAIFU2X, "WAIFU2X_NOISE_LEVEL"),
+            (Upscaler.UPSCAYL, "UPSCAYL_MODEL"),
+            (Upscaler.UPSCAYL, "UPSCAYL_TILE_SIZE"),
+        ],
+    )
+    def test_changing_a_constant_changes_the_id(
+        self, monkeypatch: pytest.MonkeyPatch, upscaler: Upscaler, name: str
+    ) -> None:
+        before = get_current_recipe(upscaler, SCALE).recipe_id
+        current = getattr(upscale_recipe, name)
+        changed = f"{current}-changed" if isinstance(current, str) else current + 1
+        monkeypatch.setattr(upscale_recipe, name, changed)
+
+        assert get_current_recipe(upscaler, SCALE).recipe_id != before
 
 
 class TestBackendsAreKeptApart:

@@ -27,10 +27,12 @@ from barks_fantagraphics.page_classes import OriginalPage
 from barks_fantagraphics.pages import TITLE_EMPTY_FILENAME
 
 from barks_comic_building.query import build_state as bs
+from barks_comic_building.query import fantagraphics_info
 from barks_comic_building.query.build_state import (
     BUILT_FLAG,
     CLEAN_CHAIN,
     CONFIGURED_FLAG,
+    FAULT_FLAG,
     INSET_FLAG,
     PANELLED_FLAG,
     RESTORED_FLAG,
@@ -38,11 +40,14 @@ from barks_comic_building.query.build_state import (
     get_build_blocker,
     get_build_state_flag,
     get_chain_state,
+    get_title_state,
     has_fixes,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from barks_fantagraphics.comics_database import ComicsDatabase
 
 TITLE = "Lost in the Andes!"
 VOLUME = 7
@@ -472,6 +477,71 @@ class TestFixes:
 
         assert has_fixes(title.comic)
         assert get_build_state_flag(title.comic) == UPSCAYLED_FLAG
+
+
+class TestATitleWhoseFilesBreakAFileRule:
+    """One such page used to leave a traceback where the volume's table should be."""
+
+    @pytest.fixture
+    def faulty(self, title: Title) -> Title:
+        # A page may have an upscayled file or an upscayled fix, never both.
+        title.bring_to(RESTORED_FLAG)
+        write(title.upscayled_fix(PAGES[0]), UPSCAYLED_TIME)
+
+        return title
+
+    def test_the_fault_is_the_titles_state(self, faulty: Title) -> None:
+        state = get_title_state(faulty.comic)
+
+        assert state.flag == FAULT_FLAG
+        assert state.fault is not None
+        assert "Cannot have an upscayled file and a fixes file" in state.fault
+
+    def test_a_title_in_order_has_its_rung_and_no_fault(self, title: Title) -> None:
+        state = get_title_state(title.bring_to(RESTORED_FLAG).comic)
+
+        assert (state.flag, state.has_fixes, state.fault) == (RESTORED_FLAG, False, None)
+
+    def test_the_fault_is_the_reason_it_is_not_built(self, faulty: Title) -> None:
+        blocker = get_build_blocker(faulty.comic)
+
+        assert blocker is not None
+        assert blocker.startswith("its files cannot be graded - Cannot have an upscayled file")
+
+    def test_the_fault_is_seen_on_a_page_that_is_not_restored_yet(self, title: Title) -> None:
+        title.bring_to(UPSCAYLED_FLAG)
+        write(title.upscayled_fix(PAGES[0]), UPSCAYLED_TIME)
+
+        assert get_title_state(title.comic).flag == FAULT_FLAG
+
+    def test_a_bug_is_not_passed_off_as_a_fault(
+        self, title: Title, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # NotImplementedError is a RuntimeError too, and is nothing to do with the files.
+        def unfinished(_comic: ComicBook) -> str:
+            raise NotImplementedError
+
+        monkeypatch.setattr(bs, "get_build_state_flag", unfinished)
+
+        with pytest.raises(NotImplementedError):
+            get_title_state(title.comic)
+
+    def test_the_info_report_gives_the_title_a_row_instead_of_raising(self, faulty: Title) -> None:
+        class OneTitleDatabase:
+            def get_comic_book(self, _title: str) -> ComicBook:
+                return faulty.comic
+
+        fanta_info = ALL_FANTA_COMIC_BOOK_INFO[Titles.LOST_IN_THE_ANDES]
+
+        title_flags, _, _ = fantagraphics_info.get_title_flags(
+            cast("ComicsDatabase", OneTitleDatabase()),
+            [bs.EMPTY_FLAG, bs.FIXES_FLAG],
+            bs.BUILD_STATE_FLAGS,
+            [(TITLE, "FC 223", fanta_info, True)],
+        )
+
+        assert title_flags[TITLE].build_state_flag == FAULT_FLAG
+        assert "Cannot have an upscayled file and a fixes file" in title_flags[TITLE].fault
 
 
 def test_the_pages_under_test_are_ordinary_restorable_pages() -> None:

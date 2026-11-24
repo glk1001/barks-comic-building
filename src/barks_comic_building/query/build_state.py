@@ -73,6 +73,9 @@ RESTORED_FLAG = "R"
 PANELLED_FLAG = "P"
 INSET_FLAG = "I"
 BUILT_FLAG = "B"
+# Not a rung: the title's files break a rule the ladder cannot grade past, such as a page
+# with both an upscayled file and an upscayled fix. See `get_title_state`.
+FAULT_FLAG = "!"
 
 BUILD_STATE_FLAGS = [
     NOT_CONFIGURED_FLAG,
@@ -83,6 +86,7 @@ BUILD_STATE_FLAGS = [
     PANELLED_FLAG,
     INSET_FLAG,
     BUILT_FLAG,
+    FAULT_FLAG,
 ]
 
 
@@ -622,12 +626,33 @@ def _restore_blocker(comic: ComicBook, chain: ChainState) -> str | None:
     return None
 
 
+def _is_file_policy_fault(error: RuntimeError) -> bool:
+    """Say whether a RuntimeError is a rule a comic's files break, not a bug in the code.
+
+    The file lookups raise a plain `RuntimeError` for a page with both an upscayled file
+    and an upscayled fix, a ".jpg" where a ".png" belongs, or a fixes file the page's
+    type does not allow. `NotImplementedError` and `RecursionError` are RuntimeErrors
+    too, and reporting one of those as a title's state would bury it.
+
+    Args:
+        error: The caught RuntimeError.
+
+    Returns:
+        True if the error describes the title's files.
+
+    """
+    return type(error) is RuntimeError
+
+
 def get_build_blocker(comic: ComicBook, chain: ChainState | None = None) -> str | None:
     """Say why a comic is not built, or None when it is.
 
     The single source of truth for both the build state and the explanation of it -
     `is_built` is this function's verdict - so a report can never say "not built"
     without being able to say which step is outstanding.
+
+    A comic whose files break a file rule is not built, and the rule is the reason: the
+    report this is the footer of must not die on the one title it most needs to show.
 
     Args:
         comic: The comic to check.
@@ -637,6 +662,15 @@ def get_build_blocker(comic: ComicBook, chain: ChainState | None = None) -> str 
         The reason the comic is not built, or None if it is built and current.
 
     """
+    try:
+        return _build_blocker(comic, chain)
+    except RuntimeError as e:
+        if not _is_file_policy_fault(e):
+            raise
+        return f"its files cannot be graded - {e}"
+
+
+def _build_blocker(comic: ComicBook, chain: ChainState | None) -> str | None:
     if not has_restorable_pages(comic):
         return _non_restorable_blocker(comic)
 
@@ -653,7 +687,9 @@ def get_build_blocker(comic: ComicBook, chain: ChainState | None = None) -> str 
 
 
 def is_built(comic: ComicBook, chain: ChainState | None = None) -> bool:
-    blocker = get_build_blocker(comic, chain)
+    # The raising form, so a file-rule fault reaches `get_title_state` as a fault rather
+    # than being read here as one more reason a title is merely not built yet.
+    blocker = _build_blocker(comic, chain)
     if blocker is not None:
         logger.debug(f'"{comic.ini_file}" is not built - {blocker}.')
         return False
@@ -686,6 +722,40 @@ def get_build_state_flag(comic: ComicBook) -> str:
         flag = UPSCAYLED_FLAG
 
     return flag
+
+
+@dataclass(frozen=True, slots=True)
+class TitleState:
+    """Where a title stands on the ladder, or why it could not be placed on it."""
+
+    # The rung reached, or `FAULT_FLAG`.
+    flag: str
+    has_fixes: bool
+    # The file rule the title breaks; None unless the flag is `FAULT_FLAG`.
+    fault: str | None = None
+
+
+def get_title_state(comic: ComicBook) -> TitleState:
+    """Grade one title for a report, without letting its faults take the report down.
+
+    One page with both an upscayled file and an upscayled fix used to raise out of
+    `barks-fanta-info` and leave a traceback where the volume's table should be. The
+    title with the fault is the row most worth seeing, so it is given a state of its own.
+
+    Args:
+        comic: The comic to grade.
+
+    Returns:
+        The title's build state flag and whether it has fixes, or the fault.
+
+    """
+    try:
+        return TitleState(get_build_state_flag(comic), has_fixes(comic))
+    except RuntimeError as e:
+        if not _is_file_policy_fault(e):
+            raise
+        logger.debug(f'Cannot grade "{comic.ini_file}" - {e}.')
+        return TitleState(FAULT_FLAG, has_fixes=False, fault=str(e))
 
 
 def get_staged_link_stem(staged_links: list[tuple[Path, Path]] | None) -> str:

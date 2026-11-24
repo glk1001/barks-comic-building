@@ -36,11 +36,12 @@ from barks_comic_building.query.build_state import (
     BUILD_STATE_FLAGS,
     BUILT_FLAG,
     EMPTY_FLAG,
+    FAULT_FLAG,
     FIXES_FLAG,
     NOT_CONFIGURED_FLAG,
-    get_build_state_flag,
+    PROBLEM_STYLE,
     get_state_filter,
-    has_fixes,
+    get_title_state,
 )
 
 APP_LOGGING_NAME = "ifan"
@@ -77,6 +78,8 @@ class Flags:
     page_list: str
     has_front: bool
     num_splashes: int
+    # The file rule the title breaks, when its state is `FAULT_FLAG`.
+    fault: str = ""
 
 
 def get_title_flags(
@@ -117,14 +120,16 @@ def get_title_flags(
             if num_pgs <= 0:
                 msg = f'For title "{ttl}", the page count is too small.'
                 raise RuntimeError(msg)
+            state = get_title_state(comic_book)
             flags = Flags(
                 display_ttl,
-                FIXES_FLAG if has_fixes(comic_book) else EMPTY_FLAG,
-                get_build_state_flag(comic_book),
+                FIXES_FLAG if state.has_fixes else EMPTY_FLAG,
+                state.flag,
                 num_pgs,
                 ", ".join(get_abbrev_jpg_page_list(comic_book)).replace(" - ", "-"),
                 get_has_front(comic_book),
                 get_num_splashes(comic_book),
+                fault=state.fault or "",
             )
 
         if flags.fixes_flag not in fixes_filter:
@@ -231,7 +236,11 @@ def main(
         row.extend(
             [
                 flags.fixes_flag,
-                flags.build_state_flag,
+                (
+                    f"[{PROBLEM_STYLE}]{flags.build_state_flag}[/]"
+                    if flags.build_state_flag == FAULT_FLAG
+                    else flags.build_state_flag
+                ),
                 f"{flags.num_pages} pp",
                 f"f:{1 if flags.has_front else 0}",
                 f"s:{flags.num_splashes}",
@@ -243,6 +252,13 @@ def main(
         table.add_row(*row, style=style)
 
     console.print(table)
+
+    for title, flags in title_flags.items():
+        if flags.fault:
+            # Not markup: a fault quotes file paths, and a "[" in one is not a style.
+            console.print(
+                f'{FAULT_FLAG} "{title}": {flags.fault}', style=PROBLEM_STYLE, markup=False
+            )
 
 
 if __name__ == "__main__":

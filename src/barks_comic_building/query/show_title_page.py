@@ -10,6 +10,7 @@ from barks_fantagraphics.comics_helpers import get_volume_and_page
 from comic_utils.common_typer_options import LogLevelArg, PagesArg, TitleArg
 
 from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.query.page_files import get_title_page_file
 
 APP_LOGGING_NAME = "sttl"
 
@@ -39,8 +40,9 @@ def main(
 
     volume, page = get_volume_and_page(comics_database, title, page_num_str)
 
-    restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
-    restored_srce_file = restored_dir / (page + ".png")
+    restored_srce_file = get_title_page_file(
+        title, volume, page, comics_database.get_fantagraphics_restored_volume_image_dir, ".png"
+    )
     if not restored_srce_file.is_file():
         print(f'Error: Could not find restored file "{restored_srce_file}".')
         sys.exit(1)

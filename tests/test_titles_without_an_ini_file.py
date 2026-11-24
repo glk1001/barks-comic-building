@@ -18,11 +18,21 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from barks_fantagraphics.barks_titles import ENUM_TO_STR_TITLE, Titles
-from barks_fantagraphics.comic_book_info import COVERS
+from barks_fantagraphics.comic_book_info import (
+    COVERS,
+    ONE_PAGER_COLLECTION_PAGE_BASE,
+    ONE_PAGER_COLLECTION_VOLUME,
+    ONE_PAGERS,
+    get_one_pager_collection_page_num,
+    get_one_pager_fanta_vol_and_page,
+)
 
 from barks_comic_building.query import verify_title
+from barks_comic_building.query.page_files import get_title_page_file
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from barks_fantagraphics.comics_database import ComicsDatabase
 
 ONE_PAGER = Titles.IF_THE_HAT_FITS
@@ -84,3 +94,74 @@ class TestVerifyingATitle:
     )
     def test_each_kind_of_title_is_named(self, title: Titles, kind: str) -> None:
         assert verify_title.get_title_kind(title) == kind
+
+
+class TestFindingATitlesPage:
+    """One tree of volumes under a temporary directory, as `get_volume_dir` would give it."""
+
+    @pytest.fixture
+    def one_pager(self) -> Titles:
+        return next(iter(sorted(ONE_PAGERS, key=lambda title: title.value)))
+
+    @staticmethod
+    def volume_dir(tmp_path: Path, volume: int) -> Path:
+        return tmp_path / f"vol-{volume:02d}"
+
+    @staticmethod
+    def home_file(tmp_path: Path, title: Titles) -> Path:
+        volume, page = get_one_pager_fanta_vol_and_page(title)
+        assert volume is not None
+        assert page is not None
+        return tmp_path / f"vol-{volume:02d}" / f"{page:03d}.png"
+
+    @staticmethod
+    def collection_file(tmp_path: Path, title: Titles) -> Path:
+        collection_page_num = get_one_pager_collection_page_num(title)
+        assert collection_page_num is not None
+        page = ONE_PAGER_COLLECTION_PAGE_BASE + collection_page_num - 1
+        return tmp_path / f"vol-{ONE_PAGER_COLLECTION_VOLUME:02d}" / f"{page:03d}.png"
+
+    def find(self, tmp_path: Path, title: Titles) -> Path:
+        volume, page = get_one_pager_fanta_vol_and_page(title)
+        assert volume is not None
+        assert page is not None
+        return get_title_page_file(
+            ENUM_TO_STR_TITLE[title],
+            volume,
+            f"{page:03d}",
+            lambda vol: self.volume_dir(tmp_path, vol),
+            ".png",
+        )
+
+    def test_a_page_of_a_story_is_the_file_in_its_own_volume(self, tmp_path: Path) -> None:
+        found = get_title_page_file(
+            "Lost in the Andes!", 7, "227", lambda vol: self.volume_dir(tmp_path, vol), ".json"
+        )
+
+        assert found == tmp_path / "vol-07" / "227.json"
+
+    def test_a_one_pager_restored_only_in_the_collection_is_found_there(
+        self, tmp_path: Path, one_pager: Titles
+    ) -> None:
+        collection_file = self.collection_file(tmp_path, one_pager)
+        collection_file.parent.mkdir(parents=True)
+        collection_file.touch()
+
+        assert self.find(tmp_path, one_pager) == collection_file
+
+    def test_a_one_pager_in_its_home_volume_is_found_there_first(
+        self, tmp_path: Path, one_pager: Titles
+    ) -> None:
+        for file in (
+            self.home_file(tmp_path, one_pager),
+            self.collection_file(tmp_path, one_pager),
+        ):
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.touch()
+
+        assert self.find(tmp_path, one_pager) == self.home_file(tmp_path, one_pager)
+
+    def test_a_one_pager_in_neither_place_is_named_by_its_home_volume(
+        self, tmp_path: Path, one_pager: Titles
+    ) -> None:
+        assert self.find(tmp_path, one_pager) == self.home_file(tmp_path, one_pager)

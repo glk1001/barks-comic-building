@@ -14,6 +14,7 @@ from comic_utils.pil_image_utils import load_pil_image_for_reading
 from intspan import intspan
 
 from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.query.page_files import get_title_page_file
 
 APP_LOGGING_NAME = "ettl"
 
@@ -31,15 +32,29 @@ PANEL_TYPES = {
 }
 
 
-def get_source_file(comics_database: ComicsDatabase, volume: int, panel_typ: str, pge: str) -> Path:
-    if panel_typ == "cl":
-        upscayl_dir = Path(
-            comics_database.get_fantagraphics_restored_upscayled_volume_image_dir(volume)
-        )
-        return upscayl_dir / (pge + ".png")
+def get_source_file(
+    comics_database: ComicsDatabase, ttl: str, volume: int, panel_typ: str, pge: str
+) -> Path:
+    """Return the image a panel is cropped from: the restored page, or its 4x for a closeup.
 
-    restored_dir = Path(comics_database.get_fantagraphics_restored_volume_image_dir(volume))
-    return restored_dir / (pge + ".png")
+    Args:
+        comics_database: The database to find the volume trees with.
+        ttl: The title the page belongs to.
+        volume: The title's Fantagraphics volume.
+        panel_typ: The kind of panel, a key of `PANEL_TYPES`.
+        pge: The page, as it appears in a filename ("227").
+
+    Returns:
+        The image file, whether or not it exists.
+
+    """
+    get_volume_dir = (
+        comics_database.get_fantagraphics_restored_upscayled_volume_image_dir
+        if panel_typ == "cl"
+        else comics_database.get_fantagraphics_restored_volume_image_dir
+    )
+
+    return get_title_page_file(ttl, volume, pge, get_volume_dir, ".png")
 
 
 def get_target_file(ttl: str, panel_typ: str, pge: str, panl: str) -> Path:
@@ -194,13 +209,16 @@ def main(  # noqa: PLR0913
         comics_database, volumes_str, title, page_panel, comic_page_panel
     )
 
-    srce_file = get_source_file(comics_database, volume, panel_type, page)
+    srce_file = get_source_file(comics_database, title, volume, panel_type, page)
     if not srce_file.is_file():
         print(f'ERROR: Could not find restored file "{srce_file}".')
         sys.exit(1)
 
-    panel_segments_dir = Path(comics_database.get_fantagraphics_panel_segments_volume_dir(volume))
-    panel_segments_file = panel_segments_dir / (page + ".json")
+    # From the same place as the image: a one-pager the collection restored has its
+    # segments there too, under the collection's page number.
+    panel_segments_file = get_title_page_file(
+        title, volume, page, comics_database.get_fantagraphics_panel_segments_volume_dir, ".json"
+    )
     if not panel_segments_file.is_file():
         print(f'WARN: Could not find segments file "{panel_segments_file}". Returning full page.')
 

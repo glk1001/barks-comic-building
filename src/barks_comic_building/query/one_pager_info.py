@@ -86,6 +86,19 @@ INSET_PROBLEM = "inset"  # no inset file, so the reader shows its emergency plac
 
 @dataclass
 class OnePagerRow:
+    """What the one-pager report shows for one one-pager.
+
+    Attributes:
+        display_title: The one-pager's title as shown.
+        issue_title: The issue the one-pager is from.
+        volume: The Fantagraphics volume it is in, or None when it is not located.
+        page: Its page in that volume.
+        link: The staged page it is built from, or empty.
+        state_flag: How far along the one-pager ladder it is.
+        problems: Everything found wrong with its files.
+
+    """
+
     display_title: str
     issue_title: str
     volume: int | None
@@ -344,6 +357,9 @@ def main(
 
     volumes = list(intspan(volumes_str))
     state_filter = get_state_filter(state, ONE_PAGER_STATE_FLAGS)
+    if title_str and STR_TITLE_TO_ENUM.get(title_str) not in ONE_PAGERS:
+        msg = f'Title "{title_str}" is not a one-pager.'
+        raise typer.BadParameter(msg)
 
     comics_database = ComicsDatabase()
     rows = get_one_pager_rows(comics_database, volumes, title_str, state_filter)

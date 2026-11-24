@@ -1,5 +1,12 @@
+"""Write an empty ini file for each story of a volume that has none yet.
+
+A story's first and last pages come from the volume's table of contents, when there is
+one in the internal data directory; otherwise they are left as zero to fill in by hand.
+"""
+
 import itertools
 import json
+from typing import Any
 
 import typer
 from barks_fantagraphics.comic_book_info import COVERS_SET, ONE_PAGERS
@@ -9,15 +16,56 @@ from barks_fantagraphics.comics_helpers import get_issue_titles, get_titles_and_
 from barks_fantagraphics.comics_utils import get_abbrev_path
 from barks_fantagraphics.fanta_comics_info import get_fanta_volume_str
 from comic_utils.common_typer_options import LogLevelArg, VolumesArg
-from intspan import intspan
 from loguru import logger
 
-from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.cli_setup import get_single_volume, init_logging
 
 APP_LOGGING_NAME = "mcfg"
 
 TOC_PAGE_OFFSET = 7
 TOC_DIR = INTERNAL_DATA_DIR
+# The entry that closes a table of contents. It is no story: it is there to give the
+# last story a next entry, and so a last page.
+TOC_END_TITLE = "END"
+
+
+def get_toc_page_ranges(toc_info: list[dict[str, Any]]) -> dict[str, tuple[int, int]]:
+    """Return each story's first and last volume page from a table of contents.
+
+    A story ends on the page before the next entry starts, so the last story needs an
+    entry after it: the `TOC_END_TITLE` entry. Without one the last story was silently
+    left out, and looking it up raised a bare `KeyError`.
+
+    Args:
+        toc_info: The table of contents as read from its json file: entries with a
+            "title" and the "page" it starts on, among entries of other kinds.
+
+    Returns:
+        The page range of each story by title; empty for an empty table of contents.
+
+    Raises:
+        ValueError: If the table of contents has entries and does not end in
+            `TOC_END_TITLE`.
+
+    """
+    toc_entries = [entry for entry in toc_info if "title" in entry]
+    if not toc_entries:
+        return {}
+
+    if toc_entries[-1]["title"] != TOC_END_TITLE:
+        msg = (
+            f'The table of contents must end in an "{TOC_END_TITLE}" entry,'
+            f' not "{toc_entries[-1]["title"]}": without one its last story has no last page.'
+        )
+        raise ValueError(msg)
+
+    return {
+        entry["title"]: (
+            entry["page"] + TOC_PAGE_OFFSET,
+            next_entry["page"] + TOC_PAGE_OFFSET - 1,
+        )
+        for entry, next_entry in itertools.pairwise(toc_entries)
+    }
 
 
 def create_empty_config_file(  # noqa: PLR0913
@@ -28,6 +76,20 @@ def create_empty_config_file(  # noqa: PLR0913
     first_page: int,
     last_page: int,
 ) -> None:
+    """Write a story's ini file with nothing in it but its volume and its body pages.
+
+    Args:
+        comics_database: The database that says where the story's ini file goes.
+        volume: The story's Fantagraphics volume.
+        ttl: The story's title.
+        is_barks_ttl: Whether the title is Barks's own; if not the ini's is left blank.
+        first_page: The story's first volume page.
+        last_page: The story's last volume page.
+
+    Raises:
+        FileExistsError: If the story already has an ini file.
+
+    """
     ini_file = comics_database.get_ini_file(ttl)
     if ini_file.exists():
         msg = f'Ini file "{ini_file}" already exists.'
@@ -57,31 +119,27 @@ def main(
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    volumes = list(intspan(volumes_str))
-    assert volumes
-    assert len(volumes) == 1
-    volume = volumes[0]
+    volume = get_single_volume(volumes_str)
     comics_database = ComicsDatabase()
 
     toc_file = TOC_DIR / f"vol-{volume}-toc-gemini.json"
     toc_info = [] if not toc_file.is_file() else json.loads(toc_file.read_bytes())
-    toc_entries = [t for t in toc_info if "title" in t]
-    toc_dict = (
-        {}
-        if not toc_entries
-        else {
-            t["title"]: (t["page"] + TOC_PAGE_OFFSET, t_next["page"] + TOC_PAGE_OFFSET - 1)
-            for t, t_next in itertools.pairwise(toc_entries)
-        }
-    )
+    try:
+        toc_dict = get_toc_page_ranges(toc_info)
+    except ValueError as e:
+        msg = f'"{toc_file}": {e}'
+        raise typer.BadParameter(msg) from e
 
-    titles_and_info = get_titles_and_info(comics_database, volumes, title="", configured_only=False)
+    titles_and_info = get_titles_and_info(
+        comics_database, [volume], title="", configured_only=False
+    )
     titles_config_info = get_issue_titles(comics_database, titles_and_info)
 
     if len(titles_config_info) == 0:
         logger.error(f"There are no titles to configure for Fanta volume {volume}.")
     else:
         titles = []
+        not_in_toc = []
         for title_config_info in titles_config_info:
             title = title_config_info[0]
             comic_book_info = title_config_info[2].comic_book_info
@@ -109,9 +167,22 @@ def main(
                 logger.info(f'Title: "{title}" is already configured - skipping.')
                 continue
 
-            start_page, end_page = (0, 0) if not toc_dict else toc_dict[title]
+            if toc_dict and title not in toc_dict:
+                # Usually a title the table of contents spells another way.
+                not_in_toc.append(title)
+                continue
+
+            start_page, end_page = toc_dict.get(title, (0, 0))
 
             titles.append((title, is_barks_title, start_page, end_page))
+
+        if not_in_toc:
+            # Before anything is written: half a volume's ini files is worse than none.
+            msg = (
+                f'These titles are not in the table of contents "{toc_file}":'
+                f" {', '.join(f'"{title}"' for title in not_in_toc)}."
+            )
+            raise typer.BadParameter(msg)
 
         logger.info("")
         for title, is_barks_title, start_page, end_page in titles:

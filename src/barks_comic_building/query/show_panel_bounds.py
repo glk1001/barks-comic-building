@@ -1,3 +1,5 @@
+"""Show a title's restored pages with their panel bounds drawn on them."""
+
 from pathlib import Path
 
 import cv2 as cv
@@ -238,6 +240,9 @@ def main(
     using_volume = volume is not None or fanta_page is not None
     if title_str and using_volume:
         msg = "Options --title and --volume/--fanta-page are mutually exclusive."
+        raise typer.BadParameter(msg)
+    if title_str and title_str not in STR_TITLE_TO_ENUM:
+        msg = f'"{title_str}" is not a title. Use barks-verify-title to find the one meant.'
         raise typer.BadParameter(msg)
 
     comics_database = ComicsDatabase()

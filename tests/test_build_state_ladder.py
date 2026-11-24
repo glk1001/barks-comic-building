@@ -533,7 +533,7 @@ class TestATitleWhoseFilesBreakAFileRule:
 
         fanta_info = ALL_FANTA_COMIC_BOOK_INFO[Titles.LOST_IN_THE_ANDES]
 
-        title_flags, _, _ = fantagraphics_info.get_title_flags(
+        title_flags = fantagraphics_info.get_title_flags(
             cast("ComicsDatabase", OneTitleDatabase()),
             [bs.EMPTY_FLAG, bs.FIXES_FLAG],
             bs.BUILD_STATE_FLAGS,

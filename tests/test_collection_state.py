@@ -15,6 +15,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import typer
 from barks_fantagraphics.barks_covers import BARKS_COVERS
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
 from barks_fantagraphics.barks_titles import Titles
@@ -502,7 +503,7 @@ class TestStateFilter:
 
     def test_flag_the_report_cannot_produce_is_rejected(self) -> None:
         # 'R' is a valid one-pager state but meaningless for covers.
-        with pytest.raises(RuntimeError, match="Not a valid state filter"):
+        with pytest.raises(typer.BadParameter, match="Not a valid state filter"):
             get_state_filter("R", COVER_STATE_FLAGS)
 
 

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import typer
 from barks_fantagraphics.comic_book import ModifiedType, get_page_str
 from barks_fantagraphics.comics_consts import RESTORABLE_PAGE_TYPES, STORY_PAGE_TYPES
 from barks_fantagraphics.comics_utils import (
@@ -77,6 +78,7 @@ BUILT_FLAG = "B"
 # with both an upscayled file and an upscayled fix. See `get_title_state`.
 FAULT_FLAG = "!"
 
+# Every flag any of the reports can show. A report's own ladder is a subset of these.
 BUILD_STATE_FLAGS = [
     NOT_CONFIGURED_FLAG,
     CONFIGURED_FLAG,
@@ -90,7 +92,22 @@ BUILD_STATE_FLAGS = [
 ]
 
 
+# The flags `get_build_state_flag` can give a story. A story has no payments rung - that
+# is a one-pager's - so "$" is left out: as a filter it could only ever give an empty table.
+STORY_STATE_FLAGS = [flag for flag in BUILD_STATE_FLAGS if flag != PAYMENTS_FLAG]
+
+
 def all_files_exist(file_list: list[Path]) -> bool:
+    """Return whether every one of the files is on disk.
+
+    Args:
+        file_list: The files a rung needs.
+
+    Returns:
+        False for an empty list as well: a title with no pages of a kind has not got
+        that kind of file, whatever "all of none" would say.
+
+    """
     if not file_list:
         return False
 
@@ -359,6 +376,22 @@ def get_chain_state(comic: ComicBook) -> ChainState:
 
 
 def is_upscayled(comic: ComicBook, chain: ChainState | None = None) -> bool:
+    """Return whether a title has earned the upscayl rung.
+
+    Args:
+        comic: The comic.
+        chain: The title's chain state when the caller has already graded it, to save
+            scanning the files again.
+
+    Returns:
+        True when every restorable page has its upscayled file and none of them is
+        older than the scan it was made from. A hand-restored title has no upscayl
+        step and passes.
+
+    Raises:
+        RuntimeError: If the title's files break a fixes-file rule.
+
+    """
     if comic.get_title_str() in HAND_RESTORED_TITLES:
         return True
 
@@ -375,6 +408,17 @@ def is_upscayled(comic: ComicBook, chain: ChainState | None = None) -> bool:
 
 
 def is_restored(comic: ComicBook, chain: ChainState | None = None) -> bool:
+    """Return whether a title has earned the restore rung.
+
+    Args:
+        comic: The comic.
+        chain: The title's chain state when the caller has already graded it.
+
+    Returns:
+        True when every restorable page has its restored file and no page's upscayl
+        or restore stage is stale. A hand-restored title passes.
+
+    """
     if comic.get_title_str() in HAND_RESTORED_TITLES:
         return True
 
@@ -389,10 +433,23 @@ def is_restored(comic: ComicBook, chain: ChainState | None = None) -> bool:
 
 
 def has_inset_file(comic: ComicBook) -> bool:
+    """Return whether the title's intro inset has been drawn."""
     return comic.intro_inset_file.is_file()
 
 
 def has_fixes(comic: ComicBook) -> bool:
+    """Return whether any of a title's restorable pages is made from a fixes file.
+
+    Args:
+        comic: The comic.
+
+    Returns:
+        True when a page's scan or its upscayled file is a fix or an addition.
+
+    Raises:
+        RuntimeError: If the title's files break a fixes-file rule.
+
+    """
     mods = [
         f[1]
         for f in comic.get_final_srce_original_story_files(RESTORABLE_PAGE_TYPES)
@@ -410,6 +467,17 @@ def has_fixes(comic: ComicBook) -> bool:
 
 
 def has_panel_bounds(comic: ComicBook, chain: ChainState | None = None) -> bool:
+    """Return whether a title has earned the panels rung.
+
+    Args:
+        comic: The comic.
+        chain: The title's chain state when the caller has already graded it.
+
+    Returns:
+        True when the title is restored and every restorable page has a panel-segments
+        file no older than its restored page.
+
+    """
     if not is_restored(comic, chain):
         return False
     if not all_files_exist(comic.get_srce_panel_segments_files(RESTORABLE_PAGE_TYPES)):
@@ -689,6 +757,21 @@ def _build_blocker(comic: ComicBook, chain: ChainState | None) -> str | None:
 
 
 def is_built(comic: ComicBook, chain: ChainState | None = None) -> bool:
+    """Return whether a title's comic is built and up to date.
+
+    Args:
+        comic: The comic.
+        chain: The title's chain state when the caller has already graded it.
+
+    Returns:
+        True when nothing blocks the title from counting as built; see
+        `get_build_blocker` for what can.
+
+    Raises:
+        RuntimeError: If the title's files break a fixes-file rule. `get_title_state`
+            turns that into a fault instead of a state.
+
+    """
     # The raising form, so a file-rule fault reaches `get_title_state` as a fault rather
     # than being read here as one more reason a title is merely not built yet.
     blocker = _build_blocker(comic, chain)
@@ -702,6 +785,19 @@ def is_built(comic: ComicBook, chain: ChainState | None = None) -> bool:
 
 
 def get_build_state_flag(comic: ComicBook) -> str:
+    """Return how far up the build ladder a configured title is.
+
+    Args:
+        comic: The comic.
+
+    Returns:
+        The flag of the highest rung the title has earned, from `CONFIGURED_FLAG` to
+        `BUILT_FLAG`. Each rung needs the ones below it.
+
+    Raises:
+        RuntimeError: If the title's files break a fixes-file rule.
+
+    """
     flag = CONFIGURED_FLAG
 
     # Scanned once and threaded through every rung below. The rungs all read the same
@@ -794,7 +890,7 @@ def get_state_filter(state_arg: str, valid_flags: list[str]) -> list[str]:
         The flags to keep - all of `valid_flags` when `state_arg` is empty.
 
     Raises:
-        RuntimeError: If any requested flag is not in `valid_flags`.
+        typer.BadParameter: If any requested flag is not in `valid_flags`.
 
     """
     if not state_arg:
@@ -802,7 +898,7 @@ def get_state_filter(state_arg: str, valid_flags: list[str]) -> list[str]:
 
     filt = state_arg.split(",")
     if not set(filt).issubset(set(valid_flags)):
-        msg = f'Not a valid state filter: "{filt}". Valid states: {valid_flags}.'
-        raise RuntimeError(msg)
+        msg = f'Not a valid state filter: "{state_arg}". Valid states: {",".join(valid_flags)}.'
+        raise typer.BadParameter(msg)
 
     return filt

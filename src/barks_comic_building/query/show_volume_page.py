@@ -8,9 +8,8 @@ from pathlib import Path
 import typer
 from barks_fantagraphics.comics_database import ComicsDatabase
 from comic_utils.common_typer_options import LogLevelArg, PagesArg, VolumesArg
-from intspan import intspan
 
-from barks_comic_building.cli_setup import init_logging
+from barks_comic_building.cli_setup import get_page_num, get_single_volume, init_logging
 from barks_comic_building.query.page_files import get_volume_page_file
 
 APP_LOGGING_NAME = "svpg"
@@ -19,6 +18,7 @@ VIEWER_EXE = ["/usr/bin/loupe"]
 
 
 def open_viewer(image_file: Path) -> None:
+    """Start the image viewer on an image, and leave it running."""
     command = [*VIEWER_EXE, str(image_file)]
 
     _proc = subprocess.Popen(command)  # noqa: S603
@@ -37,12 +37,9 @@ def main(
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    volumes = list(intspan(volumes_str))
-    assert volumes
-    assert len(volumes) == 1
-    volume = volumes[0]
+    volume = get_single_volume(volumes_str)
+    page_num = get_page_num("--page", page_num_str)
     comics_database = ComicsDatabase()
-    page_num = int(page_num_str)
 
     restored_srce_file = get_volume_page_file(
         volume,

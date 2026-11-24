@@ -163,3 +163,23 @@ class TestParseDuration:
         """
         with pytest.raises(ValueError, match=r"(?i)duration"):
             parse_duration(text)
+
+
+class TestAskingWithoutEscalating:
+    """The run's own deadline arrives at a stop; it does not ask for one a second time."""
+
+    def test_it_makes_the_request_when_there_is_none(self, tmp_path: Path) -> None:
+        assert request_stop(tmp_path, escalate=False) is StopMode.PAGES
+        assert read_stop_mode(get_stop_file(tmp_path)) is StopMode.PAGES
+
+    def test_a_gentle_request_already_there_stays_gentle(self, tmp_path: Path) -> None:
+        request_stop(tmp_path)
+
+        assert request_stop(tmp_path, escalate=False) is StopMode.PAGES
+        assert read_stop_mode(get_stop_file(tmp_path)) is StopMode.PAGES
+
+    def test_an_urgent_request_already_there_stays_urgent(self, tmp_path: Path) -> None:
+        request_stop(tmp_path, StopMode.STEP)
+
+        assert request_stop(tmp_path, escalate=False) is StopMode.STEP
+        assert read_stop_mode(get_stop_file(tmp_path)) is StopMode.STEP

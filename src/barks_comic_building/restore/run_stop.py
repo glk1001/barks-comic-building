@@ -131,15 +131,24 @@ def read_stop_mode(stop_file: Path | None) -> StopMode:
         return StopMode.PAGES
 
 
-def request_stop(work_dir: Path, mode: StopMode = StopMode.PAGES) -> StopMode:
+def request_stop(
+    work_dir: Path, mode: StopMode = StopMode.PAGES, *, escalate: bool = True
+) -> StopMode:
     """Ask a run using this work directory to stop, escalating a request already there.
 
     Asking again for a stop that has already been asked for moves it up to ``STEP``, so
     a second ask means "sooner" without having to remember a flag.
 
+    That is right for a person asking twice, and wrong for the run asking on its own
+    behalf when its time is up: it is not asking again, it has only arrived at a stop
+    somebody else already made, and turning their gentle one into an urgent one would
+    cut short pages they were told would finish. Such a caller passes ``escalate=False``,
+    and a request already there is left exactly as it is.
+
     Args:
         work_dir: The run's work directory.
         mode: The mode to ask for.
+        escalate: Whether asking on top of an earlier request makes it more urgent.
 
     Returns:
         The mode now in force, which may be further along than the one asked for.
@@ -159,7 +168,10 @@ def request_stop(work_dir: Path, mode: StopMode = StopMode.PAGES) -> StopMode:
     # that quietly relaxed back into waiting out whole pages. With STEP the strongest
     # mode there is, both cases come to the same thing: once anything has been asked
     # for, asking again gives STEP.
-    if read_stop_mode(get_stop_file(work_dir)) is not StopMode.NONE:
+    mode_in_force = read_stop_mode(get_stop_file(work_dir))
+    if mode_in_force is not StopMode.NONE:
+        if not escalate:
+            return mode_in_force
         mode = StopMode.STEP
 
     stop_file = get_stop_file(work_dir)

@@ -14,7 +14,7 @@ from comic_utils.pil_image_utils import get_image_size
 from loguru import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection, Generator
+    from collections.abc import Callable, Generator
     from pathlib import Path
 
 from barks_comic_building.restore.image_checks import (
@@ -671,26 +671,20 @@ class RestorePipeline:
             )
 
 
-def check_for_errors(
-    restore_procs: list[RestorePipeline], failed_indexes: Collection[int] | None = None
-) -> None:
+def check_for_errors(restore_procs: list[RestorePipeline]) -> None:
     """Check all expected output files exist and log any errors.
+
+    A pipeline that failed is expected to say so itself, through ``errors_occurred``.
+    The phases of a batch run in worker processes, where that is set on a copy the parent
+    never sees, so the batch driver copies it back onto its own pipelines as each result
+    arrives - rather than passing the failures here by index, which went wrong as soon as
+    the list being checked was not the whole batch.
 
     Args:
         restore_procs: The pipelines to check.
-        failed_indexes: Indexes into ``restore_procs`` that the batch driver already saw
-            fail. Needed because the phases run in worker processes, where a pipeline's
-            ``errors_occurred`` is set on a copy that the parent never sees - without
-            this the check would fall back to file existence alone. Omit when the
-            pipelines were run in this process, as the single-page CLI does.
 
     """
-    already_failed = set(failed_indexes or ())
-
-    for i, proc in enumerate(restore_procs):
-        if i in already_failed:
-            proc.errors_occurred = True
-
+    for proc in restore_procs:
         for file in proc.expected_output_files:
             if not file.is_file():
                 logger.error(f'Could not find output artifact "{file}".')

@@ -284,9 +284,15 @@ def _run_batch(  # noqa: PLR0913
 
     pipelines = [job.pipeline for job in batch]
     result = run_restore(pipelines, deadline)
+
+    # Only the pages that ran to the end are expected to have their outputs. The pages
+    # that failed in a worker are already marked on these pipelines, by
+    # `_record_phase_result`, so this list can be a filtered one: it is not indexed by
+    # anything. It used to be handed `result.failed` as well, whose indexes are into the
+    # whole batch, and with a stopped page filtered out ahead of a failed one the mark
+    # landed on the page after it - a page that had restored cleanly.
     check_for_errors(
         [p for i, p in enumerate(pipelines) if i not in result.unfinished | result.untouched],
-        result.failed,
     )
 
     num_attempted = len(batch) - len(result.untouched)
@@ -739,6 +745,25 @@ def _record_phase_result(
         )
 
 
+def _stop_at_deadline(stop_file: Path | None) -> None:
+    """Make the stop a run's --stop-after time asks for, and say what it means.
+
+    The deadline wants the gentle stop: pages under way finish, nothing new begins. If
+    somebody has already asked for a stop, theirs stands as it is. Asking again in the
+    ordinary way would have escalated their gentle stop into an urgent one, cutting
+    short the very pages this line then said would finish.
+
+    Args:
+        stop_file: Where this run's stop request lives, or None if it cannot be stopped.
+
+    """
+    if stop_file is None:
+        return
+
+    mode = request_stop(stop_file.parent, escalate=False)
+    logger.warning(f"Reached the --stop-after time: {mode.describe}.")
+
+
 def _run_phase(
     phase: tuple[str, str, int | None, int | None],
     restore_processes: list[RestorePipeline],
@@ -800,12 +825,7 @@ def _run_phase(
 
             if deadline is not None and time.time() > deadline:
                 deadline = None
-                if process.stop_file is not None:
-                    request_stop(process.stop_file.parent)
-                    logger.warning(
-                        "Reached the --stop-after time. Pages already started will"
-                        " finish; nothing new will begin.",
-                    )
+                _stop_at_deadline(process.stop_file)
 
     return deadline
 

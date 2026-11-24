@@ -28,6 +28,7 @@ from barks_comic_building.restore.batch_restore_pipeline import SCALE
 from barks_comic_building.restore.page_state import PageState, get_page_status
 from barks_comic_building.restore.report_format import format_duration, shorten_volume_title
 from barks_comic_building.restore.restore_ledger import (
+    OUTCOME_FAILED,
     Ledger,
     get_default_ledger_file,
     read_ledger,
@@ -269,7 +270,13 @@ def print_failures(ledger: Ledger) -> None:
         ledger: The parsed ledger.
 
     """
-    failures = [record for record in ledger.latest_by_page().values() if not record.is_ok]
+    # Failed, rather than merely not ok. A page left unfinished by a stop is not ok
+    # either, but nothing went wrong with it and the next run carries on from where it
+    # got to. Listed here, a stopped run's pages buried the real failures, each one
+    # showing a failed step of "unknown".
+    failures = [
+        record for record in ledger.latest_by_page().values() if record.outcome == OUTCOME_FAILED
+    ]
 
     console = Console()
     if not failures:

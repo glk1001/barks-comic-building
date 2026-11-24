@@ -94,14 +94,81 @@ def open_gimp(image_file: Path) -> None:
     print(f'Gimp should now be running with image "{image_file}".')
 
 
-def _get_title_and_page(
-    comics_database: ComicsDatabase, volume: int, page_num_str: str
-) -> tuple[str, str]:
+def _split_page_panel(option: str, page_panel: str) -> tuple[str, str]:
+    page_num_str, sep, panel = page_panel.partition("-")
+    if not sep or not page_num_str.isdecimal() or not panel.isdecimal() or int(panel) < 1:
+        msg = f'{option} must be "<page>-<panel>", with the panel counted from 1: "{page_panel}".'
+        raise typer.BadParameter(msg)
+    return page_num_str, panel
+
+
+def resolve_page_and_panel(
+    comics_database: ComicsDatabase,
+    volumes_str: str,
+    title: str,
+    page_panel: str,
+    comic_page_panel: str,
+) -> tuple[int, str, str, str]:
+    """Work out which scan page and panel the options ask for.
+
+    The page can be named three ways: ``--volume`` with ``--p-p`` (a page of that
+    volume), ``--title`` with ``--p-p`` (a page of the title's volume, which must belong
+    to the title), or ``--title`` with ``--cp-p`` (the title's nth body page).
+
+    Args:
+        comics_database: The database to look titles and volumes up in.
+        volumes_str: The ``--volume`` option; a single volume, or empty.
+        title: The ``--title`` option, or empty.
+        page_panel: The ``--p-p`` option, "<volume page>-<panel>", or empty.
+        comic_page_panel: The ``--cp-p`` option, "<comic page>-<panel>", or empty.
+
+    Returns:
+        The volume, the title, the scan page's name ("227") and the panel number.
+
+    Raises:
+        typer.BadParameter: If the options do not name exactly one page and panel.
+
+    """
+    if bool(volumes_str) == bool(title):
+        msg = "Give exactly one of --volume and --title."
+        raise typer.BadParameter(msg)
+    if bool(page_panel) == bool(comic_page_panel):
+        msg = "Give exactly one of --p-p and --cp-p."
+        raise typer.BadParameter(msg)
+    if volumes_str and comic_page_panel:
+        msg = "Options --volume and --cp-p are mutually exclusive."
+        raise typer.BadParameter(msg)
+
+    if comic_page_panel:
+        page_num_str, panel = _split_page_panel("--cp-p", comic_page_panel)
+        try:
+            volume, page = get_volume_and_page(comics_database, title, page_num_str)
+        except RuntimeError as e:
+            raise typer.BadParameter(str(e)) from e
+        return volume, title, page, panel
+
+    page_num_str, panel = _split_page_panel("--p-p", page_panel)
     page = get_page_str(int(page_num_str))
-    title, comic_page = get_title_from_volume_page(comics_database, volume, page)
-    assert title
-    assert comic_page != -1
-    return title, page
+
+    if title:
+        # Only the volume is wanted here: the page was given as a volume page.
+        volume, _first_page = get_volume_and_page(comics_database, title, "")
+    else:
+        volumes = list(intspan(volumes_str))
+        if len(volumes) != 1:
+            msg = f'--volume must be a single volume: "{volumes_str}".'
+            raise typer.BadParameter(msg)
+        volume = volumes[0]
+
+    page_title, _comic_page = get_title_from_volume_page(comics_database, volume, page)
+    if not page_title:
+        msg = f"Volume {volume} has no story on page {page}."
+        raise typer.BadParameter(msg)
+    if title and page_title != title:
+        msg = f'Volume {volume} page {page} belongs to "{page_title}", not "{title}".'
+        raise typer.BadParameter(msg)
+
+    return volume, page_title, page, panel
 
 
 app = typer.Typer()
@@ -118,30 +185,14 @@ def main(  # noqa: PLR0913
 ) -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
 
-    if volumes_str and title:
-        msg = "Options --volume and --title are mutually exclusive."
-        raise typer.BadParameter(msg)
-    if page_panel and comic_page_panel:
-        msg = "Options --p-p and --cp-p are mutually exclusive."
-        raise typer.BadParameter(msg)
-    if volumes_str and comic_page_panel:
-        msg = "Options --volume and --cp-p are mutually exclusive."
-        raise typer.BadParameter(msg)
-
     if panel_type not in PANEL_TYPES:
         print(f'ERROR: Panel type "{panel_type}" is not in {list(PANEL_TYPES.keys())}.')
         sys.exit(1)
 
     comics_database = ComicsDatabase()
-    page_num_str, panel = page_panel.split("-")
-
-    if not volumes_str:
-        volume, page = get_volume_and_page(comics_database, title, page_num_str)
-    else:
-        volumes = list(intspan(volumes_str))
-        assert len(volumes) == 1
-        volume = volumes[0]
-        title, page = _get_title_and_page(comics_database, volume, page_num_str)
+    volume, title, page, panel = resolve_page_and_panel(
+        comics_database, volumes_str, title, page_panel, comic_page_panel
+    )
 
     srce_file = get_source_file(comics_database, volume, panel_type, page)
     if not srce_file.is_file():

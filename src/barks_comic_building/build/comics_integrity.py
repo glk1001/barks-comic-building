@@ -2702,6 +2702,9 @@ class ComicsIntegrityChecker:
             self.comics_database.get_root_dir("Fantagraphics-restored-panel-tags"),
             self.comics_database.get_root_dir("Articles"),
             self.comics_database.get_root_dir("Barks Panels Pngs"),
+            # The panels as they were before the reader's `scripts/antialias_panels.py`
+            # smoothed them: its undo, and its record of which files are done.
+            self.comics_database.get_root_dir("Barks Panels Pngs - originals before smoothing"),
             self.comics_database.get_root_dir("Books"),
             self.comics_database.get_root_dir("Bugs"),
             self.comics_database.get_root_dir("CBL_Index"),

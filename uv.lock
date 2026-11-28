@@ -39,7 +39,7 @@ dependencies = [
     { name = "barks-build-comic-images" },
     { name = "barks-fantagraphics" },
     { name = "barks-kivy-ui" },
-    { name = "bs4" },
+    { name = "beautifulsoup4" },
     { name = "cairosvg" },
     { name = "comic-utils" },
     { name = "distro" },
@@ -80,7 +80,7 @@ requires-dist = [
     { name = "barks-build-comic-images", editable = "../barks-compleat-reader/src/barks-build-comic-images" },
     { name = "barks-fantagraphics", editable = "../barks-compleat-reader/src/barks-fantagraphics" },
     { name = "barks-kivy-ui", editable = "../barks-compleat-reader/src/barks-kivy-ui" },
-    { name = "bs4", specifier = ">=0.0.2" },
+    { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "cairosvg", specifier = ">=2.8.2" },
     { name = "comic-utils", editable = "../barks-compleat-reader/src/comic-utils" },
     { name = "distro", specifier = ">=1.9.0" },
@@ -153,18 +153,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b0/1c6a16426d389813b48d95e26898aff79abbde42ad353958ad95cc8c9b21/beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86", size = 627737, upload-time = "2025-11-30T15:08:26.084Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/39/47f9197bdd44df24d67ac8893641e16f386c984a0619ef2ee4c51fbbc019/beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb", size = 107721, upload-time = "2025-11-30T15:08:24.087Z" },
-]
-
-[[package]]
-name = "bs4"
-version = "0.0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "beautifulsoup4" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/aa/4acaf814ff901145da37332e05bb510452ebed97bc9602695059dd46ef39/bs4-0.0.2.tar.gz", hash = "sha256:a48685c58f50fe127722417bae83fe6badf500d54b55f7e39ffe43b798653925", size = 698, upload-time = "2024-01-17T18:15:47.371Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/bb/bf7aab772a159614954d84aa832c129624ba6c32faa559dfb200a534e50b/bs4-0.0.2-py2.py3-none-any.whl", hash = "sha256:abf8742c0805ef7f662dce4b51cca104cffe52b835238afc169142ab9b3fbccc", size = 1189, upload-time = "2024-01-17T18:15:48.613Z" },
 ]
 
 [[package]]

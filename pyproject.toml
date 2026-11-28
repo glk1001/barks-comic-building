@@ -18,7 +18,7 @@ dependencies = [
     "barks-build-comic-images",
     "barks-kivy-ui",
     "comic-utils",
-    "bs4>=0.0.2",
+    "beautifulsoup4>=4.14.3",
     "cairosvg>=2.8.2",
     "distro>=1.9.0",
     "intspan>=1.6.1",

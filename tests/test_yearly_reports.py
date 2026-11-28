@@ -25,6 +25,8 @@ from barks_fantagraphics.comic_book_info import (
 )
 from barks_fantagraphics.comics_consts import PageType
 from barks_fantagraphics.comics_database import TitleNotFoundError
+from comic_utils.cpi_calculator import get_latest_year
+from comic_utils.cpi_table import ANNUAL_CPI
 
 from barks_comic_building.query import barks_yearly_page_count as page_count
 from barks_comic_building.query import barks_yearly_payments as payments
@@ -106,6 +108,24 @@ class TestYearlyPayments:
         assert payments.sum_payments_by_year()[year] == pytest.approx(
             rest_of_the_year + payment.payment
         )
+
+    def test_each_total_is_scaled_by_the_two_years_price_levels(self) -> None:
+        adjusted = payments.adjust_to_year({1950: 100.0, 1960: 200.0}, 1960)
+
+        assert adjusted[1950] == pytest.approx(100.0 * ANNUAL_CPI[1960] / ANNUAL_CPI[1950])
+        assert adjusted[1960] == pytest.approx(200.0)
+
+    def test_every_payment_year_can_be_adjusted_to_the_latest_one(self) -> None:
+        by_year = payments.sum_payments_by_year()
+
+        adjusted = payments.adjust_to_year(by_year, get_latest_year())
+
+        assert adjusted.keys() == by_year.keys()
+        assert all(adjusted[year] >= by_year[year] for year in by_year)
+
+    def test_a_year_the_table_does_not_have_is_an_error(self) -> None:
+        with pytest.raises(ValueError, match="No CPI data for 1800"):
+            payments.adjust_to_year({1800: 100.0}, 1960)
 
 
 class TestStoryPageCount:

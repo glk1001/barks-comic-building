@@ -7,7 +7,7 @@ import typer
 from barks_fantagraphics.barks_payments import BARKS_PAYMENTS
 from barks_fantagraphics.comic_book_info import BARKS_TITLE_INFO
 from comic_utils.common_typer_options import LogLevelArg
-from cpi import LATEST_YEAR, inflate
+from comic_utils.cpi_calculator import get_adjusted_usd, get_latest_year
 
 from barks_comic_building.cli_setup import init_logging
 from barks_comic_building.query.yearly_graph import show_yearly_report_plot
@@ -47,6 +47,25 @@ def sum_payments_by_year() -> dict[int, float]:
     return dict(payments_by_year)
 
 
+def adjust_to_year(payments_by_year: dict[int, float], to_year: int) -> dict[int, float]:
+    """Put each year's total into the dollars of one year.
+
+    Args:
+        payments_by_year: The total payment for each year, in the dollars of that year.
+        to_year: The year whose dollars the totals are converted to.
+
+    Returns:
+        The total for each year, in the dollars of `to_year`.
+
+    Raises:
+        ValueError: If the CPI table has no figure for one of the years.
+
+    """
+    return {
+        year: get_adjusted_usd(payment, year, to_year) for year, payment in payments_by_year.items()
+    }
+
+
 @app.command(help="Barks yearly payments")
 def main(log_level_str: LogLevelArg = "DEBUG") -> None:
     init_logging(APP_LOGGING_NAME, "barks-cmds.log", log_level_str)
@@ -57,11 +76,14 @@ def main(log_level_str: LogLevelArg = "DEBUG") -> None:
         print(f"{year}: {payments_by_year[year]}")
 
     years = sorted(payments_by_year)
-    # To the latest year the CPI data covers, which is the year the title has to name:
-    # it lags the calendar, and the chart once read "Adjusted to 2026" over 2025 dollars.
-    values_data = [inflate(payments_by_year[y], y, to=LATEST_YEAR) for y in years]
+    # To the latest year the CPI table covers, which is the year the title has to name:
+    # the chart once read "Adjusted to 2026" over 2025 dollars. The table is the one the
+    # reader uses (comic_utils.cpi_table), so the two give the same figures.
+    latest_year = get_latest_year()
+    adjusted = adjust_to_year(payments_by_year, latest_year)
+    values_data = [adjusted[y] for y in years]
 
-    title = f"Yearly Payments from {years[0]} to {years[-1]} (Adjusted to {LATEST_YEAR})"
+    title = f"Yearly Payments from {years[0]} to {years[-1]} (Adjusted to {latest_year})"
 
     show_yearly_report_plot(
         title,

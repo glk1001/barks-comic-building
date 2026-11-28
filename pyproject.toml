@@ -20,7 +20,6 @@ dependencies = [
     "comic-utils",
     "bs4>=0.0.2",
     "cairosvg>=2.8.2",
-    "cpi>=2.0.7",
     "distro>=1.9.0",
     "intspan>=1.6.1",
     "loguru>=0.7.3",
@@ -35,13 +34,16 @@ dependencies = [
     "psutil>=7.0.0",
     "pyoxipng>=9.1.1",
     # Likewise: barks_chronological_titles imports dateutil directly, and it would
-    # otherwise ride in on matplotlib and cpi.
+    # otherwise ride in on matplotlib.
     "python-dateutil>=2.9.0.post0",
     "pyyaml>=6.0.2",
     "rich>=14.2.0",
     "scikit-image>=0.25.2",
     "screeninfo>=0.8.1",
     "typer>=0.21.1",
+    # Windows has no time zone data of its own, and barks_fantagraphics.comics_utils
+    # builds its timestamps with zoneinfo. It used to arrive by way of cpi and pandas.
+    "tzdata>=2026.1 ; sys_platform == 'win32'",
     "vtracer>=0.6.11",
 ]
 
@@ -133,7 +135,7 @@ known_first_party = [
 ]
 
 [tool.deptry.per_rule_ignores]
-# DEP002 (declared but not imported): all three are needed at runtime through a path
+# DEP002 (declared but not imported): all four are needed at runtime through a path
 # deptry cannot see, because the shared path dependencies under-declare their own
 # requirements - comic-utils in particular declares none at all, so this project's
 # pyproject is what actually installs them.
@@ -143,6 +145,9 @@ known_first_party = [
 #     load_yaml_config - which is exactly how every CLI here loads log-config.yaml.
 #   - screeninfo: show_panel_bounds -> barks_kivy_ui.page_viewer ->
 #     comic_utils.screen_utils imports it.
+#   - tzdata: comics_integrity and additional_file_writing ->
+#     barks_fantagraphics.comics_utils.get_timestamp_as_str -> zoneinfo, which reads it
+#     on Windows.
 # cryptography used to sit here for the same reason (comic_utils.get_panel_bytes decrypts
 # with Fernet), but nothing in this project reaches that module - it is only used to read
 # encrypted images out of a cbz, which is the reader's job - so it was dropped instead.
@@ -152,6 +157,7 @@ DEP002 = [
     "distro",
     "pyyaml",
     "screeninfo",
+    "tzdata",
 ]
 
 [tool.pytest.ini_options]
